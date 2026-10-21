@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { pullDay, pushDays } from "@/lib/apontamentos-blob";
 import { dbSource, getSql } from "@/lib/db";
-import { coerceEntry, type Entry } from "@/lib/perdas";
+import { coerceEntry, problemName, type Entry } from "@/lib/perdas";
 
 type SyncResult = { entries: Entry[]; removed: string[]; cloud: boolean };
 
@@ -13,15 +13,55 @@ function cloudOn() {
   return dbSource === "neon" || Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim());
 }
 
-function cleanRemoved(value: unknown): { id: string; date: string }[] {
+function excelUrl() {
+  const raw = process.env.EXCEL_WEBHOOK_URL?.trim();
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:" || !url.hostname.endsWith(".powerplatform.com")) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function excelRow(entry: Entry, solas: 1 | -1) {
+  return {
+    data: entry.date,
+    turno: entry.turno,
+    maquina: entry.machine,
+    estacao: entry.station,
+    lado: entry.side === "esq" ? "Esq." : "Dir.",
+    problema: problemName(entry.problem),
+    numero: entry.matrizNumero,
+    referencia: entry.matrizRel,
+    preparador: entry.autor,
+    solas,
+  };
+}
+
+async function notifyExcel(upserts: Entry[], removed: Entry[]) {
+  const url = excelUrl();
+  if (!url || (upserts.length === 0 && removed.length === 0)) return;
+  const rows = [...upserts.map((entry) => excelRow(entry, 1)), ...removed.map((entry) => excelRow(entry, -1))];
+  await Promise.all(
+    rows.map((row) =>
+      fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(row),
+        signal: AbortSignal.timeout(8000),
+      }).catch(() => undefined),
+    ),
+  );
+}
+
+function cleanRemoved(value: unknown): Entry[] {
   if (!Array.isArray(value)) return [];
   return value
     .flatMap((item) => {
-      if (!item || typeof item !== "object") return [];
-      const row = item as { id?: unknown; date?: unknown };
-      if (typeof row.id !== "string" || row.id.length === 0 || row.id.length > 80) return [];
-      if (typeof row.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(row.date)) return [];
-      return [{ id: row.id, date: row.date }];
+      const entry = coerceEntry(item);
+      return entry && /^\d{4}-\d{2}-\d{2}$/.test(entry.date) ? [entry] : [];
     })
     .slice(0, 2000);
 }
@@ -44,6 +84,7 @@ export const pushApontamentos = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     if (usesBlob()) {
       await pushDays(data.upserts, data.removed);
+      await notifyExcel(data.upserts, data.removed);
       return { ok: true as const, cloud: true };
     }
     const sql = await getSql();
@@ -78,6 +119,7 @@ export const pushApontamentos = createServerFn({ method: "POST" })
           autor = excluded.autor
       `;
     }
+    await notifyExcel(data.upserts, data.removed);
     return { ok: true as const, cloud: cloudOn() };
   });
 

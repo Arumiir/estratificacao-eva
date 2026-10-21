@@ -128,9 +128,7 @@ function usePerdas() {
     if (!synced.current) synced.current = new Set();
     const known = synced.current;
     const upserts = state.entries.filter((entry) => !known.has(entry.id));
-    const removed = (previous ?? [])
-      .filter((entry) => !state.entries.some((item) => item.id === entry.id))
-      .map((entry) => ({ id: entry.id, date: entry.date }));
+    const removed = (previous ?? []).filter((entry) => !state.entries.some((item) => item.id === entry.id));
     if (upserts.length === 0 && removed.length === 0) return;
     void pushApontamentos({ data: { upserts, removed } })
       .then((result) => {
