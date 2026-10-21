@@ -1,6 +1,7 @@
 {
-  "installCommand": "npm install --omit=dev --no-audit --no-fund",
-  "framework": null,
+  "installCommand": "npm install --no-audit --no-fund",
+  "buildCommand": "npm run build",
+  "framework": "nitro",
   "env": {
     "VITE_AUTH_ENABLED": "false"
   },
