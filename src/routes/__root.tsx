@@ -41,7 +41,7 @@ export const Route = createRootRoute({
         { charSet: "utf-8" },
         { name: "viewport", content: "width=device-width, initial-scale=1" },
         { title: APP_NAME },
-        { name: "theme-color", content: "#2463c7" },
+        { name: "theme-color", content: "#4682B4" },
         ...(xBanner ? [{ property: "x:game:image", content: xBanner }] : []),
       ],
       links: [
