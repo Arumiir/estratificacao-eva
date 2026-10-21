@@ -617,36 +617,35 @@ export function EstratificacaoApp() {
               Estratificação
             </h1>
             <p className="font-display text-xl leading-none text-fg">das perdas - EVA</p>
-            {nome ? (
+            {papel === "lider" && nome ? (
               <p className="mt-1 truncate text-sm font-semibold text-muted">{nome}</p>
             ) : null}
-            {header.context ? (
+            {header.context === "Lançamentos" ? (
+              <p className="mt-1 font-display text-3xl leading-none tracking-wide text-accent">Lançamentos</p>
+            ) : header.context ? (
               <p className="mt-1 truncate text-sm font-semibold text-muted">{header.context}</p>
             ) : null}
             {cloud === true ? (
-              <p className="mt-1 text-sm font-semibold text-accent">Nuvem ligada. Os celulares compartilham o dia.</p>
+              <p className="mt-1 text-sm font-semibold text-accent">Server: Online</p>
             ) : cloud === false ? (
-              <p className="mt-1 text-sm font-semibold text-muted">Nuvem desligada. Cada celular guarda só o seu.</p>
+              <p className="mt-1 text-sm font-semibold text-muted">Server: Offline</p>
             ) : null}
           </div>
           {papel ? (
-            <button
-              type="button"
-              onClick={leavePapel}
-              className="shrink-0 rounded-tile bg-accent-soft px-3 py-2 text-sm font-semibold text-accent"
-            >
-              Sair
-            </button>
-          ) : null}
-          {papel === "preparador" && screen.kind !== "sheet" && screen.kind !== "papel" ? (
-            <button
-              type="button"
-              onClick={() => push({ kind: "sheet", machine: machineFrom(screen) })}
-              aria-label="Abrir planilha"
-              className="grid size-11 shrink-0 place-items-center rounded-tile bg-accent-soft text-accent"
-            >
-              <ClipboardList className="size-5" />
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              {papel === "preparador" && nome ? (
+                <span className="max-w-28 truncate rounded-tile bg-accent px-3 py-2 text-sm font-semibold text-accent-ink">
+                  {nome}
+                </span>
+              ) : null}
+              <button
+                type="button"
+                onClick={leavePapel}
+                className="rounded-tile bg-accent-soft px-3 py-2 text-sm font-semibold text-accent"
+              >
+                Sair
+              </button>
+            </div>
           ) : null}
         </div>
       </header>
@@ -777,7 +776,7 @@ export function EstratificacaoApp() {
               today={today}
               offDay={offDay}
               onDate={setDate}
-              onTurno={setTurno}
+              onTurno={papel === "lider" ? setTurno : undefined}
               papel={papel}
               nome={nome}
               onResend={(entries) => resendExcel(entries)}
