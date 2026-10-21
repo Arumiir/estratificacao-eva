@@ -1691,7 +1691,7 @@ function SheetScreen({
           type="button"
           disabled={busy !== null}
           onClick={() => void sendPhoto()}
-          className="flex items-center justify-center gap-2 rounded-tile bg-accent py-3 font-semibold text-accent-ink disabled:opacity-60"
+          className="flex items-center justify-center gap-2 rounded-tile bg-surface-2 py-3 font-semibold disabled:opacity-60"
         >
           <ImageDown className="size-5" />
           {busy === "foto" ? "Gerando…" : "Enviar foto"}
