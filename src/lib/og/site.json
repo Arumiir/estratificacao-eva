@@ -1,4 +1,8 @@
 {
   "title": "Estratificação das Perdas - EVA",
-  "color": "0057FF"
+  "short_name": "Perdas EVA",
+  "color": "0057FF",
+  "card": "custom",
+  "theme_color": "#3a6fbf",
+  "background_color": "#e7ebf0"
 }

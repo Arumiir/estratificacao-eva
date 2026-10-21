@@ -13,18 +13,17 @@ import {
 
 const W = 1800;
 const H = 1180;
+/** Mesmo quadro, mais pixels. 3× deixa o zoom nítido; 2× se o celular recusar o canvas. */
+const SCALES = [3, 2];
 
 export async function renderFichaPng(state: State, machine: MachineId): Promise<Blob> {
   await document.fonts.load("700 64px 'Barlow Condensed'");
   await document.fonts.load("600 20px 'Source Sans 3'");
   await document.fonts.ready;
-  const canvas = document.createElement("canvas");
-  canvas.width = W;
-  canvas.height = H;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Não foi possível gerar a ficha.");
-  drawFicha(ctx, state, machine, fichaLines(state, machine));
-  return canvasToBlob(canvas);
+  const surface = createSurface();
+  if (!surface) throw new Error("Não foi possível gerar a ficha.");
+  drawFicha(surface.ctx, state, machine, fichaLines(state, machine));
+  return canvasToBlob(surface.canvas);
 }
 
 export async function renderFichasPdf(state: State, machines: MachineId[]): Promise<Blob> {
@@ -61,6 +60,26 @@ export function downloadBlob(filename: string, blob: Blob) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+function createSurface(): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null {
+  for (const scale of SCALES) {
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(W * scale);
+      canvas.height = Math.round(H * scale);
+      if (canvas.width < W * scale - 1 || canvas.height < H * scale - 1) continue;
+      const ctx = canvas.getContext("2d", { alpha: false });
+      if (!ctx) continue;
+      ctx.setTransform(scale, 0, 0, scale, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      return { canvas, ctx };
+    } catch {
+      continue;
+    }
+  }
+  return null;
 }
 
 function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {

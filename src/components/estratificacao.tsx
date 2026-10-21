@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from "react";
+import { InstallPrompt } from "@/components/install-prompt";
 import {
   ChevronLeft,
   ClipboardList,
   Download,
   ImageDown,
+  Maximize2,
   Minus,
   Plus,
+  X,
 } from "lucide-react";
 import {
   MACHINES,
@@ -123,9 +126,47 @@ export function EstratificacaoApp() {
   const [dir, setDir] = useState<"forward" | "back">("forward");
   const [banner, setBanner] = useState<Banner | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  const stackRef = useRef<Screen[]>([{ kind: "turnos" }]);
+  const depthRef = useRef(1);
+  const skipPopRef = useRef(0);
 
   const screen = stack[stack.length - 1] ?? { kind: "turnos" as const };
   const key = screenKey(screen);
+
+  function stampDepth(depth: number) {
+    const current = window.history.state;
+    const base = current && typeof current === "object" ? { ...current } : {};
+    return { ...base, perdasDepth: depth };
+  }
+
+  useEffect(() => {
+    const current = window.history.state;
+    const marked = current && typeof current === "object" ? { ...current } : {};
+    if (typeof marked.perdasDepth !== "number") {
+      window.history.replaceState({ ...marked, perdasDepth: 1 }, "");
+      depthRef.current = 1;
+    } else {
+      depthRef.current = marked.perdasDepth;
+    }
+    function onPop() {
+      if (skipPopRef.current > 0) {
+        skipPopRef.current -= 1;
+        return;
+      }
+      const nextState = window.history.state;
+      const depth =
+        nextState && typeof nextState === "object" && typeof nextState.perdasDepth === "number"
+          ? nextState.perdasDepth
+          : 1;
+      depthRef.current = depth;
+      const next = stackRef.current.slice(0, Math.max(1, depth));
+      stackRef.current = next.length > 0 ? next : [{ kind: "turnos" }];
+      setDir("back");
+      setStack(stackRef.current);
+    }
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   useEffect(() => {
     scroller.current?.scrollTo(0, 0);
@@ -138,13 +179,40 @@ export function EstratificacaoApp() {
   }, [banner]);
 
   function push(next: Screen) {
+    const stackNext = [...stackRef.current, next];
+    stackRef.current = stackNext;
+    depthRef.current = stackNext.length;
     setDir("forward");
-    setStack((current) => [...current, next]);
+    setStack(stackNext);
+    window.history.pushState(stampDepth(stackNext.length), "");
   }
 
   function back() {
-    setDir("back");
-    setStack((current) => (current.length > 1 ? current.slice(0, -1) : current));
+    if (stackRef.current.length <= 1) return;
+    window.history.back();
+  }
+
+  function replaceTop(next: Screen) {
+    const stackNext = [...stackRef.current.slice(0, -1), next];
+    stackRef.current = stackNext;
+    depthRef.current = stackNext.length;
+    setDir("forward");
+    setStack(stackNext);
+    window.history.replaceState(stampDepth(stackNext.length), "");
+  }
+
+  function adoptStack(nextStack: Screen[]) {
+    const delta = depthRef.current - nextStack.length;
+    stackRef.current = nextStack;
+    setStack(nextStack);
+    if (delta > 0) {
+      skipPopRef.current = 1;
+      depthRef.current = nextStack.length;
+      window.history.go(-delta);
+      return;
+    }
+    depthRef.current = nextStack.length;
+    window.history.replaceState(stampDepth(nextStack.length), "");
   }
 
   function flash(text: string, undo?: () => void) {
@@ -206,9 +274,8 @@ export function EstratificacaoApp() {
       return { ...current, stations };
     });
     flash("Grade de matrizaria salva");
-    setDir("forward");
     const sie05 = machine === "SIE05A" || machine === "SIE05B";
-    setStack(
+    adoptStack(
       sie05
         ? [{ kind: "turnos" }, { kind: "machines" }, { kind: "sie05" }, { kind: "stations", machine }]
         : [{ kind: "turnos" }, { kind: "machines" }, { kind: "stations", machine }],
@@ -299,6 +366,8 @@ export function EstratificacaoApp() {
         </div>
       </header>
 
+      <InstallPrompt />
+
       {banner ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 px-4 pb-4">
           <div
@@ -359,13 +428,7 @@ export function EstratificacaoApp() {
             <AskScreen
               machine={screen.machine}
               onEdit={() => push({ kind: "matrices", machine: screen.machine })}
-              onSkip={() => {
-                setDir("forward");
-                setStack((current) => [
-                  ...current.slice(0, -1),
-                  { kind: "stations", machine: screen.machine },
-                ]);
-              }}
+              onSkip={() => replaceTop({ kind: "stations", machine: screen.machine })}
             />
           ) : null}
 
@@ -1159,6 +1222,7 @@ function FichaSheet({
   const lines = fichaLines(state, machine);
   const total = fichaTotal(lines);
   const filled = machineHasFicha(state, machine);
+  const [wide, setWide] = useState(false);
   if (!force && !filled) {
     return (
       <section className="mt-3 rounded-tile border border-dashed border-line bg-surface px-4 py-3 first:mt-0">
@@ -1178,13 +1242,163 @@ function FichaSheet({
         <p className="mt-1 text-sm">
           {formatDateBR(state.date)} · {TURNO_LABEL[state.turno]}
         </p>
+        <TopProblems lines={lines} />
+        <button
+          type="button"
+          onClick={() => void openLandscape(setWide)}
+          className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-tile bg-white/15 font-semibold"
+        >
+          <Maximize2 className="size-5" />
+          Ver em paisagem
+        </button>
       </header>
-      <p className="px-3 py-2 text-sm text-muted">Arraste para o lado para ver os problemas.</p>
-      <div className="overflow-x-auto">
+      <p className="px-3 py-2 text-sm text-muted">
+        Desça a tabela: os problemas ficam fixos. Para o lado, o restante das colunas.
+      </p>
+      <div className="max-h-[65dvh] overflow-auto">
         <FichaTable lines={lines} />
       </div>
+      {wide ? (
+        <LandscapeSheet
+          machine={machine}
+          date={formatDateBR(state.date)}
+          turno={TURNO_LABEL[state.turno]}
+          total={total}
+          lines={lines}
+          onClose={() => setWide(false)}
+        />
+      ) : null}
     </section>
   );
+}
+
+function TopProblems({ lines, compact = false }: { lines: FichaLine[]; compact?: boolean }) {
+  const leaders = topProblems(lines);
+  if (leaders.length === 0) return null;
+  if (compact) {
+    return (
+      <p className="truncate text-sm font-semibold">
+        {leaders.map((item, index) => `${index + 1}. ${item.name} ${item.count}`).join(" · ")}
+      </p>
+    );
+  }
+  return (
+    <ul className="mt-2 space-y-1">
+      {leaders.map((item, index) => (
+        <li key={item.name} className="flex items-baseline justify-between gap-3 text-sm font-semibold">
+          <span className="min-w-0">
+            {index + 1}. {item.name}
+          </span>
+          <span className="shrink-0 tabular-nums">{item.count}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function topProblems(lines: FichaLine[]): { name: string; count: number }[] {
+  return PROBLEMS.map((problem, index) => ({
+    name: problem.name,
+    count: lines.reduce((sum, line) => sum + (line.counts[index] ?? 0), 0),
+  }))
+    .filter((item) => item.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 2);
+}
+
+function LandscapeSheet({
+  machine,
+  date,
+  turno,
+  total,
+  lines,
+  onClose,
+}: {
+  machine: MachineId;
+  date: string;
+  turno: string;
+  total: number;
+  lines: FichaLine[];
+  onClose: () => void;
+}) {
+  const [portrait, setPortrait] = useState(() => window.matchMedia("(orientation: portrait)").matches);
+  const entered = useRef(false);
+
+  useEffect(() => {
+    const query = window.matchMedia("(orientation: portrait)");
+    const sync = () => setPortrait(query.matches);
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
+
+  useEffect(() => {
+    function onFullscreenChange() {
+      if (document.fullscreenElement) {
+        entered.current = true;
+        return;
+      }
+      if (entered.current) onClose();
+    }
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
+  }, [onClose]);
+
+  async function close() {
+    try {
+      screen.orientation?.unlock();
+    } catch {
+      // O celular pode recusar soltar a rotação.
+    }
+    if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-[80] bg-bg">
+      <div
+        className={
+          portrait
+            ? "absolute top-1/2 left-1/2 flex h-[100dvw] w-[100dvh] -translate-x-1/2 -translate-y-1/2 rotate-90 flex-col bg-bg"
+            : "flex h-full w-full flex-col bg-bg"
+        }
+      >
+        <header className="flex shrink-0 items-center gap-3 bg-accent px-3 py-2 text-accent-ink">
+          <div className="min-w-0 flex-1">
+            <p className="font-display text-2xl leading-none">Máquina {machine}</p>
+            <p className="truncate text-sm">
+              {date} · {turno} · {total}
+            </p>
+            <TopProblems lines={lines} compact />
+          </div>
+          <button
+            type="button"
+            onClick={() => void close()}
+            className="flex h-11 shrink-0 items-center gap-1 rounded-tile bg-white/15 px-3 font-semibold"
+            aria-label="Fechar paisagem"
+          >
+            <X className="size-5" />
+            Fechar
+          </button>
+        </header>
+        <div className="min-h-0 flex-1 overflow-auto">
+          <FichaTable lines={lines} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+async function openLandscape(open: (value: boolean) => void) {
+  open(true);
+  const root = document.documentElement;
+  try {
+    if (!document.fullscreenElement) await root.requestFullscreen();
+    await (
+      screen.orientation as ScreenOrientation & { lock?: (orientation: string) => Promise<void> }
+    ).lock?.("landscape");
+  } catch {
+    // Sem tela cheia nativa, a folha gira na própria tela.
+  }
 }
 
 function FichaTable({ lines }: { lines: FichaLine[] }) {
@@ -1194,25 +1408,25 @@ function FichaTable({ lines }: { lines: FichaLine[] }) {
         <tr className="bg-accent-soft text-fg">
           <th
             scope="col"
-            className="sticky left-0 z-20 w-14 border-b border-r border-line bg-accent-soft px-1 py-2 text-center"
+            className="sticky top-0 left-0 z-40 w-14 border-b border-r border-line bg-accent-soft px-1 py-2 text-center"
           >
             Est.
           </th>
           <th
             scope="col"
-            className="sticky left-14 z-20 w-12 border-b border-r border-line bg-accent-soft px-1 py-2 text-center"
+            className="sticky top-0 left-14 z-40 w-12 border-b border-r border-line bg-accent-soft px-1 py-2 text-center"
           >
             Lado
           </th>
           <th
             scope="col"
-            className="sticky left-26 z-20 w-16 border-b border-r border-line bg-accent-soft px-1 py-2 text-center"
+            className="sticky top-0 left-26 z-40 w-16 border-b border-r border-line bg-accent-soft px-1 py-2 text-center"
           >
             Nº
           </th>
           <th
             scope="col"
-            className="sticky left-42 z-20 w-12 border-b border-r border-line bg-accent-soft px-1 py-2 text-center"
+            className="sticky top-0 left-42 z-40 w-12 border-b border-r border-line bg-accent-soft px-1 py-2 text-center"
           >
             Ref.
           </th>
@@ -1220,7 +1434,7 @@ function FichaTable({ lines }: { lines: FichaLine[] }) {
             <th
               key={problem.id}
               scope="col"
-              className="relative h-56 w-12 border-b border-r border-line p-0"
+              className="sticky top-0 z-30 h-56 w-12 border-b border-r border-line bg-accent-soft p-0"
             >
               <span className="absolute left-1/2 top-1/2 w-max max-h-52 -translate-x-1/2 -translate-y-1/2 -rotate-90 text-[11px] font-semibold">
                 {problem.name}
