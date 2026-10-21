@@ -1,10 +1,17 @@
 import { createServerFn } from "@tanstack/react-start";
+import { pullDay, pushDays } from "@/lib/apontamentos-blob";
 import { dbSource, getSql } from "@/lib/db";
 import { coerceEntry, type Entry } from "@/lib/perdas";
 
 type SyncResult = { entries: Entry[]; removed: string[]; cloud: boolean };
 
-const cloud = dbSource === "neon";
+function usesBlob() {
+  return dbSource !== "neon" && Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim());
+}
+
+function cloudOn() {
+  return dbSource === "neon" || Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim());
+}
 
 function cleanRemoved(value: unknown): { id: string; date: string }[] {
   if (!Array.isArray(value)) return [];
@@ -35,6 +42,10 @@ export const pushApontamentos = createServerFn({ method: "POST" })
     removed: cleanRemoved(data?.removed),
   }))
   .handler(async ({ data }) => {
+    if (usesBlob()) {
+      await pushDays(data.upserts, data.removed);
+      return { ok: true as const, cloud: true };
+    }
     const sql = await getSql();
     for (const item of data.removed) {
       await sql`delete from apontamentos where id = ${item.id}`;
@@ -66,7 +77,7 @@ export const pushApontamentos = createServerFn({ method: "POST" })
           referencia = excluded.referencia
       `;
     }
-    return { ok: true as const, cloud };
+    return { ok: true as const, cloud: cloudOn() };
   });
 
 export const pullApontamentos = createServerFn({ method: "POST" })
@@ -75,7 +86,11 @@ export const pullApontamentos = createServerFn({ method: "POST" })
     return { date };
   })
   .handler(async ({ data }): Promise<SyncResult> => {
-    if (!data.date) return { entries: [], removed: [], cloud };
+    if (!data.date) return { entries: [], removed: [], cloud: cloudOn() };
+    if (usesBlob()) {
+      const day = await pullDay(data.date);
+      return { entries: day.entries, removed: day.removed, cloud: true };
+    }
     const sql = await getSql();
     const rows = await sql<{
       id: string;
@@ -111,5 +126,5 @@ export const pullApontamentos = createServerFn({ method: "POST" })
       });
       return entry ? [entry] : [];
     });
-    return { entries, removed: removedRows.map((row) => row.id), cloud };
+    return { entries, removed: removedRows.map((row) => row.id), cloud: cloudOn() };
   });
