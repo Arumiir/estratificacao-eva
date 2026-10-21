@@ -1,8 +1,10 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getSql } from "@/lib/db";
+import { dbSource, getSql } from "@/lib/db";
 import { coerceEntry, type Entry } from "@/lib/perdas";
 
-type SyncResult = { entries: Entry[]; removed: string[] };
+type SyncResult = { entries: Entry[]; removed: string[]; cloud: boolean };
+
+const cloud = dbSource === "neon";
 
 function cleanRemoved(value: unknown): { id: string; date: string }[] {
   if (!Array.isArray(value)) return [];
@@ -45,11 +47,13 @@ export const pushApontamentos = createServerFn({ method: "POST" })
     const removedIds = new Set(data.removed.map((item) => item.id));
     for (const entry of data.upserts) {
       if (removedIds.has(entry.id)) continue;
+      await sql`delete from apontamentos_removidos where id = ${entry.id}`;
       await sql`
         insert into apontamentos (id, date, turno, machine, station, side, problem, at, numero, referencia)
-        select ${entry.id}, ${entry.date}, ${entry.turno}, ${entry.machine}, ${entry.station}, ${entry.side},
-               ${entry.problem}, ${entry.at}, ${entry.matrizNumero}, ${entry.matrizRel}
-        where not exists (select 1 from apontamentos_removidos where id = ${entry.id})
+        values (
+          ${entry.id}, ${entry.date}, ${entry.turno}, ${entry.machine}, ${entry.station}, ${entry.side},
+          ${entry.problem}, ${entry.at}, ${entry.matrizNumero}, ${entry.matrizRel}
+        )
         on conflict (id) do update set
           date = excluded.date,
           turno = excluded.turno,
@@ -62,7 +66,7 @@ export const pushApontamentos = createServerFn({ method: "POST" })
           referencia = excluded.referencia
       `;
     }
-    return { ok: true as const };
+    return { ok: true as const, cloud };
   });
 
 export const pullApontamentos = createServerFn({ method: "POST" })
@@ -71,7 +75,7 @@ export const pullApontamentos = createServerFn({ method: "POST" })
     return { date };
   })
   .handler(async ({ data }): Promise<SyncResult> => {
-    if (!data.date) return { entries: [], removed: [] };
+    if (!data.date) return { entries: [], removed: [], cloud };
     const sql = await getSql();
     const rows = await sql<{
       id: string;
@@ -107,5 +111,5 @@ export const pullApontamentos = createServerFn({ method: "POST" })
       });
       return entry ? [entry] : [];
     });
-    return { entries, removed: removedRows.map((row) => row.id) };
+    return { entries, removed: removedRows.map((row) => row.id), cloud };
   });

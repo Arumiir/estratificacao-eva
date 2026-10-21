@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { InstallPrompt } from "@/components/install-prompt";
 import {
   ChevronLeft,
+  ChevronDown,
   ClipboardList,
   Download,
   ImageDown,
@@ -95,6 +96,7 @@ function cx(...parts: Array<string | false | undefined>): string {
 
 function usePerdas() {
   const [state, setState] = useState<State | null>(null);
+  const [cloud, setCloud] = useState<boolean | null>(null);
   const ref = useRef<State | null>(null);
 
   useEffect(() => {
@@ -122,7 +124,8 @@ function usePerdas() {
       .map((entry) => ({ id: entry.id, date: entry.date }));
     if (upserts.length === 0 && removed.length === 0) return;
     void pushApontamentos({ data: { upserts, removed } })
-      .then(() => {
+      .then((result) => {
+        setCloud(result.cloud);
         for (const entry of upserts) known.add(entry.id);
         for (const item of removed) known.delete(item.id);
       })
@@ -133,6 +136,7 @@ function usePerdas() {
     const current = ref.current;
     if (!current) return false;
     const remote = await pullApontamentos({ data: { date: current.date } });
+    setCloud(remote.cloud);
     const entries = mergeSharedEntries(current.entries, remote.entries, remote.removed, current.date);
     for (const entry of entries) synced.current?.add(entry.id);
     for (const id of remote.removed) synced.current?.delete(id);
@@ -158,7 +162,8 @@ function usePerdas() {
         const upserts = current.entries.filter((entry) => !known.has(entry.id));
         if (upserts.length > 0) {
           void pushApontamentos({ data: { upserts, removed: [] } })
-            .then(() => {
+            .then((result) => {
+              setCloud(result.cloud);
               for (const entry of upserts) known.add(entry.id);
             })
             .catch(() => {});
@@ -175,6 +180,7 @@ function usePerdas() {
     void pullApontamentos({ data: { date: state.date } })
       .then((remote) => {
         if (cancel || !ref.current || ref.current.date !== state.date) return;
+        setCloud(remote.cloud);
         const entries = mergeSharedEntries(ref.current.entries, remote.entries, remote.removed, state.date);
         for (const entry of entries) synced.current?.add(entry.id);
         for (const id of remote.removed) synced.current?.delete(id);
@@ -202,7 +208,7 @@ function usePerdas() {
     setState(next);
   }
 
-  return { state, commit, read: () => ref.current, refresh };
+  return { state, commit, read: () => ref.current, refresh, cloud };
 }
 
 function screenKey(screen: Screen): string {
@@ -231,14 +237,19 @@ function screenKey(screen: Screen): string {
 }
 
 function machineFrom(screen: Screen): MachineId | null {
-  if (screen.kind === "papel" || screen.kind === "turnos" || screen.kind === "machines" || screen.kind === "sie05") {
+  if (
+    screen.kind === "papel" ||
+    screen.kind === "turnos" ||
+    screen.kind === "machines" ||
+    screen.kind === "sie05"
+  ) {
     return null;
   }
   return screen.machine;
 }
 
 export function EstratificacaoApp() {
-  const { state, commit, read, refresh } = usePerdas();
+  const { state, commit, read, refresh, cloud } = usePerdas();
   const [papel, setPapel] = useState<Papel | null>(null);
   const [papelReady, setPapelReady] = useState(false);
   const [stack, setStack] = useState<Screen[]>([{ kind: "papel" }]);
@@ -512,6 +523,11 @@ export function EstratificacaoApp() {
             <p className="font-display text-xl leading-none text-fg">das perdas - EVA</p>
             {header.context ? (
               <p className="mt-1 truncate text-sm font-semibold text-muted">{header.context}</p>
+            ) : null}
+            {cloud === true ? (
+              <p className="mt-1 text-sm font-semibold text-accent">Nuvem ligada. Os celulares compartilham o dia.</p>
+            ) : cloud === false ? (
+              <p className="mt-1 text-sm font-semibold text-muted">Nuvem desligada. Cada celular guarda só o seu.</p>
             ) : null}
           </div>
           {papel ? (
@@ -1462,6 +1478,10 @@ function FichaSheet({
   const total = fichaTotal(lines);
   const filled = machineHasFicha(state, machine);
   const [wide, setWide] = useState(false);
+  const [open, setOpen] = useState(force);
+  useEffect(() => {
+    setOpen(force);
+  }, [force, machine]);
   if (!force && !filled) {
     return (
       <section className="mt-3 rounded-tile border border-dashed border-line bg-surface px-4 py-3 first:mt-0">
@@ -1472,31 +1492,45 @@ function FichaSheet({
   }
 
   return (
-    <section className="mt-8 overflow-hidden rounded-tile border-2 border-accent bg-surface first:mt-0">
-      <header className="bg-accent px-4 py-3 text-accent-ink">
+    <section className="mt-3 overflow-hidden rounded-tile border-2 border-accent bg-surface first:mt-0">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className="w-full bg-accent px-4 py-3 text-left text-accent-ink"
+      >
         <div className="flex items-end justify-between gap-3">
           <h2 className="font-display text-4xl leading-none">Máquina {machine}</h2>
-          <p className="font-display text-3xl leading-none tabular-nums">{total}</p>
+          <span className="flex items-center gap-2">
+            <span className="font-display text-3xl leading-none tabular-nums">{total}</span>
+            <ChevronDown className={cx("size-6 transition-transform", open && "rotate-180")} />
+          </span>
         </div>
         <p className="mt-1 text-sm">
           {formatDateBR(state.date)} · {TURNO_LABEL[state.turno]}
         </p>
-        <TopProblems lines={lines} />
-        <button
-          type="button"
-          onClick={() => void openLandscape(setWide)}
-          className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-tile bg-white/15 font-semibold"
-        >
-          <Maximize2 className="size-5" />
-          Ver em paisagem
-        </button>
-      </header>
-      <p className="px-3 py-2 text-sm text-muted">
-        Desça a tabela: os problemas ficam fixos. Para o lado, o restante das colunas.
-      </p>
-      <div className="max-h-[65dvh] overflow-auto">
-        <FichaTable lines={lines} />
-      </div>
+        <TopProblems lines={lines} compact />
+      </button>
+      {open ? (
+        <>
+          <div className="px-3 pt-3">
+            <button
+              type="button"
+              onClick={() => void openLandscape(setWide)}
+              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-tile bg-accent-soft font-semibold text-accent"
+            >
+              <Maximize2 className="size-5" />
+              Ver em paisagem
+            </button>
+          </div>
+          <p className="px-3 py-2 text-sm text-muted">
+            Desça a tabela: os problemas ficam fixos. Para o lado, o restante das colunas.
+          </p>
+          <div className="max-h-[65dvh] overflow-auto">
+            <FichaTable lines={lines} />
+          </div>
+        </>
+      ) : null}
       {wide ? (
         <LandscapeSheet
           machine={machine}

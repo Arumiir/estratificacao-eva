@@ -129,8 +129,10 @@ function drawFicha(
   const tableY = headerY + headerH + 18;
   const tableW = W - margin * 2;
   const tableBottom = H - 28;
+  const totalH = 58;
+  const bodyBottom = tableBottom - totalH;
   const headH = 230;
-  const rowH = (tableBottom - tableY - headH) / lines.length;
+  const rowH = (bodyBottom - tableY - headH) / lines.length;
 
   const estW = 108;
   const ladoW = 78;
@@ -151,6 +153,9 @@ function drawFicha(
     }
   });
 
+  ctx.fillStyle = "#8d3030";
+  ctx.fillRect(tableX, bodyBottom, tableW, totalH);
+
   ctx.strokeStyle = "#243028";
   ctx.lineWidth = 1.5;
   ctx.strokeRect(tableX, tableY, tableW, tableBottom - tableY);
@@ -158,6 +163,8 @@ function drawFicha(
   ctx.beginPath();
   ctx.moveTo(tableX, tableY + headH);
   ctx.lineTo(tableX + tableW, tableY + headH);
+  ctx.moveTo(tableX, bodyBottom);
+  ctx.lineTo(tableX + tableW, bodyBottom);
   for (let i = 1; i < lines.length; i++) {
     const y = tableY + headH + i * rowH;
     if (i % 2 === 0) {
@@ -166,17 +173,25 @@ function drawFicha(
       continue;
     }
     ctx.moveTo(tableX + estW, y);
+    const above = lines[i - 1];
+    const spanMatrix =
+      Boolean(lines[i]?.shared || above?.shared) &&
+      Boolean(above?.numero || above?.referencia || lines[i]?.numero || lines[i]?.referencia);
+    if (!spanMatrix) {
+      ctx.lineTo(tableX + tableW, y);
+      continue;
+    }
     ctx.lineTo(tableX + estW + ladoW, y);
-    const shared = Boolean(lines[i]?.shared);
-    ctx.moveTo(tableX + estW + ladoW + (shared ? numW + relW : 0), y);
+    ctx.moveTo(tableX + fixed, y);
     ctx.lineTo(tableX + tableW, y);
   }
   let x = tableX;
-  for (const width of [estW, ladoW, numW, relW, ...PROBLEMS.map(() => probW)]) {
+  const widths = [estW, ladoW, numW, relW, ...PROBLEMS.map(() => probW)];
+  widths.forEach((width, index) => {
     x += width;
     ctx.moveTo(x, tableY);
-    ctx.lineTo(x, tableBottom);
-  }
+    ctx.lineTo(x, index < 3 ? bodyBottom : tableBottom);
+  });
   ctx.stroke();
 
   ctx.fillStyle = "#243028";
@@ -225,6 +240,22 @@ function drawFicha(
       ctx.font = "700 30px 'Barlow Condensed', sans-serif";
       ctx.fillText(String(count), colX, y);
     });
+  });
+
+  const sums = PROBLEMS.map((_, problemIndex) =>
+    lines.reduce((sum, line) => sum + (line.counts[problemIndex] ?? 0), 0),
+  );
+  const grand = sums.reduce((sum, count) => sum + count, 0);
+  const totalY = bodyBottom + totalH / 2;
+  ctx.fillStyle = "#fffaf7";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "700 30px 'Barlow Condensed', sans-serif";
+  ctx.fillText(grand ? `TOTAL  ${grand}` : "TOTAL", tableX + fixed / 2, totalY);
+  sums.forEach((sum, problemIndex) => {
+    if (!sum) return;
+    const colX = tableX + fixed + problemIndex * probW + probW / 2;
+    ctx.fillText(String(sum), colX, totalY);
   });
 }
 
