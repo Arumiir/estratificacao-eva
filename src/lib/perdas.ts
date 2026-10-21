@@ -258,6 +258,10 @@ function readConfig(v: unknown): StationConfig | null {
   };
 }
 
+export function coerceEntry(v: unknown): Entry | null {
+  return readEntry(v);
+}
+
 function readEntry(v: unknown): Entry | null {
   if (!isRecord(v)) return null;
   if (typeof v.id !== "string" || typeof v.date !== "string") return null;
@@ -328,6 +332,19 @@ export function inShift(entry: Entry, state: State, machine?: MachineId): boolea
   if (entry.date !== state.date || entry.turno !== state.turno) return false;
   if (machine !== undefined && entry.machine !== machine) return false;
   return true;
+}
+
+export function mergeSharedEntries(current: Entry[], incoming: Entry[], removed: string[], date: string): Entry[] {
+  const drop = new Set(removed);
+  const map = new Map<string, Entry>();
+  for (const entry of current) {
+    if (entry.date === date && drop.has(entry.id)) continue;
+    map.set(entry.id, entry);
+  }
+  for (const entry of incoming) {
+    if (entry.date === date && !drop.has(entry.id)) map.set(entry.id, entry);
+  }
+  return [...map.values()];
 }
 
 export function shiftEntries(state: State, machine?: MachineId): Entry[] {

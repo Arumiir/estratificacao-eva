@@ -29,6 +29,7 @@ import {
   loadState,
   machineHasFicha,
   machineHasMatrices,
+  mergeSharedEntries,
   pad2,
   problemName,
   saveState,
@@ -46,8 +47,32 @@ import {
   type Turno,
 } from "@/lib/perdas";
 import { downloadBlob, renderFichaPng, renderFichasPdf } from "@/lib/ficha-image";
+import { pullApontamentos, pushApontamentos } from "@/lib/apontamentos.functions";
+
+type Papel = "preparador" | "lider";
+
+const PAPEL_KEY = "estratificacao-papel";
+
+function loadPapel(): Papel | null {
+  try {
+    const value = localStorage.getItem(PAPEL_KEY);
+    return value === "preparador" || value === "lider" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function savePapel(papel: Papel | null) {
+  try {
+    if (papel) localStorage.setItem(PAPEL_KEY, papel);
+    else localStorage.removeItem(PAPEL_KEY);
+  } catch {
+    /* o papel vale só nesta sessão */
+  }
+}
 
 type Screen =
+  | { kind: "papel" }
   | { kind: "turnos" }
   | { kind: "machines" }
   | { kind: "sie05" }
@@ -82,6 +107,94 @@ function usePerdas() {
     if (state) saveState(state);
   }, [state]);
 
+  const synced = useRef<Set<string> | null>(null);
+  const lastEntries = useRef<State["entries"] | null>(null);
+
+  useEffect(() => {
+    if (!state) return;
+    const previous = lastEntries.current;
+    lastEntries.current = state.entries;
+    if (!synced.current) synced.current = new Set();
+    const known = synced.current;
+    const upserts = state.entries.filter((entry) => !known.has(entry.id));
+    const removed = (previous ?? [])
+      .filter((entry) => !state.entries.some((item) => item.id === entry.id))
+      .map((entry) => ({ id: entry.id, date: entry.date }));
+    if (upserts.length === 0 && removed.length === 0) return;
+    void pushApontamentos({ data: { upserts, removed } })
+      .then(() => {
+        for (const entry of upserts) known.add(entry.id);
+        for (const item of removed) known.delete(item.id);
+      })
+      .catch(() => {});
+  }, [state]);
+
+  async function refresh() {
+    const current = ref.current;
+    if (!current) return false;
+    const remote = await pullApontamentos({ data: { date: current.date } });
+    const entries = mergeSharedEntries(current.entries, remote.entries, remote.removed, current.date);
+    for (const entry of entries) synced.current?.add(entry.id);
+    for (const id of remote.removed) synced.current?.delete(id);
+    if (
+      entries.length === current.entries.length &&
+      entries.every((entry, index) => entry.id === current.entries[index]?.id)
+    ) {
+      return true;
+    }
+    const next = { ...current, entries };
+    ref.current = next;
+    lastEntries.current = entries;
+    setState(next);
+    return true;
+  }
+
+  useEffect(() => {
+    if (!state) return;
+    const timer = window.setInterval(() => {
+      const current = ref.current;
+      const known = synced.current;
+      if (current && known) {
+        const upserts = current.entries.filter((entry) => !known.has(entry.id));
+        if (upserts.length > 0) {
+          void pushApontamentos({ data: { upserts, removed: [] } })
+            .then(() => {
+              for (const entry of upserts) known.add(entry.id);
+            })
+            .catch(() => {});
+        }
+      }
+      void refresh().catch(() => {});
+    }, 15000);
+    return () => window.clearInterval(timer);
+  }, [Boolean(state)]);
+
+  useEffect(() => {
+    if (!state) return;
+    let cancel = false;
+    void pullApontamentos({ data: { date: state.date } })
+      .then((remote) => {
+        if (cancel || !ref.current || ref.current.date !== state.date) return;
+        const entries = mergeSharedEntries(ref.current.entries, remote.entries, remote.removed, state.date);
+        for (const entry of entries) synced.current?.add(entry.id);
+        for (const id of remote.removed) synced.current?.delete(id);
+        if (
+          entries.length === ref.current.entries.length &&
+          entries.every((entry, index) => entry.id === ref.current?.entries[index]?.id)
+        ) {
+          return;
+        }
+        const next = { ...ref.current, entries };
+        ref.current = next;
+        lastEntries.current = entries;
+        setState(next);
+      })
+      .catch(() => {});
+    return () => {
+      cancel = true;
+    };
+  }, [state?.date]);
+
   function commit(recipe: (current: State) => State) {
     if (!ref.current) return;
     const next = recipe(ref.current);
@@ -89,11 +202,13 @@ function usePerdas() {
     setState(next);
   }
 
-  return { state, commit, read: () => ref.current };
+  return { state, commit, read: () => ref.current, refresh };
 }
 
 function screenKey(screen: Screen): string {
   switch (screen.kind) {
+    case "papel":
+      return "papel";
     case "turnos":
       return "turnos";
     case "machines":
@@ -116,17 +231,22 @@ function screenKey(screen: Screen): string {
 }
 
 function machineFrom(screen: Screen): MachineId | null {
-  if (screen.kind === "turnos" || screen.kind === "machines" || screen.kind === "sie05") return null;
+  if (screen.kind === "papel" || screen.kind === "turnos" || screen.kind === "machines" || screen.kind === "sie05") {
+    return null;
+  }
   return screen.machine;
 }
 
 export function EstratificacaoApp() {
-  const { state, commit, read } = usePerdas();
-  const [stack, setStack] = useState<Screen[]>([{ kind: "turnos" }]);
+  const { state, commit, read, refresh } = usePerdas();
+  const [papel, setPapel] = useState<Papel | null>(null);
+  const [papelReady, setPapelReady] = useState(false);
+  const [stack, setStack] = useState<Screen[]>([{ kind: "papel" }]);
   const [dir, setDir] = useState<"forward" | "back">("forward");
   const [banner, setBanner] = useState<Banner | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
-  const stackRef = useRef<Screen[]>([{ kind: "turnos" }]);
+  const stackRef = useRef<Screen[]>([{ kind: "papel" }]);
+  const homeRef = useRef<Screen>({ kind: "papel" });
   const depthRef = useRef(1);
   const skipPopRef = useRef(0);
 
@@ -160,12 +280,29 @@ export function EstratificacaoApp() {
           : 1;
       depthRef.current = depth;
       const next = stackRef.current.slice(0, Math.max(1, depth));
-      stackRef.current = next.length > 0 ? next : [{ kind: "turnos" }];
+      stackRef.current = next.length > 0 ? next : [homeRef.current];
       setDir("back");
       setStack(stackRef.current);
     }
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  useEffect(() => {
+    const saved = loadPapel();
+    const home: Screen =
+      saved === "lider"
+        ? { kind: "sheet", machine: null }
+        : saved === "preparador"
+          ? { kind: "turnos" }
+          : { kind: "papel" };
+    homeRef.current = home;
+    stackRef.current = [home];
+    setStack([home]);
+    setPapel(saved);
+    setPapelReady(true);
+    depthRef.current = 1;
+    window.history.replaceState(stampDepth(1), "");
   }, []);
 
   useEffect(() => {
@@ -215,6 +352,30 @@ export function EstratificacaoApp() {
     window.history.replaceState(stampDepth(nextStack.length), "");
   }
 
+  function choosePapel(next: Papel) {
+    savePapel(next);
+    setPapel(next);
+    const home: Screen = next === "lider" ? { kind: "sheet", machine: null } : { kind: "turnos" };
+    homeRef.current = home;
+    stackRef.current = [home];
+    depthRef.current = 1;
+    setDir("forward");
+    setStack([home]);
+    window.history.replaceState(stampDepth(1), "");
+  }
+
+  function leavePapel() {
+    savePapel(null);
+    setPapel(null);
+    const home: Screen = { kind: "papel" };
+    homeRef.current = home;
+    stackRef.current = [home];
+    depthRef.current = 1;
+    setDir("back");
+    setStack([home]);
+    window.history.replaceState(stampDepth(1), "");
+  }
+
   function flash(text: string, undo?: () => void) {
     setBanner({ id: Date.now(), text, undo });
   }
@@ -235,7 +396,7 @@ export function EstratificacaoApp() {
     flash(label, () => restore(entry));
   }
 
-  if (!state) return <Loading />;
+  if (!state || !papelReady) return <Loading />;
 
   const today = todayISO();
   const offDay = state.date !== today;
@@ -353,7 +514,16 @@ export function EstratificacaoApp() {
               <p className="mt-1 truncate text-sm font-semibold text-muted">{header.context}</p>
             ) : null}
           </div>
-          {screen.kind !== "sheet" && screen.kind !== "turnos" ? (
+          {papel ? (
+            <button
+              type="button"
+              onClick={leavePapel}
+              className="shrink-0 rounded-tile bg-accent-soft px-3 py-2 text-sm font-semibold text-accent"
+            >
+              Trocar
+            </button>
+          ) : null}
+          {papel === "lider" && screen.kind !== "sheet" && screen.kind !== "papel" ? (
             <button
               type="button"
               onClick={() => push({ kind: "sheet", machine: machineFrom(screen) })}
@@ -400,6 +570,8 @@ export function EstratificacaoApp() {
             dir === "forward" ? "enter-forward" : "enter-back",
           )}
         >
+          {screen.kind === "papel" ? <PapelScreen onPick={choosePapel} /> : null}
+
           {screen.kind === "turnos" ? (
             <TurnosScreen
               onPick={(turno) => {
@@ -416,7 +588,7 @@ export function EstratificacaoApp() {
               offDay={offDay}
               onDate={setDate}
               onOpen={openGrid}
-              onSheet={() => push({ kind: "sheet", machine: null })}
+              onSheet={papel === "lider" ? () => push({ kind: "sheet", machine: null }) : undefined}
             />
           ) : null}
 
@@ -488,6 +660,8 @@ export function EstratificacaoApp() {
               today={today}
               offDay={offDay}
               onDate={setDate}
+              onTurno={papel === "lider" ? setTurno : undefined}
+              onRefresh={papel === "lider" ? refresh : undefined}
               onNotice={(text) => flash(text)}
             />
           ) : null}
@@ -536,6 +710,8 @@ function headerFor(screen: Screen): { context: string } {
       };
     case "sheet":
       return { context: "Lançamentos" };
+    case "papel":
+      return { context: "Quem está usando" };
   }
 }
 
@@ -571,6 +747,32 @@ function Field({
         className="w-full rounded-tile border border-line bg-surface-2 px-3 py-3 text-base text-fg placeholder:text-muted"
       />
     </label>
+  );
+}
+
+function PapelScreen({ onPick }: { onPick: (papel: Papel) => void }) {
+  return (
+    <div>
+      <p className="text-base text-muted">Escolha o que este celular faz. Dá para trocar depois.</p>
+      <div className="mt-4 grid gap-3">
+        <button
+          type="button"
+          onClick={() => onPick("preparador")}
+          className="min-h-32 rounded-tile border border-line bg-surface px-5 py-4 text-left"
+        >
+          <span className="block font-display text-4xl leading-none">Preparador</span>
+          <span className="mt-2 block text-sm font-semibold text-muted">Aponta as perdas na máquina.</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => onPick("lider")}
+          className="min-h-32 rounded-tile bg-accent px-5 py-4 text-left text-accent-ink"
+        >
+          <span className="block font-display text-4xl leading-none">Líder técnico</span>
+          <span className="mt-2 block text-sm font-semibold">Vê os lançamentos e envia a ficha.</span>
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -642,7 +844,7 @@ function MachinesScreen({
   offDay: boolean;
   onDate: (date: string) => void;
   onOpen: (machine: GridMachine) => void;
-  onSheet: () => void;
+  onSheet?: () => void;
 }) {
   const total = shiftEntries(state).length;
   return (
@@ -678,19 +880,21 @@ function MachinesScreen({
           );
         })}
       </div>
-      <button
-        type="button"
-        onClick={onSheet}
-        className="mt-4 flex w-full items-center justify-between rounded-tile bg-accent px-5 py-4 text-left text-accent-ink"
-      >
-        <span>
-          <span className="block font-display text-3xl leading-none">Lançamentos</span>
-          <span className="mt-1 block text-sm font-semibold">
-            {total === 1 ? "1 perda neste turno" : `${total} perdas neste turno`}
+      {onSheet ? (
+        <button
+          type="button"
+          onClick={onSheet}
+          className="mt-4 flex w-full items-center justify-between rounded-tile bg-accent px-5 py-4 text-left text-accent-ink"
+        >
+          <span>
+            <span className="block font-display text-3xl leading-none">Lançamentos</span>
+            <span className="mt-1 block text-sm font-semibold">
+              {total === 1 ? "1 perda neste turno" : `${total} perdas neste turno`}
+            </span>
           </span>
-        </span>
-        <ClipboardList className="size-7" />
-      </button>
+          <ClipboardList className="size-7" />
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -1091,6 +1295,8 @@ function SheetScreen({
   today,
   offDay,
   onDate,
+  onTurno,
+  onRefresh,
   onNotice,
 }: {
   state: State;
@@ -1098,10 +1304,13 @@ function SheetScreen({
   today: string;
   offDay: boolean;
   onDate: (date: string) => void;
+  onTurno?: (turno: Turno) => void;
+  onRefresh?: () => Promise<boolean>;
   onNotice: (text: string) => void;
 }) {
   const [filter, setFilter] = useState<MachineId | "todas">(initialMachine ?? "todas");
   const [busy, setBusy] = useState<"foto" | "pdf" | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const shown = filter === "todas" ? [...MACHINES] : [filter];
   const exportMachines =
     filter === "todas" ? shown.filter((machine) => machineHasFicha(state, machine)) : shown;
@@ -1168,7 +1377,37 @@ function SheetScreen({
 
   return (
     <div>
+      {onRefresh ? (
+        <p className="mb-3 text-sm text-muted">
+          O preparador aponta no celular dele. Atualize para trazer o que entrou.
+        </p>
+      ) : null}
       <DayControls state={state} today={today} offDay={offDay} onDate={onDate} />
+      {onTurno ? (
+        <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
+          {(["1", "2", "3"] as const).map((turno) => (
+            <Chip key={turno} active={state.turno === turno} onClick={() => onTurno(turno)}>
+              {TURNO_LABEL[turno]}
+            </Chip>
+          ))}
+        </div>
+      ) : null}
+      {onRefresh ? (
+        <button
+          type="button"
+          disabled={refreshing}
+          onClick={() => {
+            setRefreshing(true);
+            void onRefresh()
+              .then((ok) => onNotice(ok ? "Lançamentos atualizados." : "Sem rede. Mostrando o que já está aqui."))
+              .catch(() => onNotice("Sem rede. Mostrando o que já está aqui."))
+              .finally(() => setRefreshing(false));
+          }}
+          className="mb-3 flex min-h-12 w-full items-center justify-center rounded-tile border border-line bg-surface px-4 font-semibold disabled:opacity-60"
+        >
+          {refreshing ? "Atualizando…" : "Atualizar lançamentos"}
+        </button>
+      ) : null}
       <div className="flex gap-2 overflow-x-auto pb-1">
         <Chip active={filter === "todas"} onClick={() => setFilter("todas")}>
           Todas
