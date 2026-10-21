@@ -781,7 +781,7 @@ export function EstratificacaoApp() {
               onRefresh={refresh}
               papel={papel}
               nome={nome}
-              onResend={() => resendExcel(state.entries.filter((entry) => entry.date === state.date))}
+              onResend={(entries) => resendExcel(entries)}
               onNotice={(text) => flash(text)}
             />
           ) : null}
@@ -1549,7 +1549,7 @@ function SheetScreen({
   onRefresh?: () => Promise<boolean>;
   papel: Papel;
   nome: string;
-  onResend?: () => number;
+  onResend?: (entries: Entry[]) => number;
   onNotice: (text: string) => void;
 }) {
   const [filter, setFilter] = useState<MachineId | "todas">(initialMachine ?? "todas");
@@ -1627,11 +1627,11 @@ function SheetScreen({
     <div>
       {papel === "lider" ? (
         <p className="mb-3 text-sm text-muted">
-          Você vê todas as máquinas. Atualize para trazer o que cada preparador apontou.
+          Você acompanha os lançamentos. Quem aponta e envia para a planilha é o preparador.
         </p>
       ) : (
         <p className="mb-3 text-sm text-muted">
-          Só a máquina que você apontou. A foto e o PDF saem com o seu nome.
+          Cada toque seu vai para a planilha, uma sola por vez. A foto e o PDF saem com o seu nome.
         </p>
       )}
       {papel === "lider" ? <Acessos onNotice={onNotice} /> : null}
@@ -1661,20 +1661,21 @@ function SheetScreen({
           {refreshing ? "Atualizando…" : "Atualizar lançamentos"}
         </button>
       ) : null}
-      {papel === "lider" && onResend ? (
+      {papel === "preparador" && onResend ? (
         <button
           type="button"
           onClick={() => {
-            const total = onResend();
+            const mine = view.entries.filter((entry) => entry.date === state.date && entry.turno === state.turno);
+            const total = onResend(mine);
             onNotice(
               total === 0
-                ? "Não há sola neste dia para reenviar."
-                : `Reenviando ${total} solas, uma por vez. Apague antes as linhas deste dia na aba ENTRADA.`,
+                ? "Você não tem sola neste turno para enviar."
+                : `Enviando ${total} solas suas, uma por vez.`,
             );
           }}
           className="mb-3 flex min-h-12 w-full items-center justify-center rounded-tile border border-line bg-surface px-4 text-center font-semibold"
         >
-          Reenviar solas para a planilha
+          Enviar minhas solas para a planilha
         </button>
       ) : null}
       {papel === "lider" ? (
