@@ -36,7 +36,29 @@ function cleanSenha(value: unknown) {
 }
 
 function seed(): Conta[] {
-  return [{ nome: "Líder", senha: hashSenha("0000"), papel: "lider" }];
+  const lista: [string, string, Papel][] = [
+    ["0000", "0000", "lider"],
+    ["Guilherme", "guilheme123", "preparador"],
+    ["Wesley", "wesley123", "preparador"],
+    ["Yan", "yan123", "preparador"],
+    ["Francisvaldo", "francisvaldo123", "preparador"],
+    ["Felipe", "felipe123", "preparador"],
+  ];
+  return lista.map(([nome, senha, papel]) => ({ nome, senha: hashSenha(senha), papel }));
+}
+
+function comSeed(contas: Conta[]) {
+  const map = new Map(contas.map((conta) => [chave(conta.nome), conta]));
+  let changed = false;
+  if (map.delete("lider")) changed = true;
+  for (const conta of seed()) {
+    const atual = map.get(chave(conta.nome));
+    if (!atual || atual.senha !== conta.senha || atual.papel !== conta.papel || atual.nome !== conta.nome) {
+      map.set(chave(conta.nome), conta);
+      changed = true;
+    }
+  }
+  return { contas: [...map.values()], changed };
 }
 
 function readConta(value: unknown): Conta | null {
@@ -52,14 +74,27 @@ async function readContas(): Promise<{ contas: Conta[]; etag: string | null }> {
   if (!process.env.BLOB_READ_WRITE_TOKEN?.trim()) return { contas: seed(), etag: null };
   const { get } = await import("@vercel/blob");
   const result = await get(PATH, { access: "private", useCache: false });
-  if (!result || result.statusCode !== 200 || !result.stream) return { contas: seed(), etag: null };
-  const parsed = JSON.parse(await new Response(result.stream).text()) as unknown;
-  const contas = Array.isArray(parsed) ? parsed.flatMap((item) => {
-    const conta = readConta(item);
-    return conta ? [conta] : [];
-  }) : [];
-  if (!contas.some((conta) => conta.papel === "lider")) contas.unshift(seed()[0]!);
-  return { contas, etag: result.blob.etag };
+  let contas: Conta[] = [];
+  let etag: string | null = null;
+  if (result && result.statusCode === 200 && result.stream) {
+    const parsed = JSON.parse(await new Response(result.stream).text()) as unknown;
+    contas = Array.isArray(parsed)
+      ? parsed.flatMap((item) => {
+          const conta = readConta(item);
+          return conta ? [conta] : [];
+        })
+      : [];
+    etag = result.blob.etag;
+  }
+  const merged = comSeed(contas);
+  if (merged.changed) {
+    try {
+      await writeContas(merged.contas, etag);
+    } catch {
+      /* o login usa a lista nova mesmo se a gravação atrasar */
+    }
+  }
+  return { contas: merged.contas, etag };
 }
 
 async function writeContas(contas: Conta[], etag: string | null) {
