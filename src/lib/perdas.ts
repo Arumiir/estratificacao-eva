@@ -43,6 +43,7 @@ export type Entry = {
   at: number;
   matrizNumero: string;
   matrizRel: string;
+  autor: string;
 };
 
 export type State = {
@@ -282,6 +283,7 @@ function readEntry(v: unknown): Entry | null {
     at: v.at,
     matrizNumero: typeof v.matrizNumero === "string" ? v.matrizNumero : "",
     matrizRel: typeof v.matrizRel === "string" ? v.matrizRel : "",
+    autor: typeof v.autor === "string" ? v.autor.slice(0, 32) : "",
   };
 }
 
@@ -376,6 +378,15 @@ export type FichaLine = {
   shared: boolean;
   counts: number[];
 };
+
+export function nomesNaFicha(state: State, machine: MachineId): string {
+  const nomes = new Set<string>();
+  for (const entry of shiftEntries(state, machine)) {
+    const nome = entry.autor.trim();
+    if (nome) nomes.add(nome);
+  }
+  return [...nomes].join(" · ");
+}
 
 export function fichaLines(state: State, machine: MachineId): FichaLine[] {
   const entries = shiftEntries(state, machine);

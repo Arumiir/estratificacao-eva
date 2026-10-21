@@ -60,10 +60,10 @@ export const pushApontamentos = createServerFn({ method: "POST" })
       if (removedIds.has(entry.id)) continue;
       await sql`delete from apontamentos_removidos where id = ${entry.id}`;
       await sql`
-        insert into apontamentos (id, date, turno, machine, station, side, problem, at, numero, referencia)
+        insert into apontamentos (id, date, turno, machine, station, side, problem, at, numero, referencia, autor)
         values (
           ${entry.id}, ${entry.date}, ${entry.turno}, ${entry.machine}, ${entry.station}, ${entry.side},
-          ${entry.problem}, ${entry.at}, ${entry.matrizNumero}, ${entry.matrizRel}
+          ${entry.problem}, ${entry.at}, ${entry.matrizNumero}, ${entry.matrizRel}, ${entry.autor}
         )
         on conflict (id) do update set
           date = excluded.date,
@@ -74,7 +74,8 @@ export const pushApontamentos = createServerFn({ method: "POST" })
           problem = excluded.problem,
           at = excluded.at,
           numero = excluded.numero,
-          referencia = excluded.referencia
+          referencia = excluded.referencia,
+          autor = excluded.autor
       `;
     }
     return { ok: true as const, cloud: cloudOn() };
@@ -103,8 +104,9 @@ export const pullApontamentos = createServerFn({ method: "POST" })
       at: number;
       numero: string;
       referencia: string;
+      autor: string;
     }>`
-      select id, date, turno, machine, station, side, problem, at, numero, referencia
+      select id, date, turno, machine, station, side, problem, at, numero, referencia, autor
       from apontamentos
       where date = ${data.date}
     `;
@@ -123,6 +125,7 @@ export const pullApontamentos = createServerFn({ method: "POST" })
         at: Number(row.at),
         matrizNumero: row.numero,
         matrizRel: row.referencia,
+        autor: row.autor,
       });
       return entry ? [entry] : [];
     });

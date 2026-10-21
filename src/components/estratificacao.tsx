@@ -31,6 +31,7 @@ import {
   machineHasFicha,
   machineHasMatrices,
   mergeSharedEntries,
+  nomesNaFicha,
   pad2,
   problemName,
   saveState,
@@ -49,27 +50,34 @@ import {
 } from "@/lib/perdas";
 import { downloadBlob, renderFichaPng, renderFichasPdf } from "@/lib/ficha-image";
 import { pullApontamentos, pushApontamentos } from "@/lib/apontamentos.functions";
-import { entrar } from "@/lib/login.functions";
+import { entrar, criarPreparador, listarPreparadores } from "@/lib/login.functions";
 
 type Papel = "preparador" | "lider";
+type Sessao = { papel: Papel; nome: string };
 
-const PAPEL_KEY = "estratificacao-sessao";
+const SESSAO_KEY = "estratificacao-sessao-v2";
 
-function loadPapel(): Papel | null {
+function loadSessao(): Sessao | null {
   try {
-    const value = localStorage.getItem(PAPEL_KEY);
-    return value === "preparador" || value === "lider" ? value : null;
+    const raw = localStorage.getItem(SESSAO_KEY);
+    if (!raw) return null;
+    const data: unknown = JSON.parse(raw);
+    if (!data || typeof data !== "object") return null;
+    const row = data as { papel?: unknown; nome?: unknown };
+    if (row.papel !== "preparador" && row.papel !== "lider") return null;
+    if (typeof row.nome !== "string" || row.nome.trim().length < 2) return null;
+    return { papel: row.papel, nome: row.nome.trim() };
   } catch {
     return null;
   }
 }
 
-function savePapel(papel: Papel | null) {
+function saveSessao(sessao: Sessao | null) {
   try {
-    if (papel) localStorage.setItem(PAPEL_KEY, papel);
-    else localStorage.removeItem(PAPEL_KEY);
+    if (sessao) localStorage.setItem(SESSAO_KEY, JSON.stringify(sessao));
+    else localStorage.removeItem(SESSAO_KEY);
   } catch {
-    /* o papel vale só nesta sessão */
+    /* a sessão vale só neste aparelho */
   }
 }
 
@@ -251,8 +259,8 @@ function machineFrom(screen: Screen): MachineId | null {
 
 export function EstratificacaoApp() {
   const { state, commit, read, refresh, cloud } = usePerdas();
-  const [papel, setPapel] = useState<Papel | null>(null);
-  const [papelReady, setPapelReady] = useState(false);
+  const [sessao, setSessao] = useState<Sessao | null>(null);
+  const [sessaoReady, setSessaoReady] = useState(false);
   const [stack, setStack] = useState<Screen[]>([{ kind: "papel" }]);
   const [dir, setDir] = useState<"forward" | "back">("forward");
   const [banner, setBanner] = useState<Banner | null>(null);
@@ -301,18 +309,18 @@ export function EstratificacaoApp() {
   }, []);
 
   useEffect(() => {
-    const saved = loadPapel();
+    const saved = loadSessao();
     const home: Screen =
-      saved === "lider"
+      saved?.papel === "lider"
         ? { kind: "sheet", machine: null }
-        : saved === "preparador"
+        : saved?.papel === "preparador"
           ? { kind: "turnos" }
           : { kind: "papel" };
     homeRef.current = home;
     stackRef.current = [home];
     setStack([home]);
-    setPapel(saved);
-    setPapelReady(true);
+    setSessao(saved);
+    setSessaoReady(true);
     depthRef.current = 1;
     window.history.replaceState(stampDepth(1), "");
   }, []);
@@ -364,10 +372,10 @@ export function EstratificacaoApp() {
     window.history.replaceState(stampDepth(nextStack.length), "");
   }
 
-  function choosePapel(next: Papel) {
-    savePapel(next);
-    setPapel(next);
-    const home: Screen = next === "lider" ? { kind: "sheet", machine: null } : { kind: "turnos" };
+  function chooseSessao(next: Sessao) {
+    saveSessao(next);
+    setSessao(next);
+    const home: Screen = next.papel === "lider" ? { kind: "sheet", machine: null } : { kind: "turnos" };
     homeRef.current = home;
     stackRef.current = [home];
     depthRef.current = 1;
@@ -377,8 +385,8 @@ export function EstratificacaoApp() {
   }
 
   function leavePapel() {
-    savePapel(null);
-    setPapel(null);
+    saveSessao(null);
+    setSessao(null);
     const home: Screen = { kind: "papel" };
     homeRef.current = home;
     stackRef.current = [home];
@@ -408,7 +416,10 @@ export function EstratificacaoApp() {
     flash(label, () => restore(entry));
   }
 
-  if (!state || !papelReady) return <Loading />;
+  if (!state || !sessaoReady) return <Loading />;
+
+  const papel = sessao?.papel ?? null;
+  const nome = sessao?.nome ?? "";
 
   const today = todayISO();
   const offDay = state.date !== today;
@@ -475,6 +486,7 @@ export function EstratificacaoApp() {
         at: Date.now(),
         matrizNumero: snapshot.numero,
         matrizRel: snapshot.referencia,
+        autor: nome,
       };
       return { ...current, entries: [...current.entries, entry] };
     });
@@ -494,7 +506,8 @@ export function EstratificacaoApp() {
           entry.machine === machine &&
           entry.station === station &&
           entry.side === side &&
-          entry.problem === problem,
+          entry.problem === problem &&
+          (papel !== "preparador" || entry.autor === nome),
       );
     if (!match) return;
     removeEntry(match.id, "Um lançamento tirado");
@@ -522,10 +535,8 @@ export function EstratificacaoApp() {
               Estratificação
             </h1>
             <p className="font-display text-xl leading-none text-fg">das perdas - EVA</p>
-            {papel === "lider" ? (
-              <p className="mt-1 truncate text-sm font-semibold text-muted">Líder técnico</p>
-            ) : papel === "preparador" ? (
-              <p className="mt-1 truncate text-sm font-semibold text-muted">Preparador</p>
+            {nome ? (
+              <p className="mt-1 truncate text-sm font-semibold text-muted">{nome}</p>
             ) : null}
             {header.context ? (
               <p className="mt-1 truncate text-sm font-semibold text-muted">{header.context}</p>
@@ -593,7 +604,7 @@ export function EstratificacaoApp() {
           )}
         >
           {screen.kind === "papel" ? (
-            <PapelScreen onPick={choosePapel} onFail={(text) => flash(text)} />
+            <PapelScreen onPick={chooseSessao} onFail={(text) => flash(text)} />
           ) : null}
 
           {papel === "preparador" && screen.kind === "turnos" ? (
@@ -687,6 +698,7 @@ export function EstratificacaoApp() {
               onTurno={setTurno}
               onRefresh={refresh}
               papel={papel}
+              nome={nome}
               onNotice={(text) => flash(text)}
             />
           ) : null}
@@ -779,28 +791,28 @@ function PapelScreen({
   onPick,
   onFail,
 }: {
-  onPick: (papel: Papel) => void;
+  onPick: (sessao: Sessao) => void;
   onFail: (text: string) => void;
 }) {
-  const [papel, setPapel] = useState<Papel>("preparador");
+  const [nome, setNome] = useState("");
   const [senha, setSenha] = useState("");
   const [busy, setBusy] = useState(false);
   const [erro, setErro] = useState("");
 
   async function submit() {
-    if (!senha.trim()) {
-      setErro("Digite a senha.");
+    if (nome.trim().length < 2 || senha.length < 4) {
+      setErro("Digite o nome e a senha.");
       return;
     }
     setBusy(true);
     setErro("");
     try {
-      const result = await entrar({ data: { papel, senha } });
+      const result = await entrar({ data: { nome, senha } });
       if (!result.ok) {
-        setErro("Senha errada.");
+        setErro("Nome ou senha errados.");
         return;
       }
-      onPick(result.papel);
+      onPick({ papel: result.papel, nome: result.nome });
     } catch {
       onFail("Sem rede para entrar. Tente de novo.");
       setErro("Sem rede para entrar.");
@@ -816,30 +828,17 @@ function PapelScreen({
         void submit();
       }}
     >
-      <p className="text-base text-muted">Entre com o seu acesso. Cada um vê só a própria tela.</p>
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={() => setPapel("preparador")}
-          className={cx(
-            "min-h-24 rounded-tile px-4 py-3 text-left",
-            papel === "preparador" ? "bg-accent text-accent-ink" : "border border-line bg-surface",
-          )}
-        >
-          <span className="block font-display text-3xl leading-none">Preparador</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setPapel("lider")}
-          className={cx(
-            "min-h-24 rounded-tile px-4 py-3 text-left",
-            papel === "lider" ? "bg-accent text-accent-ink" : "border border-line bg-surface",
-          )}
-        >
-          <span className="block font-display text-3xl leading-none">Líder</span>
-        </button>
-      </div>
+      <p className="text-base text-muted">Entre com o seu nome e a sua senha.</p>
       <label className="mt-4 block">
+        <span className="mb-1 block text-sm font-semibold text-muted">Nome</span>
+        <input
+          value={nome}
+          autoComplete="username"
+          onChange={(event) => setNome(event.target.value)}
+          className="w-full rounded-tile border border-line bg-surface-2 px-3 py-3 text-base text-fg"
+        />
+      </label>
+      <label className="mt-3 block">
         <span className="mb-1 block text-sm font-semibold text-muted">Senha</span>
         <input
           type="password"
@@ -1374,6 +1373,77 @@ function NumberPair({
   );
 }
 
+function Acessos({ onNotice }: { onNotice: (text: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [nome, setNome] = useState("");
+  const [senha, setSenha] = useState("");
+  const [nomes, setNomes] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void listarPreparadores({ data: {} })
+      .then((result) => setNomes(result.nomes))
+      .catch(() => {});
+  }, []);
+
+  async function criar() {
+    setBusy(true);
+    try {
+      const result = await criarPreparador({ data: { nome, senha } });
+      if (!result.ok) {
+        onNotice(result.erro);
+        return;
+      }
+      setNomes((current) => [...current, result.nome].sort((a, b) => a.localeCompare(b, "pt-BR")));
+      setNome("");
+      setSenha("");
+      onNotice(`${result.nome} já pode entrar.`);
+    } catch {
+      onNotice("Sem rede para criar o acesso.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mb-4 rounded-tile border border-line bg-surface p-4">
+      <button type="button" onClick={() => setOpen((value) => !value)} className="w-full text-left">
+        <span className="font-display text-3xl leading-none">Acessos</span>
+        <span className="mt-1 block text-sm text-muted">
+          {nomes.length === 0 ? "Nenhum preparador ainda." : nomes.join(", ")}
+        </span>
+      </button>
+      {open ? (
+        <div className="mt-3 grid gap-2">
+          <input
+            value={nome}
+            placeholder="Nome do preparador"
+            autoComplete="off"
+            onChange={(event) => setNome(event.target.value)}
+            className="w-full rounded-tile border border-line bg-surface-2 px-3 py-3 text-base text-fg"
+          />
+          <input
+            value={senha}
+            placeholder="Senha"
+            type="text"
+            autoComplete="off"
+            onChange={(event) => setSenha(event.target.value)}
+            className="w-full rounded-tile border border-line bg-surface-2 px-3 py-3 text-base text-fg"
+          />
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void criar()}
+            className="rounded-tile bg-accent py-3 font-semibold text-accent-ink disabled:opacity-60"
+          >
+            {busy ? "Salvando…" : "Criar preparador"}
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function SheetScreen({
   state,
   initialMachine,
@@ -1383,6 +1453,7 @@ function SheetScreen({
   onTurno,
   onRefresh,
   papel,
+  nome,
   onNotice,
 }: {
   state: State;
@@ -1393,14 +1464,19 @@ function SheetScreen({
   onTurno?: (turno: Turno) => void;
   onRefresh?: () => Promise<boolean>;
   papel: Papel;
+  nome: string;
   onNotice: (text: string) => void;
 }) {
   const [filter, setFilter] = useState<MachineId | "todas">(initialMachine ?? "todas");
   const [busy, setBusy] = useState<"foto" | "pdf" | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const shown = filter === "todas" ? [...MACHINES] : [filter];
-  const exportMachines =
-    filter === "todas" ? shown.filter((machine) => machineHasFicha(state, machine)) : shown;
+  const view: State =
+    papel === "preparador"
+      ? { ...state, entries: state.entries.filter((entry) => entry.autor === nome) }
+      : state;
+  const apontadas = MACHINES.filter((machine) => shiftEntries(view, machine).length > 0);
+  const shown = papel === "preparador" ? apontadas : filter === "todas" ? [...MACHINES] : [filter];
+  const exportMachines = papel === "preparador" ? apontadas : shown.filter((machine) => machineHasFicha(view, machine));
   const fileBase = `perdas-${state.date}-turno-${state.turno}`;
 
   async function sendPhoto() {
@@ -1412,7 +1488,7 @@ function SheetScreen({
     try {
       const files: File[] = [];
       for (const machine of exportMachines) {
-        const blob = await renderFichaPng(state, machine);
+        const blob = await renderFichaPng(view, machine);
         files.push(
           new File([blob], `${fileBase}-maquina-${machine}.png`, { type: "image/png" }),
         );
@@ -1422,7 +1498,7 @@ function SheetScreen({
           await navigator.share({
             files,
             title: "Estratificação das perdas - EVA",
-            text: `${formatDateBR(state.date)} · ${TURNO_LABEL[state.turno]}`,
+            text: `${formatDateBR(state.date)} · ${TURNO_LABEL[state.turno]}${nome ? ` · ${nome}` : ""}`,
           });
           return;
         } catch (error) {
@@ -1435,7 +1511,7 @@ function SheetScreen({
         onNotice("Foto baixada. Envie ao gestor.");
         return;
       }
-      const pdf = await renderFichasPdf(state, exportMachines);
+      const pdf = await renderFichasPdf(view, exportMachines);
       downloadBlob(`${fileBase}.pdf`, pdf);
       onNotice("O celular não abriu o compartilhamento. O PDF foi baixado.");
     } catch {
@@ -1452,7 +1528,7 @@ function SheetScreen({
     }
     setBusy("pdf");
     try {
-      const pdf = await renderFichasPdf(state, exportMachines);
+      const pdf = await renderFichasPdf(view, exportMachines);
       downloadBlob(`${fileBase}.pdf`, pdf);
       onNotice("PDF baixado. Uma máquina por folha.");
     } catch {
@@ -1466,13 +1542,14 @@ function SheetScreen({
     <div>
       {papel === "lider" ? (
         <p className="mb-3 text-sm text-muted">
-          O preparador aponta no celular dele. Atualize para trazer o que entrou.
+          Você vê todas as máquinas. Atualize para trazer o que cada preparador apontou.
         </p>
       ) : (
         <p className="mb-3 text-sm text-muted">
-          Lançamentos deste turno. A foto e o PDF saem daqui.
+          Só a máquina que você apontou. A foto e o PDF saem com o seu nome.
         </p>
       )}
+      {papel === "lider" ? <Acessos onNotice={onNotice} /> : null}
       <DayControls state={state} today={today} offDay={offDay} onDate={onDate} />
       {onTurno ? (
         <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
@@ -1499,21 +1576,31 @@ function SheetScreen({
           {refreshing ? "Atualizando…" : "Atualizar lançamentos"}
         </button>
       ) : null}
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        <Chip active={filter === "todas"} onClick={() => setFilter("todas")}>
-          Todas
-        </Chip>
-        {MACHINES.map((item) => (
-          <Chip key={item} active={filter === item} onClick={() => setFilter(item)}>
-            {item}
+      {papel === "lider" ? (
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          <Chip active={filter === "todas"} onClick={() => setFilter("todas")}>
+            Todas
           </Chip>
-        ))}
-      </div>
+          {MACHINES.map((item) => (
+            <Chip key={item} active={filter === item} onClick={() => setFilter(item)}>
+              {item}
+            </Chip>
+          ))}
+        </div>
+      ) : null}
 
       <div className="mt-4">
-        {shown.map((machine) => (
-          <FichaSheet key={machine} state={state} machine={machine} force={filter !== "todas"} />
-        ))}
+        {shown.length === 0 ? (
+          <p className="rounded-tile border border-dashed border-line bg-surface px-4 py-6 text-base text-muted">
+            {papel === "preparador"
+              ? "Você ainda não apontou máquina neste turno."
+              : "Nenhuma máquina neste filtro."}
+          </p>
+        ) : (
+          shown.map((machine) => (
+            <FichaSheet key={machine} state={view} machine={machine} force={papel === "lider" && filter !== "todas"} />
+          ))
+        )}
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-2">
@@ -1583,6 +1670,7 @@ function FichaSheet({
         </div>
         <p className="mt-1 text-sm">
           {formatDateBR(state.date)} · {TURNO_LABEL[state.turno]}
+          {nomesNaFicha(state, machine) ? ` · ${nomesNaFicha(state, machine)}` : ""}
         </p>
         <TopProblems lines={lines} compact />
       </button>
