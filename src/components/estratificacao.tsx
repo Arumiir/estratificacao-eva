@@ -49,7 +49,7 @@ import {
   type Turno,
 } from "@/lib/perdas";
 import { downloadBlob, renderFichaPng, renderFichasPdf } from "@/lib/ficha-image";
-import { pullApontamentos, pushApontamentos } from "@/lib/apontamentos.functions";
+import { enviarPlanilha, pullApontamentos, pushApontamentos } from "@/lib/apontamentos.functions";
 import { entrar, criarPreparador, listarPreparadores } from "@/lib/login.functions";
 
 type Papel = "preparador" | "lider";
@@ -103,6 +103,19 @@ function cx(...parts: Array<string | false | undefined>): string {
   return parts.filter(Boolean).join(" ");
 }
 
+const EXCEL_KEY = "estratificacao-excel-enviados";
+
+function loadExcelSent() {
+  try {
+    const raw = localStorage.getItem(EXCEL_KEY);
+    const ids: unknown = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(ids)) return new Set<string>();
+    return new Set(ids.filter((id): id is string => typeof id === "string"));
+  } catch {
+    return new Set<string>();
+  }
+}
+
 function usePerdas() {
   const [state, setState] = useState<State | null>(null);
   const [cloud, setCloud] = useState<boolean | null>(null);
@@ -120,6 +133,68 @@ function usePerdas() {
 
   const synced = useRef<Set<string> | null>(null);
   const lastEntries = useRef<State["entries"] | null>(null);
+  const excelSent = useRef<Set<string>>(loadExcelSent());
+  const excelQueue = useRef<Array<{ entry: Entry; solas: 1 | -1 }>>([]);
+  const excelBusy = useRef(false);
+  const skipExcelBacklog = useRef(true);
+
+  function storeExcelSent() {
+    const ids = [...excelSent.current].slice(-4000);
+    try {
+      localStorage.setItem(EXCEL_KEY, JSON.stringify(ids));
+    } catch {
+      /* segue a fila nesta sessão */
+    }
+  }
+
+  async function pumpExcel() {
+    if (excelBusy.current) return;
+    excelBusy.current = true;
+    let pause = false;
+    try {
+      while (excelQueue.current.length > 0) {
+        const job = excelQueue.current[0];
+        if (!job) break;
+        const result = await enviarPlanilha({ data: { entry: job.entry, solas: job.solas } });
+        if (!result.ok) {
+          pause = true;
+          break;
+        }
+        excelQueue.current.shift();
+        if (job.solas === 1) excelSent.current.add(job.entry.id);
+        else excelSent.current.delete(job.entry.id);
+        storeExcelSent();
+        await new Promise((resolve) => window.setTimeout(resolve, 1500));
+      }
+    } catch {
+      pause = true;
+    }
+    excelBusy.current = false;
+    if (pause) window.setTimeout(() => void pumpExcel(), 8000);
+  }
+
+  function enqueueExcel(entry: Entry, solas: 1 | -1) {
+    if (solas === 1 && excelSent.current.has(entry.id)) return;
+    if (excelQueue.current.some((job) => job.entry.id === entry.id && job.solas === solas)) return;
+    excelQueue.current.push({ entry, solas });
+    void pumpExcel();
+  }
+
+  function queueRemoval(entry: Entry) {
+    const pending = excelQueue.current.findIndex((job) => job.entry.id === entry.id && job.solas === 1);
+    if (pending >= 0) {
+      excelQueue.current.splice(pending, 1);
+      return;
+    }
+    if (excelSent.current.has(entry.id)) enqueueExcel(entry, -1);
+  }
+
+  function resendExcel(entries: Entry[]) {
+    for (const entry of entries) excelSent.current.delete(entry.id);
+    storeExcelSent();
+    for (const entry of entries) enqueueExcel(entry, 1);
+    return entries.length;
+  }
 
   useEffect(() => {
     if (!state) return;
@@ -129,7 +204,15 @@ function usePerdas() {
     const known = synced.current;
     const upserts = state.entries.filter((entry) => !known.has(entry.id));
     const removed = (previous ?? []).filter((entry) => !state.entries.some((item) => item.id === entry.id));
-    if (upserts.length === 0 && removed.length === 0) return;
+    if (upserts.length === 0 && removed.length === 0) {
+      skipExcelBacklog.current = false;
+      return;
+    }
+    if (skipExcelBacklog.current) skipExcelBacklog.current = false;
+    else {
+      for (const entry of upserts) enqueueExcel(entry, 1);
+      for (const entry of removed) queueRemoval(entry);
+    }
     void pushApontamentos({ data: { upserts, removed } })
       .then((result) => {
         setCloud(result.cloud);
@@ -177,6 +260,7 @@ function usePerdas() {
         }
       }
       void refresh().catch(() => {});
+      void pumpExcel();
     }, 15000);
     return () => window.clearInterval(timer);
   }, [Boolean(state)]);
@@ -215,7 +299,7 @@ function usePerdas() {
     setState(next);
   }
 
-  return { state, commit, read: () => ref.current, refresh, cloud };
+  return { state, commit, read: () => ref.current, refresh, cloud, resendExcel };
 }
 
 function screenKey(screen: Screen): string {
@@ -256,7 +340,7 @@ function machineFrom(screen: Screen): MachineId | null {
 }
 
 export function EstratificacaoApp() {
-  const { state, commit, read, refresh, cloud } = usePerdas();
+  const { state, commit, read, refresh, cloud, resendExcel } = usePerdas();
   const [sessao, setSessao] = useState<Sessao | null>(null);
   const [sessaoReady, setSessaoReady] = useState(false);
   const [stack, setStack] = useState<Screen[]>([{ kind: "papel" }]);
@@ -697,6 +781,7 @@ export function EstratificacaoApp() {
               onRefresh={refresh}
               papel={papel}
               nome={nome}
+              onResend={() => resendExcel(state.entries.filter((entry) => entry.date === state.date))}
               onNotice={(text) => flash(text)}
             />
           ) : null}
@@ -1452,6 +1537,7 @@ function SheetScreen({
   onRefresh,
   papel,
   nome,
+  onResend,
   onNotice,
 }: {
   state: State;
@@ -1463,6 +1549,7 @@ function SheetScreen({
   onRefresh?: () => Promise<boolean>;
   papel: Papel;
   nome: string;
+  onResend?: () => number;
   onNotice: (text: string) => void;
 }) {
   const [filter, setFilter] = useState<MachineId | "todas">(initialMachine ?? "todas");
@@ -1572,6 +1659,22 @@ function SheetScreen({
           className="mb-3 flex min-h-12 w-full items-center justify-center rounded-tile border border-line bg-surface px-4 font-semibold disabled:opacity-60"
         >
           {refreshing ? "Atualizando…" : "Atualizar lançamentos"}
+        </button>
+      ) : null}
+      {papel === "lider" && onResend ? (
+        <button
+          type="button"
+          onClick={() => {
+            const total = onResend();
+            onNotice(
+              total === 0
+                ? "Não há sola neste dia para reenviar."
+                : `Reenviando ${total} solas, uma por vez. Apague antes as linhas deste dia na aba ENTRADA.`,
+            );
+          }}
+          className="mb-3 flex min-h-12 w-full items-center justify-center rounded-tile border border-line bg-surface px-4 text-center font-semibold"
+        >
+          Reenviar solas para a planilha
         </button>
       ) : null}
       {papel === "lider" ? (

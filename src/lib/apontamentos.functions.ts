@@ -40,21 +40,31 @@ function excelRow(entry: Entry, solas: 1 | -1) {
   };
 }
 
-async function notifyExcel(upserts: Entry[], removed: Entry[]) {
+async function postExcel(entry: Entry, solas: 1 | -1) {
   const url = excelUrl();
-  if (!url || (upserts.length === 0 && removed.length === 0)) return;
-  const rows = [...upserts.map((entry) => excelRow(entry, 1)), ...removed.map((entry) => excelRow(entry, -1))];
-  await Promise.all(
-    rows.map((row) =>
-      fetch(url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(row),
-        signal: AbortSignal.timeout(8000),
-      }).catch(() => undefined),
-    ),
-  );
+  if (!url) return false;
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(excelRow(entry, solas)),
+      signal: AbortSignal.timeout(20000),
+    });
+    return response.status >= 200 && response.status < 300;
+  } catch {
+    return false;
+  }
 }
+
+export const enviarPlanilha = createServerFn({ method: "POST" })
+  .validator((data: { entry?: unknown; solas?: unknown }) => ({
+    entry: coerceEntry(data?.entry),
+    solas: data?.solas === -1 ? (-1 as const) : (1 as const),
+  }))
+  .handler(async ({ data }) => {
+    if (!data.entry) return { ok: false as const };
+    return { ok: await postExcel(data.entry, data.solas) };
+  });
 
 function cleanRemoved(value: unknown): Entry[] {
   if (!Array.isArray(value)) return [];
@@ -84,7 +94,6 @@ export const pushApontamentos = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     if (usesBlob()) {
       await pushDays(data.upserts, data.removed);
-      await notifyExcel(data.upserts, data.removed);
       return { ok: true as const, cloud: true };
     }
     const sql = await getSql();
@@ -119,7 +128,6 @@ export const pushApontamentos = createServerFn({ method: "POST" })
           autor = excluded.autor
       `;
     }
-    await notifyExcel(data.upserts, data.removed);
     return { ok: true as const, cloud: cloudOn() };
   });
 
