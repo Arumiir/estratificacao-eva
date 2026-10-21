@@ -1680,7 +1680,7 @@ function SheetScreen({
                 : `Enviando ${total} apontamentos, um por vez.`,
             );
           }}
-          className="mt-4 flex min-h-12 w-full items-center justify-center rounded-tile bg-surface-2 px-4 text-center font-semibold"
+          className="mt-4 flex min-h-12 w-full items-center justify-center rounded-tile bg-[#2f7d4a] px-4 text-center font-semibold text-white"
         >
           Enviar apontamentos
         </button>
