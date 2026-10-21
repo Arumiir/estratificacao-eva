@@ -1,0 +1,90 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Source Sans 3", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
+
+  --color-bg: #e7ebf0;
+  --color-surface: #f5f7fa;
+  --color-surface-2: #dde4ec;
+  --color-fg: #243040;
+  --color-muted: #5c6b7c;
+  --color-line: #c9d3de;
+  --color-accent: #3a6fbf;
+  --color-accent-ink: #f7fbff;
+  --color-accent-soft: #d7e5f6;
+
+  --radius-tile: 1rem;
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    line-height: 1.45;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  button,
+  input {
+    touch-action: manipulation;
+  }
+
+  button:focus-visible,
+  input:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+}
+
+.enter-forward {
+  animation: enter-forward 220ms ease-out;
+}
+
+.enter-back {
+  animation: enter-back 220ms ease-out;
+}
+
+@keyframes enter-forward {
+  from {
+    opacity: 0;
+    transform: translateX(1.25rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes enter-back {
+  from {
+    opacity: 0;
+    transform: translateX(-1.25rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
