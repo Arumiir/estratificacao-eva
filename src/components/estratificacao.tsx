@@ -49,10 +49,11 @@ import {
 } from "@/lib/perdas";
 import { downloadBlob, renderFichaPng, renderFichasPdf } from "@/lib/ficha-image";
 import { pullApontamentos, pushApontamentos } from "@/lib/apontamentos.functions";
+import { entrar } from "@/lib/login.functions";
 
 type Papel = "preparador" | "lider";
 
-const PAPEL_KEY = "estratificacao-papel";
+const PAPEL_KEY = "estratificacao-sessao";
 
 function loadPapel(): Papel | null {
   try {
@@ -521,6 +522,11 @@ export function EstratificacaoApp() {
               Estratificação
             </h1>
             <p className="font-display text-xl leading-none text-fg">das perdas - EVA</p>
+            {papel === "lider" ? (
+              <p className="mt-1 truncate text-sm font-semibold text-muted">Líder técnico</p>
+            ) : papel === "preparador" ? (
+              <p className="mt-1 truncate text-sm font-semibold text-muted">Preparador</p>
+            ) : null}
             {header.context ? (
               <p className="mt-1 truncate text-sm font-semibold text-muted">{header.context}</p>
             ) : null}
@@ -536,10 +542,10 @@ export function EstratificacaoApp() {
               onClick={leavePapel}
               className="shrink-0 rounded-tile bg-accent-soft px-3 py-2 text-sm font-semibold text-accent"
             >
-              Trocar
+              Sair
             </button>
           ) : null}
-          {papel === "lider" && screen.kind !== "sheet" && screen.kind !== "papel" ? (
+          {papel === "preparador" && screen.kind !== "sheet" && screen.kind !== "papel" ? (
             <button
               type="button"
               onClick={() => push({ kind: "sheet", machine: machineFrom(screen) })}
@@ -586,9 +592,11 @@ export function EstratificacaoApp() {
             dir === "forward" ? "enter-forward" : "enter-back",
           )}
         >
-          {screen.kind === "papel" ? <PapelScreen onPick={choosePapel} /> : null}
+          {screen.kind === "papel" ? (
+            <PapelScreen onPick={choosePapel} onFail={(text) => flash(text)} />
+          ) : null}
 
-          {screen.kind === "turnos" ? (
+          {papel === "preparador" && screen.kind === "turnos" ? (
             <TurnosScreen
               onPick={(turno) => {
                 setTurno(turno);
@@ -597,22 +605,22 @@ export function EstratificacaoApp() {
             />
           ) : null}
 
-          {screen.kind === "machines" ? (
+          {papel === "preparador" && screen.kind === "machines" ? (
             <MachinesScreen
               state={state}
               today={today}
               offDay={offDay}
               onDate={setDate}
               onOpen={openGrid}
-              onSheet={papel === "lider" ? () => push({ kind: "sheet", machine: null }) : undefined}
+              onSheet={() => push({ kind: "sheet", machine: null })}
             />
           ) : null}
 
-          {screen.kind === "sie05" ? (
+          {papel === "preparador" && screen.kind === "sie05" ? (
             <Sie05Screen state={state} onPick={openMachine} />
           ) : null}
 
-          {screen.kind === "ask" ? (
+          {papel === "preparador" && screen.kind === "ask" ? (
             <AskScreen
               machine={screen.machine}
               onEdit={() => push({ kind: "matrices", machine: screen.machine })}
@@ -620,7 +628,7 @@ export function EstratificacaoApp() {
             />
           ) : null}
 
-          {screen.kind === "matrices" ? (
+          {papel === "preparador" && screen.kind === "matrices" ? (
             <MatrixGradeScreen
               state={state}
               machine={screen.machine}
@@ -628,7 +636,7 @@ export function EstratificacaoApp() {
             />
           ) : null}
 
-          {screen.kind === "stations" ? (
+          {papel === "preparador" && screen.kind === "stations" ? (
             <StationsScreen
               state={state}
               machine={screen.machine}
@@ -638,7 +646,7 @@ export function EstratificacaoApp() {
             />
           ) : null}
 
-          {screen.kind === "side" ? (
+          {papel === "preparador" && screen.kind === "side" ? (
             <SideScreen
               state={state}
               machine={screen.machine}
@@ -655,7 +663,7 @@ export function EstratificacaoApp() {
             />
           ) : null}
 
-          {screen.kind === "problems" ? (
+          {papel === "preparador" && screen.kind === "problems" ? (
             <ProblemsScreen
               state={state}
               machine={screen.machine}
@@ -669,15 +677,16 @@ export function EstratificacaoApp() {
             />
           ) : null}
 
-          {screen.kind === "sheet" ? (
+          {papel && screen.kind === "sheet" ? (
             <SheetScreen
               state={state}
               initialMachine={screen.machine}
               today={today}
               offDay={offDay}
               onDate={setDate}
-              onTurno={papel === "lider" ? setTurno : undefined}
-              onRefresh={papel === "lider" ? refresh : undefined}
+              onTurno={setTurno}
+              onRefresh={refresh}
+              papel={papel}
               onNotice={(text) => flash(text)}
             />
           ) : null}
@@ -766,29 +775,89 @@ function Field({
   );
 }
 
-function PapelScreen({ onPick }: { onPick: (papel: Papel) => void }) {
+function PapelScreen({
+  onPick,
+  onFail,
+}: {
+  onPick: (papel: Papel) => void;
+  onFail: (text: string) => void;
+}) {
+  const [papel, setPapel] = useState<Papel>("preparador");
+  const [senha, setSenha] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [erro, setErro] = useState("");
+
+  async function submit() {
+    if (!senha.trim()) {
+      setErro("Digite a senha.");
+      return;
+    }
+    setBusy(true);
+    setErro("");
+    try {
+      const result = await entrar({ data: { papel, senha } });
+      if (!result.ok) {
+        setErro("Senha errada.");
+        return;
+      }
+      onPick(result.papel);
+    } catch {
+      onFail("Sem rede para entrar. Tente de novo.");
+      setErro("Sem rede para entrar.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <div>
-      <p className="text-base text-muted">Escolha o que este celular faz. Dá para trocar depois.</p>
-      <div className="mt-4 grid gap-3">
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        void submit();
+      }}
+    >
+      <p className="text-base text-muted">Entre com o seu acesso. Cada um vê só a própria tela.</p>
+      <div className="mt-4 grid grid-cols-2 gap-2">
         <button
           type="button"
-          onClick={() => onPick("preparador")}
-          className="min-h-32 rounded-tile border border-line bg-surface px-5 py-4 text-left"
+          onClick={() => setPapel("preparador")}
+          className={cx(
+            "min-h-24 rounded-tile px-4 py-3 text-left",
+            papel === "preparador" ? "bg-accent text-accent-ink" : "border border-line bg-surface",
+          )}
         >
-          <span className="block font-display text-4xl leading-none">Preparador</span>
-          <span className="mt-2 block text-sm font-semibold text-muted">Aponta as perdas na máquina.</span>
+          <span className="block font-display text-3xl leading-none">Preparador</span>
         </button>
         <button
           type="button"
-          onClick={() => onPick("lider")}
-          className="min-h-32 rounded-tile bg-accent px-5 py-4 text-left text-accent-ink"
+          onClick={() => setPapel("lider")}
+          className={cx(
+            "min-h-24 rounded-tile px-4 py-3 text-left",
+            papel === "lider" ? "bg-accent text-accent-ink" : "border border-line bg-surface",
+          )}
         >
-          <span className="block font-display text-4xl leading-none">Líder técnico</span>
-          <span className="mt-2 block text-sm font-semibold">Vê os lançamentos e envia a ficha.</span>
+          <span className="block font-display text-3xl leading-none">Líder</span>
         </button>
       </div>
-    </div>
+      <label className="mt-4 block">
+        <span className="mb-1 block text-sm font-semibold text-muted">Senha</span>
+        <input
+          type="password"
+          value={senha}
+          autoComplete="current-password"
+          onChange={(event) => setSenha(event.target.value)}
+          className="w-full rounded-tile border border-line bg-surface-2 px-3 py-3 text-base text-fg"
+        />
+      </label>
+      {erro ? <p className="mt-2 text-sm font-semibold text-accent">{erro}</p> : null}
+      <button
+        type="submit"
+        disabled={busy}
+        className="mt-4 w-full rounded-tile bg-accent py-4 font-display text-3xl leading-none text-accent-ink disabled:opacity-60"
+      >
+        {busy ? "Entrando…" : "Entrar"}
+      </button>
+    </form>
   );
 }
 
@@ -1313,6 +1382,7 @@ function SheetScreen({
   onDate,
   onTurno,
   onRefresh,
+  papel,
   onNotice,
 }: {
   state: State;
@@ -1322,6 +1392,7 @@ function SheetScreen({
   onDate: (date: string) => void;
   onTurno?: (turno: Turno) => void;
   onRefresh?: () => Promise<boolean>;
+  papel: Papel;
   onNotice: (text: string) => void;
 }) {
   const [filter, setFilter] = useState<MachineId | "todas">(initialMachine ?? "todas");
@@ -1393,11 +1464,15 @@ function SheetScreen({
 
   return (
     <div>
-      {onRefresh ? (
+      {papel === "lider" ? (
         <p className="mb-3 text-sm text-muted">
           O preparador aponta no celular dele. Atualize para trazer o que entrou.
         </p>
-      ) : null}
+      ) : (
+        <p className="mb-3 text-sm text-muted">
+          Lançamentos deste turno. A foto e o PDF saem daqui.
+        </p>
+      )}
       <DayControls state={state} today={today} offDay={offDay} onDate={onDate} />
       {onTurno ? (
         <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
