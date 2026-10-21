@@ -613,18 +613,22 @@ export function EstratificacaoApp() {
             </button>
           ) : null}
           <div className="min-w-0 flex-1">
-            <h1 className="font-display text-3xl leading-none tracking-wide text-accent">
-              Estratificação
-            </h1>
-            <p className="font-display text-xl leading-none text-fg">das perdas - EVA</p>
-            {papel === "lider" && nome ? (
-              <p className="mt-1 truncate text-sm font-semibold text-muted">{nome}</p>
-            ) : null}
-            {header.context === "Lançamentos" ? (
-              <p className="mt-1 font-display text-3xl leading-none tracking-wide text-accent">Lançamentos</p>
-            ) : header.context ? (
-              <p className="mt-1 truncate text-sm font-semibold text-muted">{header.context}</p>
-            ) : null}
+            {screen.kind === "sheet" ? (
+              <h1 className="font-display text-4xl leading-none tracking-wide text-accent">Lançamentos</h1>
+            ) : (
+              <>
+                <h1 className="font-display text-3xl leading-none tracking-wide text-accent">
+                  Estratificação
+                </h1>
+                <p className="font-display text-xl leading-none text-fg">das perdas - EVA</p>
+                {papel === "lider" && nome ? (
+                  <p className="mt-1 truncate text-sm font-semibold text-muted">{nome}</p>
+                ) : null}
+                {header.context ? (
+                  <p className="mt-1 truncate text-sm font-semibold text-muted">{header.context}</p>
+                ) : null}
+              </>
+            )}
             {cloud === true ? (
               <p className="mt-1 text-sm font-semibold text-accent">Server: Online</p>
             ) : cloud === false ? (
@@ -809,7 +813,7 @@ function Loading() {
 function headerFor(screen: Screen): { context: string } {
   switch (screen.kind) {
     case "turnos":
-      return { context: "Turno" };
+      return { context: "" };
     case "machines":
       return { context: "" };
     case "sie05":
@@ -1754,7 +1758,7 @@ function FichaSheet({
           {formatDateBR(state.date)} · {TURNO_LABEL[state.turno]}
           {nomesNaFicha(state, machine) ? ` · ${nomesNaFicha(state, machine)}` : ""}
         </p>
-        <TopProblems lines={lines} compact />
+        <TopProblems lines={lines} />
       </button>
       {open ? (
         <>
@@ -1790,38 +1794,30 @@ function FichaSheet({
   );
 }
 
-function TopProblems({ lines, compact = false }: { lines: FichaLine[]; compact?: boolean }) {
+function TopProblems({ lines }: { lines: FichaLine[] }) {
   const leaders = topProblems(lines);
   if (leaders.length === 0) return null;
-  if (compact) {
-    return (
-      <p className="truncate text-sm font-semibold">
-        {leaders.map((item, index) => `${index + 1}. ${item.name} ${item.count}`).join(" · ")}
-      </p>
-    );
-  }
   return (
-    <ul className="mt-2 space-y-1">
+    <ol className="mt-3 space-y-1">
       {leaders.map((item, index) => (
-        <li key={item.name} className="flex items-baseline justify-between gap-3 text-sm font-semibold">
-          <span className="min-w-0">
-            {index + 1}. {item.name}
-          </span>
-          <span className="shrink-0 tabular-nums">{item.count}</span>
+        <li key={item.name} className="flex items-center gap-2 rounded-lg bg-white/15 px-2 py-1">
+          <span className="w-5 shrink-0 font-display text-xl leading-none">{index + 1}</span>
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold">{item.name}</span>
+          <span className="shrink-0 font-display text-2xl leading-none tabular-nums">{item.count}</span>
         </li>
       ))}
-    </ul>
+    </ol>
   );
 }
 
 function topProblems(lines: FichaLine[]): { name: string; count: number }[] {
   return PROBLEMS.map((problem, index) => ({
-    name: problem.name,
+    name: problem.short,
     count: lines.reduce((sum, line) => sum + (line.counts[index] ?? 0), 0),
   }))
     .filter((item) => item.count > 0)
     .sort((a, b) => b.count - a.count)
-    .slice(0, 2);
+    .slice(0, 3);
 }
 
 function LandscapeSheet({
@@ -1886,7 +1882,7 @@ function LandscapeSheet({
             <p className="truncate text-sm">
               {date} · {turno} · {total}
             </p>
-            <TopProblems lines={lines} compact />
+            <TopProblems lines={lines} />
           </div>
           <button
             type="button"
