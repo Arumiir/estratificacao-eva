@@ -1,3 +1,3 @@
 # Estratificação das Perdas - EVA
 
-Controle de perdas das máquinas SIE, para usar no celular.
+Controle de perdas das máquinas EVA, para usar no celular.
