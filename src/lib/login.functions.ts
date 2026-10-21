@@ -2,8 +2,8 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { createServerFn } from "@tanstack/react-start";
 
 const SENHA: Record<"preparador" | "lider", string> = {
-  preparador: "eva-preparo",
-  lider: "eva-lider",
+  preparador: "1234",
+  lider: "0000",
 };
 
 function same(left: string, right: string) {
