@@ -340,7 +340,7 @@ function machineFrom(screen: Screen): MachineId | null {
 }
 
 export function EstratificacaoApp() {
-  const { state, commit, read, refresh, cloud, resendExcel } = usePerdas();
+  const { state, commit, read, cloud, resendExcel } = usePerdas();
   const [sessao, setSessao] = useState<Sessao | null>(null);
   const [sessaoReady, setSessaoReady] = useState(false);
   const [stack, setStack] = useState<Screen[]>([{ kind: "papel" }]);
@@ -778,7 +778,6 @@ export function EstratificacaoApp() {
               offDay={offDay}
               onDate={setDate}
               onTurno={setTurno}
-              onRefresh={refresh}
               papel={papel}
               nome={nome}
               onResend={(entries) => resendExcel(entries)}
@@ -1534,7 +1533,6 @@ function SheetScreen({
   offDay,
   onDate,
   onTurno,
-  onRefresh,
   papel,
   nome,
   onResend,
@@ -1546,7 +1544,6 @@ function SheetScreen({
   offDay: boolean;
   onDate: (date: string) => void;
   onTurno?: (turno: Turno) => void;
-  onRefresh?: () => Promise<boolean>;
   papel: Papel;
   nome: string;
   onResend?: (entries: Entry[]) => number;
@@ -1554,7 +1551,6 @@ function SheetScreen({
 }) {
   const [filter, setFilter] = useState<MachineId | "todas">(initialMachine ?? "todas");
   const [busy, setBusy] = useState<"foto" | "pdf" | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
   const view: State =
     papel === "preparador"
       ? { ...state, entries: state.entries.filter((entry) => entry.autor === nome) }
@@ -1645,39 +1641,6 @@ function SheetScreen({
           ))}
         </div>
       ) : null}
-      {onRefresh ? (
-        <button
-          type="button"
-          disabled={refreshing}
-          onClick={() => {
-            setRefreshing(true);
-            void onRefresh()
-              .then((ok) => onNotice(ok ? "Lançamentos atualizados." : "Sem rede. Mostrando o que já está aqui."))
-              .catch(() => onNotice("Sem rede. Mostrando o que já está aqui."))
-              .finally(() => setRefreshing(false));
-          }}
-          className="mb-3 flex min-h-12 w-full items-center justify-center rounded-tile border border-line bg-surface px-4 font-semibold disabled:opacity-60"
-        >
-          {refreshing ? "Atualizando…" : "Atualizar lançamentos"}
-        </button>
-      ) : null}
-      {papel === "preparador" && onResend ? (
-        <button
-          type="button"
-          onClick={() => {
-            const mine = view.entries.filter((entry) => entry.date === state.date && entry.turno === state.turno);
-            const total = onResend(mine);
-            onNotice(
-              total === 0
-                ? "Você não tem sola neste turno para enviar."
-                : `Enviando ${total} solas suas, uma por vez.`,
-            );
-          }}
-          className="mb-3 flex min-h-12 w-full items-center justify-center rounded-tile border border-line bg-surface px-4 text-center font-semibold"
-        >
-          Enviar minhas solas para a planilha
-        </button>
-      ) : null}
       {papel === "lider" ? (
         <div className="flex gap-2 overflow-x-auto pb-1">
           <Chip active={filter === "todas"} onClick={() => setFilter("todas")}>
@@ -1704,6 +1667,24 @@ function SheetScreen({
           ))
         )}
       </div>
+
+      {papel === "preparador" && onResend ? (
+        <button
+          type="button"
+          onClick={() => {
+            const mine = view.entries.filter((entry) => entry.date === state.date && entry.turno === state.turno);
+            const total = onResend(mine);
+            onNotice(
+              total === 0
+                ? "Você não tem apontamento neste turno para enviar."
+                : `Enviando ${total} apontamentos, um por vez.`,
+            );
+          }}
+          className="mt-4 flex min-h-12 w-full items-center justify-center rounded-tile border border-line bg-surface px-4 text-center font-semibold"
+        >
+          Enviar apontamentos
+        </button>
+      ) : null}
 
       <div className="mt-4 grid grid-cols-2 gap-2">
         <button
