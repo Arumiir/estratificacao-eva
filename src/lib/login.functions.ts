@@ -38,7 +38,7 @@ function cleanSenha(value: unknown) {
 function seed(): Conta[] {
   const lista: [string, string, Papel][] = [
     ["0000", "0000", "lider"],
-    ["Guilherme", "guilheme123", "preparador"],
+    ["Guilherme", "guilherme123", "preparador"],
     ["Wesley", "wesley123", "preparador"],
     ["Yan", "yan123", "preparador"],
     ["Francisvaldo", "francisvaldo123", "preparador"],
