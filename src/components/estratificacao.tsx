@@ -409,6 +409,7 @@ export function EstratificacaoApp() {
   const [stack, setStack] = useState<Screen[]>([{ kind: "papel" }]);
   const [dir, setDir] = useState<"forward" | "back">("forward");
   const [banner, setBanner] = useState<Banner | null>(null);
+  const [menuAberto, setMenuAberto] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const stackRef = useRef<Screen[]>([{ kind: "papel" }]);
   const homeRef = useRef<Screen>({ kind: "papel" });
@@ -470,6 +471,7 @@ export function EstratificacaoApp() {
 
   useEffect(() => {
     scroller.current?.scrollTo(0, 0);
+    setMenuAberto(false);
   }, [key]);
 
   useEffect(() => {
@@ -736,21 +738,47 @@ export function EstratificacaoApp() {
               </p>
             ) : null}
           </div>
-          {papel ? (
+          {papel === "preparador" && nome ? (
             <div className="flex shrink-0 items-center gap-2">
-              {papel === "preparador" && nome ? (
-                <span className="max-w-28 truncate rounded-tile bg-accent px-3 py-2 text-sm font-semibold text-accent-ink">
-                  {nome}
-                </span>
+              {screen.kind !== "sheet" ? (
+                <button
+                  type="button"
+                  onClick={() => push({ kind: "sheet", machine: null })}
+                  aria-label="Lançamentos"
+                  className="grid size-11 place-items-center rounded-tile bg-accent text-accent-ink"
+                >
+                  <ClipboardList className="size-6" />
+                </button>
               ) : null}
-              <button
-                type="button"
-                onClick={leavePapel}
-                className="rounded-tile bg-accent-soft px-3 py-2 text-sm font-semibold text-accent"
-              >
-                Sair
-              </button>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setMenuAberto((open) => !open)}
+                  aria-label={`Menu de ${nome}`}
+                  aria-expanded={menuAberto}
+                  className="grid size-11 place-items-center rounded-full bg-accent font-display text-2xl leading-none text-accent-ink"
+                >
+                  {nome.trim().charAt(0).toLocaleUpperCase("pt-BR")}
+                </button>
+                {menuAberto ? (
+                  <button
+                    type="button"
+                    onClick={leavePapel}
+                    className="absolute right-0 top-full z-40 mt-2 rounded-tile border border-line bg-surface px-4 py-3 text-sm font-semibold text-accent shadow-lg"
+                  >
+                    Sair
+                  </button>
+                ) : null}
+              </div>
             </div>
+          ) : papel ? (
+            <button
+              type="button"
+              onClick={leavePapel}
+              className="shrink-0 rounded-tile bg-accent-soft px-3 py-2 text-sm font-semibold text-accent"
+            >
+              Sair
+            </button>
           ) : null}
         </div>
       </header>
@@ -814,7 +842,6 @@ export function EstratificacaoApp() {
               offDay={offDay}
               onDate={setDate}
               onOpen={openGrid}
-              onSheet={() => push({ kind: "sheet", machine: null })}
             />
           ) : null}
 
@@ -1133,16 +1160,13 @@ function MachinesScreen({
   offDay,
   onDate,
   onOpen,
-  onSheet,
 }: {
   state: State;
   today: string;
   offDay: boolean;
   onDate: (date: string) => void;
   onOpen: (machine: GridMachine) => void;
-  onSheet?: () => void;
 }) {
-  const total = shiftEntries(state).length;
   return (
     <div>
       <p className="mb-3 font-display text-4xl leading-none text-accent">
@@ -1176,21 +1200,6 @@ function MachinesScreen({
           );
         })}
       </div>
-      {onSheet ? (
-        <button
-          type="button"
-          onClick={onSheet}
-          className="mt-4 flex w-full items-center justify-between rounded-tile bg-accent px-5 py-4 text-left text-accent-ink"
-        >
-          <span>
-            <span className="block font-display text-3xl leading-none">Lançamentos</span>
-            <span className="mt-1 block text-sm font-semibold">
-              {total === 1 ? "1 perda neste turno" : `${total} perdas neste turno`}
-            </span>
-          </span>
-          <ClipboardList className="size-7" />
-        </button>
-      ) : null}
     </div>
   );
 }
