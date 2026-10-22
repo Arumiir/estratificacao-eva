@@ -1,9 +1,14 @@
 import { createServerFn } from "@tanstack/react-start";
 import { pullDay, pushDays } from "@/lib/apontamentos-blob";
 import { dbSource, getSql } from "@/lib/db";
-import { coerceEntry, problemName, type Entry } from "@/lib/perdas";
+import { coerceEntry, problemName, readGrades, type Entry, type StationConfig } from "@/lib/perdas";
 
-type SyncResult = { entries: Entry[]; removed: string[]; cloud: boolean };
+type SyncResult = {
+  entries: Entry[];
+  removed: string[];
+  grades: Record<string, StationConfig>;
+  cloud: boolean;
+};
 
 function usesBlob() {
   return dbSource !== "neon" && Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim());
@@ -87,13 +92,19 @@ function cleanEntries(value: unknown): Entry[] {
 }
 
 export const pushApontamentos = createServerFn({ method: "POST" })
-  .validator((data: { upserts?: unknown; removed?: unknown }) => ({
+  .validator((data: { upserts?: unknown; removed?: unknown; grades?: unknown; date?: unknown }) => ({
     upserts: cleanEntries(data?.upserts),
     removed: cleanRemoved(data?.removed),
+    grades: readGrades(data?.grades),
+    date: typeof data?.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(data.date) ? data.date : "",
   }))
   .handler(async ({ data }) => {
     if (usesBlob()) {
-      await pushDays(data.upserts, data.removed);
+      await pushDays(
+        data.upserts,
+        data.removed,
+        data.date && Object.keys(data.grades).length > 0 ? { date: data.date, grades: data.grades } : null,
+      );
       return { ok: true as const, cloud: true };
     }
     const sql = await getSql();
@@ -128,6 +139,15 @@ export const pushApontamentos = createServerFn({ method: "POST" })
           autor = excluded.autor
       `;
     }
+    if (data.date) {
+      for (const [key, config] of Object.entries(data.grades)) {
+        await sql`
+          insert into grades (date, key, config)
+          values (${data.date}, ${key}, ${JSON.stringify(config)}::jsonb)
+          on conflict (date, key) do update set config = excluded.config
+        `;
+      }
+    }
     return { ok: true as const, cloud: cloudOn() };
   });
 
@@ -137,10 +157,10 @@ export const pullApontamentos = createServerFn({ method: "POST" })
     return { date };
   })
   .handler(async ({ data }): Promise<SyncResult> => {
-    if (!data.date) return { entries: [], removed: [], cloud: cloudOn() };
+    if (!data.date) return { entries: [], removed: [], grades: {}, cloud: cloudOn() };
     if (usesBlob()) {
       const day = await pullDay(data.date);
-      return { entries: day.entries, removed: day.removed, cloud: true };
+      return { entries: day.entries, removed: day.removed, grades: day.grades, cloud: true };
     }
     const sql = await getSql();
     const rows = await sql<{
@@ -179,5 +199,11 @@ export const pullApontamentos = createServerFn({ method: "POST" })
       });
       return entry ? [entry] : [];
     });
-    return { entries, removed: removedRows.map((row) => row.id), cloud: cloudOn() };
+    const gradeRows = await sql<{ key: string; config: unknown }>`
+      select key, config from grades where date = ${data.date}
+    `;
+    const grades = readGrades(
+      Object.fromEntries(gradeRows.map((row) => [row.key, row.config])),
+    );
+    return { entries, removed: removedRows.map((row) => row.id), grades, cloud: cloudOn() };
   });

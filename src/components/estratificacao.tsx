@@ -41,6 +41,8 @@ import {
   stationKey,
   todayISO,
   TURNO_LABEL,
+  withMatrix,
+  gradeHasNumbers,
   type Entry,
   type FichaLine,
   type GridMachine,
@@ -137,6 +139,8 @@ function usePerdas() {
   const synced = useRef<Set<string> | null>(null);
   const lastEntries = useRef<State["entries"] | null>(null);
   const held = useRef<Set<string>>(new Set());
+  const dirtyGrades = useRef<Set<string>>(new Set());
+  const seededGrades = useRef(false);
   const excelSent = useRef<Set<string>>(loadExcelSent());
   const excelQueue = useRef<Array<{ entry: Entry; solas: 1 | -1 }>>([]);
   const excelBusy = useRef(false);
@@ -202,14 +206,36 @@ function usePerdas() {
 
   useEffect(() => {
     if (!state) return;
-    const previous = lastEntries.current;
-    lastEntries.current = state.entries;
     if (!synced.current) synced.current = new Set();
     const known = synced.current;
+    const stamped = state.entries.map((entry) => withMatrix(entry, state.stations));
+    if (stamped.some((entry, index) => entry !== state.entries[index])) {
+      for (const entry of stamped) {
+        const before = state.entries.find((item) => item.id === entry.id);
+        if (before && before !== entry) known.delete(entry.id);
+      }
+      const next = { ...state, entries: stamped };
+      ref.current = next;
+      setState(next);
+      return;
+    }
+    const previous = lastEntries.current;
+    lastEntries.current = state.entries;
     const upserts = state.entries.filter((entry) => !known.has(entry.id));
     const removed = (previous ?? []).filter((entry) => !state.entries.some((item) => item.id === entry.id));
     for (const entry of removed) held.current.add(entry.id);
-    if (upserts.length === 0 && removed.length === 0) {
+    const grades: Record<string, StationConfig> = {};
+    if (!seededGrades.current) {
+      seededGrades.current = true;
+      for (const [key, config] of Object.entries(state.stations)) {
+        if (gradeHasNumbers(config)) grades[key] = config;
+      }
+    }
+    for (const key of dirtyGrades.current) {
+      const config = state.stations[key];
+      if (config && gradeHasNumbers(config)) grades[key] = config;
+    }
+    if (upserts.length === 0 && removed.length === 0 && Object.keys(grades).length === 0) {
       skipExcelBacklog.current = false;
       return;
     }
@@ -218,35 +244,64 @@ function usePerdas() {
       for (const entry of upserts) enqueueExcel(entry, 1);
       for (const entry of removed) queueRemoval(entry);
     }
-    void pushApontamentos({ data: { upserts, removed } })
+    const sentGrades = Object.keys(grades);
+    void pushApontamentos({ data: { upserts, removed, grades, date: state.date } })
       .then((result) => {
         setCloud(result.cloud);
         for (const entry of upserts) known.add(entry.id);
         for (const item of removed) known.delete(item.id);
+        for (const key of sentGrades) dirtyGrades.current.delete(key);
       })
       .catch(() => {});
   }, [state]);
+
+  function takeRemote(
+    current: State,
+    remote: { entries: Entry[]; removed: string[]; grades?: Record<string, StationConfig> },
+  ) {
+    for (const id of remote.removed) held.current.delete(id);
+    const stations = { ...current.stations };
+    let stationsChanged = false;
+    for (const [key, config] of Object.entries(remote.grades ?? {})) {
+      if (dirtyGrades.current.has(key) || !gradeHasNumbers(config)) continue;
+      if (JSON.stringify(stations[key]) !== JSON.stringify(config)) {
+        stations[key] = config;
+        stationsChanged = true;
+      }
+    }
+    const merged = mergeSharedEntries(current.entries, remote.entries, remote.removed, current.date).filter(
+      (entry) => !held.current.has(entry.id),
+    );
+    const entries = merged.map((entry) => withMatrix(entry, stations));
+    if (!synced.current) synced.current = new Set();
+    for (let index = 0; index < entries.length; index += 1) {
+      const entry = entries[index];
+      if (!entry) continue;
+      if (entry === merged[index]) synced.current.add(entry.id);
+      else synced.current.delete(entry.id);
+    }
+    for (const id of remote.removed) synced.current.delete(id);
+    const sameEntries =
+      entries.length === current.entries.length &&
+      entries.every(
+        (entry, index) =>
+          entry.id === current.entries[index]?.id &&
+          entry.matrizNumero === current.entries[index]?.matrizNumero &&
+          entry.matrizRel === current.entries[index]?.matrizRel,
+      );
+    if (!stationsChanged && sameEntries) return current;
+    return { ...current, stations, entries };
+  }
 
   async function refresh() {
     const current = ref.current;
     if (!current) return false;
     const remote = await pullApontamentos({ data: { date: current.date } });
     setCloud(remote.cloud);
-    for (const id of remote.removed) held.current.delete(id);
-    const entries = mergeSharedEntries(current.entries, remote.entries, remote.removed, current.date).filter(
-      (entry) => !held.current.has(entry.id),
-    );
-    for (const entry of entries) synced.current?.add(entry.id);
-    for (const id of remote.removed) synced.current?.delete(id);
-    if (
-      entries.length === current.entries.length &&
-      entries.every((entry, index) => entry.id === current.entries[index]?.id)
-    ) {
-      return true;
-    }
-    const next = { ...current, entries };
+    const next = takeRemote(current, remote);
+    if (next === current) return true;
     ref.current = next;
-    lastEntries.current = entries;
+    lastEntries.current = next.entries;
     setState(next);
     return true;
   }
@@ -280,21 +335,10 @@ function usePerdas() {
       .then((remote) => {
         if (cancel || !ref.current || ref.current.date !== state.date) return;
         setCloud(remote.cloud);
-        for (const id of remote.removed) held.current.delete(id);
-        const entries = mergeSharedEntries(ref.current.entries, remote.entries, remote.removed, state.date).filter(
-          (entry) => !held.current.has(entry.id),
-        );
-        for (const entry of entries) synced.current?.add(entry.id);
-        for (const id of remote.removed) synced.current?.delete(id);
-        if (
-          entries.length === ref.current.entries.length &&
-          entries.every((entry, index) => entry.id === ref.current?.entries[index]?.id)
-        ) {
-          return;
-        }
-        const next = { ...ref.current, entries };
+        const next = takeRemote(ref.current, remote);
+        if (next === ref.current) return;
         ref.current = next;
-        lastEntries.current = entries;
+        lastEntries.current = next.entries;
         setState(next);
       })
       .catch(() => {});
@@ -310,11 +354,15 @@ function usePerdas() {
     setState(next);
   }
 
+  function markGrades(keys: string[]) {
+    for (const key of keys) dirtyGrades.current.add(key);
+  }
+
   function releaseHold(ids: string[]) {
     for (const id of ids) held.current.delete(id);
   }
 
-  return { state, commit, read: () => ref.current, refresh, cloud, resendExcel, releaseHold };
+  return { state, commit, read: () => ref.current, refresh, cloud, resendExcel, releaseHold, markGrades };
 }
 
 function screenKey(screen: Screen): string {
@@ -355,7 +403,7 @@ function machineFrom(screen: Screen): MachineId | null {
 }
 
 export function EstratificacaoApp() {
-  const { state, commit, read, cloud, releaseHold } = usePerdas();
+  const { state, commit, read, cloud, releaseHold, markGrades } = usePerdas();
   const [sessao, setSessao] = useState<Sessao | null>(null);
   const [sessaoReady, setSessaoReady] = useState(false);
   const [stack, setStack] = useState<Screen[]>([{ kind: "papel" }]);
@@ -545,6 +593,7 @@ export function EstratificacaoApp() {
   }
 
   function saveGrade(machine: MachineId, configs: StationConfig[]) {
+    markGrades(STATIONS.map((station) => stationKey(machine, station)));
     commit((current) => {
       const stations = { ...current.stations };
       STATIONS.forEach((station, index) => {
@@ -1579,6 +1628,7 @@ function SheetScreen({
   onNotice: (text: string) => void;
 }) {
   const [busy, setBusy] = useState<"foto" | "pdf" | null>(null);
+  const [fotoPick, setFotoPick] = useState(false);
   const view: State =
     papel === "preparador"
       ? { ...state, entries: state.entries.filter((entry) => entry.autor === nome) }
@@ -1586,18 +1636,20 @@ function SheetScreen({
   const shown = MACHINES.filter((machine) => shiftEntries(view, machine).length > 0);
   const fileBase = `perdas-${state.date}-turno-${state.turno}`;
 
-  async function sendPhoto() {
-    if (shown.length === 0) {
+  async function sendPhoto(machine?: MachineId) {
+    const machines = machine ? shown.filter((item) => item === machine) : shown;
+    if (machines.length === 0) {
       onNotice("Nenhuma ficha neste turno.");
       return;
     }
+    setFotoPick(false);
     setBusy("foto");
     try {
       const files: File[] = [];
-      for (const machine of shown) {
-        const blob = await renderFichaPng(view, machine);
+      for (const item of machines) {
+        const blob = await renderFichaPng(view, item);
         files.push(
-          new File([blob], `${fileBase}-maquina-${machine}.png`, { type: "image/png" }),
+          new File([blob], `${fileBase}-maquina-${item}.png`, { type: "image/png" }),
         );
       }
       if (navigator.canShare?.({ files })) {
@@ -1618,7 +1670,7 @@ function SheetScreen({
         onNotice("Foto baixada. Envie ao gestor.");
         return;
       }
-      const pdf = await renderFichasPdf(view, shown);
+      const pdf = await renderFichasPdf(view, machines);
       downloadBlob(`${fileBase}.pdf`, pdf);
       onNotice("O celular não abriu o compartilhamento. O PDF foi baixado.");
     } catch {
@@ -1670,21 +1722,42 @@ function SheetScreen({
               state={view}
               machine={machine}
               force={false}
-              onDelete={
-                papel === "preparador" && onDelete
-                  ? (entries) => onDelete(entries)
-                  : undefined
-              }
+              onDelete={onDelete ? (entries) => onDelete(entries) : undefined}
             />
           ))
         )}
       </div>
 
+      {papel === "lider" && fotoPick ? (
+        <div className="mt-4 rounded-tile border border-line bg-surface p-3">
+          <p className="text-sm font-semibold">Qual máquina vai na foto?</p>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            {shown.map((machine) => (
+              <button
+                key={machine}
+                type="button"
+                disabled={busy !== null}
+                onClick={() => void sendPhoto(machine)}
+                className="rounded-tile bg-accent-soft py-3 font-semibold text-accent disabled:opacity-60"
+              >
+                {machine}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       <div className="mt-4 grid grid-cols-2 gap-2">
         <button
           type="button"
-          disabled={busy !== null}
-          onClick={() => void sendPhoto()}
+          disabled={busy !== null || shown.length === 0}
+          onClick={() => {
+            if (papel === "lider" && shown.length > 1) {
+              setFotoPick((open) => !open);
+              return;
+            }
+            void sendPhoto(papel === "lider" ? shown[0] : undefined);
+          }}
           className="flex items-center justify-center gap-2 rounded-tile bg-surface-2 py-3 font-semibold disabled:opacity-60"
         >
           <ImageDown className="size-5" />

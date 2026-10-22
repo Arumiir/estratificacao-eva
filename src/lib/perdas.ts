@@ -191,6 +191,31 @@ export function describeMatrix(config: StationConfig | undefined, side: Side): s
   return numero || referencia;
 }
 
+export function gradeHasNumbers(config: StationConfig | undefined): boolean {
+  if (!config) return false;
+  return SIDES.some((side) => activeMatrix(config, side));
+}
+
+export function readGrades(value: unknown): Record<string, StationConfig> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const grades: Record<string, StationConfig> = {};
+  for (const [key, item] of Object.entries(value)) {
+    const parsed = parseStationKey(key);
+    const config = readConfig(item);
+    if (parsed && config && gradeHasNumbers(config)) grades[parsed] = config;
+  }
+  return grades;
+}
+
+export function withMatrix(entry: Entry, stations: Record<string, StationConfig>): Entry {
+  const slot = activeMatrix(stations[stationKey(entry.machine, entry.station)], entry.side);
+  if (!slot) return entry;
+  const numero = slot.numero.trim();
+  const referencia = slot.referencia.trim();
+  if (entry.matrizNumero === numero && entry.matrizRel === referencia) return entry;
+  return { ...entry, matrizNumero: numero, matrizRel: referencia };
+}
+
 export function machineHasMatrices(state: State, machine: MachineId): boolean {
   return STATIONS.some((station) => {
     const config = state.stations[stationKey(machine, station)];
