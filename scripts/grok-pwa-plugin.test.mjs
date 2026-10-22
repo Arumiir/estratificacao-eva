@@ -515,6 +515,21 @@ test("renders the manifest with the per-app name", () => {
   assert.equal(manifest.icons[0].src, "/__grok/icon-180.png");
 });
 
+test("site.json name wins on hosts that are not grok.me", () => {
+  const manifest = JSON.parse(
+    renderWebManifest("perdas.vercel.app", {
+      title: "Estratificação das Perdas - EVA",
+      short_name: "Perdas EVA",
+      theme_color: "#4682B4",
+      background_color: "#e7ebf0",
+    }),
+  );
+  assert.equal(manifest.name, "Estratificação das Perdas - EVA");
+  assert.equal(manifest.short_name, "Perdas EVA");
+  assert.equal(manifest.theme_color, "#4682B4");
+  assert.notEqual(manifest.name, "Grok App");
+});
+
 // Tripwires: the deployed-app path only works if Nitro scans server/ — an
 // accidental edit that drops serverDir or the middleware file would otherwise
 // fail silently (published apps would just render the app for ?install=1).

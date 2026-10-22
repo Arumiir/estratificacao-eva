@@ -702,12 +702,14 @@ export function EstratificacaoApp() {
           ) : null}
           <div className="min-w-0 flex-1">
             {screen.kind === "sheet" ? (
-              <h1 className="font-display text-4xl leading-none tracking-wide text-accent">
-                {papel === "lider" ? "Acompanhamentos" : "Lançamentos"}
-              </h1>
-              {papel === "lider" ? (
-                <p className="mt-1 text-sm font-semibold tracking-wide text-accent">Área do Líder Técnico</p>
-              ) : null}
+              <>
+                <h1 className="font-display text-4xl leading-none tracking-wide text-accent">
+                  {papel === "lider" ? "Acompanhamentos" : "Lançamentos"}
+                </h1>
+                {papel === "lider" ? (
+                  <p className="mt-1 text-sm font-semibold tracking-wide text-accent">Área do Líder Técnico</p>
+                ) : null}
+              </>
             ) : (
               <>
                 <h1 className="font-display text-3xl leading-none tracking-wide text-accent">

@@ -13,7 +13,23 @@ export declare function renderInstallPageHtml(
   template: string,
   context?: { host?: string | null; url?: string | null },
 ): string;
-export declare function renderWebManifest(hostHeader: string | null | undefined): string;
+export type OgSite = {
+  title?: string;
+  short_name?: string;
+  description?: string;
+  type?: string;
+  card?: string;
+  image?: string;
+  banner?: string;
+  color?: string;
+  theme_color?: string;
+  background_color?: string;
+};
+
+export declare function renderWebManifest(
+  hostHeader: string | null | undefined,
+  site?: OgSite,
+): string;
 export declare function grokPwaHeadTags(appName?: string): Array<[string, string]>;
 export declare const GROK_EXTENSIONS_SCRIPT_SRC: string;
 export declare function readGrokProjectId(): string;
@@ -22,16 +38,6 @@ export declare function readXCreator(): string;
 export declare function readXCreatorId(): string;
 export declare function grokXCreatorHeadTags(creator?: string, creatorId?: string): string[];
 export declare function grokExtensionsHeadTags(projectId?: string): string[];
-
-export type OgSite = {
-  title?: string;
-  description?: string;
-  type?: string;
-  card?: string;
-  image?: string;
-  banner?: string;
-  color?: string;
-};
 
 export type GrokHeadContext = {
   appName?: string;
