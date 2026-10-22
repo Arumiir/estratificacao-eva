@@ -136,6 +136,7 @@ function usePerdas() {
 
   const synced = useRef<Set<string> | null>(null);
   const lastEntries = useRef<State["entries"] | null>(null);
+  const held = useRef<Set<string>>(new Set());
   const excelSent = useRef<Set<string>>(loadExcelSent());
   const excelQueue = useRef<Array<{ entry: Entry; solas: 1 | -1 }>>([]);
   const excelBusy = useRef(false);
@@ -207,6 +208,7 @@ function usePerdas() {
     const known = synced.current;
     const upserts = state.entries.filter((entry) => !known.has(entry.id));
     const removed = (previous ?? []).filter((entry) => !state.entries.some((item) => item.id === entry.id));
+    for (const entry of removed) held.current.add(entry.id);
     if (upserts.length === 0 && removed.length === 0) {
       skipExcelBacklog.current = false;
       return;
@@ -230,7 +232,10 @@ function usePerdas() {
     if (!current) return false;
     const remote = await pullApontamentos({ data: { date: current.date } });
     setCloud(remote.cloud);
-    const entries = mergeSharedEntries(current.entries, remote.entries, remote.removed, current.date);
+    for (const id of remote.removed) held.current.delete(id);
+    const entries = mergeSharedEntries(current.entries, remote.entries, remote.removed, current.date).filter(
+      (entry) => !held.current.has(entry.id),
+    );
     for (const entry of entries) synced.current?.add(entry.id);
     for (const id of remote.removed) synced.current?.delete(id);
     if (
@@ -275,7 +280,10 @@ function usePerdas() {
       .then((remote) => {
         if (cancel || !ref.current || ref.current.date !== state.date) return;
         setCloud(remote.cloud);
-        const entries = mergeSharedEntries(ref.current.entries, remote.entries, remote.removed, state.date);
+        for (const id of remote.removed) held.current.delete(id);
+        const entries = mergeSharedEntries(ref.current.entries, remote.entries, remote.removed, state.date).filter(
+          (entry) => !held.current.has(entry.id),
+        );
         for (const entry of entries) synced.current?.add(entry.id);
         for (const id of remote.removed) synced.current?.delete(id);
         if (
@@ -302,7 +310,11 @@ function usePerdas() {
     setState(next);
   }
 
-  return { state, commit, read: () => ref.current, refresh, cloud, resendExcel };
+  function releaseHold(ids: string[]) {
+    for (const id of ids) held.current.delete(id);
+  }
+
+  return { state, commit, read: () => ref.current, refresh, cloud, resendExcel, releaseHold };
 }
 
 function screenKey(screen: Screen): string {
@@ -343,7 +355,7 @@ function machineFrom(screen: Screen): MachineId | null {
 }
 
 export function EstratificacaoApp() {
-  const { state, commit, read, cloud, resendExcel } = usePerdas();
+  const { state, commit, read, cloud, releaseHold } = usePerdas();
   const [sessao, setSessao] = useState<Sessao | null>(null);
   const [sessaoReady, setSessaoReady] = useState(false);
   const [stack, setStack] = useState<Screen[]>([{ kind: "papel" }]);
@@ -484,6 +496,7 @@ export function EstratificacaoApp() {
   }
 
   function restore(entry: Entry) {
+    releaseHold([entry.id]);
     commit((current) => {
       if (current.entries.some((item) => item.id === entry.id)) return current;
       return { ...current, entries: [...current.entries, entry] };
@@ -578,6 +591,13 @@ export function EstratificacaoApp() {
     flash(`Lançado: ${where}`, () => removeEntry(id, "Lançamento desfeito"));
   }
 
+  function sameAuthor(entry: Entry) {
+    if (papel !== "preparador") return true;
+    const mine = nome.trim().toLocaleLowerCase("pt-BR");
+    const autor = entry.autor.trim().toLocaleLowerCase("pt-BR");
+    return autor === mine || autor === "";
+  }
+
   function removeLast(machine: MachineId, station: number, side: Side, problem: string) {
     const current = read();
     if (!current) return;
@@ -590,10 +610,28 @@ export function EstratificacaoApp() {
           entry.station === station &&
           entry.side === side &&
           entry.problem === problem &&
-          (papel !== "preparador" || entry.autor === nome),
+          sameAuthor(entry),
       );
     if (!match) return;
     removeEntry(match.id, "Um lançamento tirado");
+  }
+
+  function removeMany(ids: string[], label: string) {
+    const current = read();
+    if (!current || ids.length === 0) return;
+    const gone = current.entries.filter((entry) => ids.includes(entry.id));
+    if (gone.length === 0) return;
+    commit((s) => ({ ...s, entries: s.entries.filter((entry) => !ids.includes(entry.id)) }));
+    flash(label, () => {
+      releaseHold(gone.map((entry) => entry.id));
+      commit((s) => ({
+        ...s,
+        entries: [
+          ...s.entries,
+          ...gone.filter((entry) => !s.entries.some((item) => item.id === entry.id)),
+        ],
+      }));
+    });
   }
 
   const header = headerFor(screen);
@@ -780,6 +818,7 @@ export function EstratificacaoApp() {
               station={screen.station}
               side={screen.side}
               offDay={offDay}
+              autor={papel === "preparador" ? nome : ""}
               onAdd={(problem) => addProblem(screen.machine, screen.station, screen.side, problem)}
               onRemove={(problem) =>
                 removeLast(screen.machine, screen.station, screen.side, problem)
@@ -795,7 +834,12 @@ export function EstratificacaoApp() {
               onDate={setDate}
               papel={papel}
               nome={nome}
-              onResend={(entries) => resendExcel(entries)}
+              onDelete={(entries) =>
+                removeMany(
+                  entries.map((entry) => entry.id),
+                  entries.length === 1 ? "1 apontamento excluído" : `${entries.length} apontamentos excluídos`,
+                )
+              }
               onNotice={(text) => flash(text)}
             />
           ) : null}
@@ -1269,6 +1313,7 @@ function ProblemsScreen({
   station,
   side,
   offDay,
+  autor,
   onAdd,
   onRemove,
 }: {
@@ -1277,14 +1322,20 @@ function ProblemsScreen({
   station: number;
   side: Side;
   offDay: boolean;
+  autor: string;
   onAdd: (problem: string) => void;
   onRemove: (problem: string) => void;
 }) {
+  const [ask, setAsk] = useState<string | null>(null);
   const config = state.stations[stationKey(machine, station)];
   const matrix = describeMatrix(config, side);
-  const rows = shiftEntries(state, machine).filter(
-    (entry) => entry.station === station && entry.side === side,
-  );
+  const mine = autor.trim().toLocaleLowerCase("pt-BR");
+  const rows = shiftEntries(state, machine).filter((entry) => {
+    if (entry.station !== station || entry.side !== side) return false;
+    if (!mine) return true;
+    const who = entry.autor.trim().toLocaleLowerCase("pt-BR");
+    return who === mine || who === "";
+  });
 
   return (
     <div>
@@ -1294,15 +1345,13 @@ function ProblemsScreen({
         {PROBLEMS.map((problem) => {
           const count = rows.filter((entry) => entry.problem === problem.id).length;
           return (
-            <div
-              key={problem.id}
-              className="flex items-center gap-2 rounded-tile border border-line bg-surface p-2"
-            >
+            <div key={problem.id} className="rounded-tile border border-line bg-surface p-2">
+              <div className="flex items-center gap-2">
               <button
                 type="button"
                 disabled={count === 0}
                 aria-label={`Tirar um lançamento de ${problem.name}`}
-                onClick={() => onRemove(problem.id)}
+                onClick={() => setAsk(problem.id)}
                 className="grid size-14 shrink-0 place-items-center rounded-tile bg-surface-2 touch-manipulation disabled:opacity-30"
               >
                 <Minus className="size-6" />
@@ -1326,6 +1375,29 @@ function ProblemsScreen({
               >
                 <Plus className="size-7" />
               </button>
+              </div>
+              {ask === problem.id ? (
+                <div className="mt-2 flex items-center gap-2 rounded-tile bg-surface-2 px-3 py-2">
+                  <span className="min-w-0 flex-1 text-sm font-semibold">Tirar 1 de {problem.name}?</span>
+                  <button
+                    type="button"
+                    onClick={() => setAsk(null)}
+                    className="shrink-0 rounded-tile px-3 py-2 text-sm font-semibold text-muted"
+                  >
+                    Não
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAsk(null);
+                      onRemove(problem.id);
+                    }}
+                    className="shrink-0 rounded-tile bg-[#9b3a34] px-3 py-2 text-sm font-semibold text-white"
+                  >
+                    Excluir
+                  </button>
+                </div>
+              ) : null}
             </div>
           );
         })}
@@ -1494,7 +1566,7 @@ function SheetScreen({
   onDate,
   papel,
   nome,
-  onResend,
+  onDelete,
   onNotice,
 }: {
   state: State;
@@ -1503,7 +1575,7 @@ function SheetScreen({
   onDate: (date: string) => void;
   papel: Papel;
   nome: string;
-  onResend?: (entries: Entry[]) => number;
+  onDelete?: (entries: Entry[]) => void;
   onNotice: (text: string) => void;
 }) {
   const [busy, setBusy] = useState<"foto" | "pdf" | null>(null);
@@ -1592,27 +1664,21 @@ function SheetScreen({
               : "Nenhuma máquina apontada neste turno."}
           </p>
         ) : (
-          shown.map((machine) => <FichaSheet key={machine} state={view} machine={machine} force={false} />)
+          shown.map((machine) => (
+            <FichaSheet
+              key={machine}
+              state={view}
+              machine={machine}
+              force={false}
+              onDelete={
+                papel === "preparador" && onDelete
+                  ? (entries) => onDelete(entries)
+                  : undefined
+              }
+            />
+          ))
         )}
       </div>
-
-      {papel === "preparador" && onResend ? (
-        <button
-          type="button"
-          onClick={() => {
-            const mine = view.entries.filter((entry) => entry.date === state.date && entry.turno === state.turno);
-            const total = onResend(mine);
-            onNotice(
-              total === 0
-                ? "Você não tem apontamento neste turno para enviar."
-                : `Enviando ${total} apontamentos, um por vez.`,
-            );
-          }}
-          className="mt-4 flex min-h-12 w-full items-center justify-center rounded-tile bg-[#2f7d4a] px-4 text-center font-semibold text-white"
-        >
-          Enviar apontamentos
-        </button>
-      ) : null}
 
       <div className="mt-4 grid grid-cols-2 gap-2">
         <button
@@ -1642,16 +1708,20 @@ function FichaSheet({
   state,
   machine,
   force,
+  onDelete,
 }: {
   state: State;
   machine: MachineId;
   force: boolean;
+  onDelete?: (entries: Entry[]) => void;
 }) {
   const lines = fichaLines(state, machine);
   const total = fichaTotal(lines);
   const filled = machineHasFicha(state, machine);
   const [wide, setWide] = useState(false);
   const [open, setOpen] = useState(force);
+  const [askDelete, setAskDelete] = useState(false);
+  const mine = shiftEntries(state, machine);
   useEffect(() => {
     setOpen(force);
   }, [force, machine]);
@@ -1687,7 +1757,7 @@ function FichaSheet({
       </button>
       {open ? (
         <>
-          <div className="px-3 pt-3">
+          <div className="grid gap-2 px-3 pt-3">
             <button
               type="button"
               onClick={() => void openLandscape(setWide)}
@@ -1696,6 +1766,40 @@ function FichaSheet({
               <Maximize2 className="size-5" />
               Ver em paisagem
             </button>
+            {onDelete && mine.length > 0 ? (
+              askDelete ? (
+                <div className="flex items-center gap-2 rounded-tile bg-surface-2 px-3 py-2">
+                  <span className="min-w-0 flex-1 text-sm font-semibold">
+                    Excluir {mine.length} apontamento{mine.length === 1 ? "" : "s"} desta máquina?
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setAskDelete(false)}
+                    className="shrink-0 rounded-tile px-3 py-2 text-sm font-semibold text-muted"
+                  >
+                    Não
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAskDelete(false);
+                      onDelete(mine);
+                    }}
+                    className="shrink-0 rounded-tile bg-[#9b3a34] px-3 py-2 text-sm font-semibold text-white"
+                  >
+                    Excluir
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setAskDelete(true)}
+                  className="flex min-h-11 w-full items-center justify-center rounded-tile bg-surface-2 font-semibold text-[#9b3a34]"
+                >
+                  Excluir apontamentos
+                </button>
+              )
+            ) : null}
           </div>
           <p className="px-3 py-2 text-sm text-muted">
             Desça a tabela: os problemas ficam fixos. Para o lado, o restante das colunas.
