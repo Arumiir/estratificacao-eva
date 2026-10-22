@@ -705,14 +705,17 @@ export function EstratificacaoApp() {
               <h1 className="font-display text-4xl leading-none tracking-wide text-accent">
                 {papel === "lider" ? "Acompanhamentos" : "Lançamentos"}
               </h1>
+              {papel === "lider" ? (
+                <p className="mt-1 text-sm font-semibold tracking-wide text-accent">Área do Líder Técnico</p>
+              ) : null}
             ) : (
               <>
                 <h1 className="font-display text-3xl leading-none tracking-wide text-accent">
                   Estratificação
                 </h1>
                 <p className="font-display text-xl leading-none text-fg">das perdas - EVA</p>
-                {papel === "lider" && nome ? (
-                  <p className="mt-1 truncate text-sm font-semibold text-muted">{nome}</p>
+                {papel === "lider" ? (
+                  <p className="mt-1 text-sm font-semibold tracking-wide text-accent">Área do Líder Técnico</p>
                 ) : null}
                 {header.context ? (
                   <p className="mt-1 truncate text-sm font-semibold text-muted">{header.context}</p>
