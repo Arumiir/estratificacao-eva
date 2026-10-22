@@ -50,7 +50,7 @@ import {
 } from "@/lib/perdas";
 import { downloadBlob, renderFichaPng, renderFichasPdf } from "@/lib/ficha-image";
 import { enviarPlanilha, pullApontamentos, pushApontamentos } from "@/lib/apontamentos.functions";
-import { entrar, criarPreparador, listarPreparadores } from "@/lib/login.functions";
+import { entrar } from "@/lib/login.functions";
 
 type Papel = "preparador" | "lider";
 type Sessao = { papel: Papel; nome: string };
@@ -66,6 +66,7 @@ function loadSessao(): Sessao | null {
     const row = data as { papel?: unknown; nome?: unknown };
     if (row.papel !== "preparador" && row.papel !== "lider") return null;
     if (typeof row.nome !== "string" || row.nome.trim().length < 2) return null;
+    if (row.nome.trim() === "0000") return null;
     return { papel: row.papel, nome: row.nome.trim() };
   } catch {
     return null;
@@ -393,11 +394,9 @@ export function EstratificacaoApp() {
   useEffect(() => {
     const saved = loadSessao();
     const home: Screen =
-      saved?.papel === "lider"
-        ? { kind: "sheet", machine: null }
-        : saved?.papel === "preparador"
-          ? { kind: "turnos" }
-          : { kind: "papel" };
+      saved?.papel === "lider" || saved?.papel === "preparador"
+        ? { kind: "turnos" }
+        : { kind: "papel" };
     homeRef.current = home;
     stackRef.current = [home];
     setStack([home]);
@@ -457,7 +456,7 @@ export function EstratificacaoApp() {
   function chooseSessao(next: Sessao) {
     saveSessao(next);
     setSessao(next);
-    const home: Screen = next.papel === "lider" ? { kind: "sheet", machine: null } : { kind: "turnos" };
+    const home: Screen = { kind: "turnos" };
     homeRef.current = home;
     stackRef.current = [home];
     depthRef.current = 1;
@@ -614,7 +613,9 @@ export function EstratificacaoApp() {
           ) : null}
           <div className="min-w-0 flex-1">
             {screen.kind === "sheet" ? (
-              <h1 className="font-display text-4xl leading-none tracking-wide text-accent">Lançamentos</h1>
+              <h1 className="font-display text-4xl leading-none tracking-wide text-accent">
+                {papel === "lider" ? "Acompanhamentos" : "Lançamentos"}
+              </h1>
             ) : (
               <>
                 <h1 className="font-display text-3xl leading-none tracking-wide text-accent">
@@ -630,9 +631,15 @@ export function EstratificacaoApp() {
               </>
             )}
             {cloud === true ? (
-              <p className="mt-1 text-sm font-semibold text-accent">Server: Online</p>
+              <p className="mt-1 flex items-center gap-2 text-sm font-semibold text-accent">
+                <span className="size-2.5 shrink-0 rounded-full bg-[#2f7d4a]" />
+                Server: Online
+              </p>
             ) : cloud === false ? (
-              <p className="mt-1 text-sm font-semibold text-muted">Server: Offline</p>
+              <p className="mt-1 flex items-center gap-2 text-sm font-semibold text-muted">
+                <span className="size-2.5 shrink-0 rounded-full bg-[#c4342d]" />
+                Server: Offline
+              </p>
             ) : null}
           </div>
           {papel ? (
@@ -692,11 +699,16 @@ export function EstratificacaoApp() {
             <PapelScreen onPick={chooseSessao} onFail={(text) => flash(text)} />
           ) : null}
 
-          {papel === "preparador" && screen.kind === "turnos" ? (
+          {papel && screen.kind === "turnos" ? (
             <TurnosScreen
+              hint={
+                papel === "lider"
+                  ? "Escolha o turno para acompanhar."
+                  : "Escolha o turno antes de lançar as perdas."
+              }
               onPick={(turno) => {
                 setTurno(turno);
-                push({ kind: "machines" });
+                push(papel === "lider" ? { kind: "sheet", machine: null } : { kind: "machines" });
               }}
             />
           ) : null}
@@ -776,11 +788,9 @@ export function EstratificacaoApp() {
           {papel && screen.kind === "sheet" ? (
             <SheetScreen
               state={state}
-              initialMachine={screen.machine}
               today={today}
               offDay={offDay}
               onDate={setDate}
-              onTurno={papel === "lider" ? setTurno : undefined}
               papel={papel}
               nome={nome}
               onResend={(entries) => resendExcel(entries)}
@@ -945,10 +955,16 @@ function PapelScreen({
   );
 }
 
-function TurnosScreen({ onPick }: { onPick: (turno: Turno) => void }) {
+function TurnosScreen({
+  hint,
+  onPick,
+}: {
+  hint: string;
+  onPick: (turno: Turno) => void;
+}) {
   return (
     <div>
-      <p className="text-base text-muted">Escolha o turno antes de lançar as perdas.</p>
+      <p className="text-base text-muted">{hint}</p>
       <div className="mt-4 grid gap-3">
         {( ["1", "2", "3"] as const).map((turno) => (
           <button
@@ -1458,120 +1474,42 @@ function NumberPair({
   );
 }
 
-function Acessos({ onNotice }: { onNotice: (text: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const [nome, setNome] = useState("");
-  const [senha, setSenha] = useState("");
-  const [nomes, setNomes] = useState<string[]>([]);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    void listarPreparadores({ data: {} })
-      .then((result) => setNomes(result.nomes))
-      .catch(() => {});
-  }, []);
-
-  async function criar() {
-    setBusy(true);
-    try {
-      const result = await criarPreparador({ data: { nome, senha } });
-      if (!result.ok) {
-        onNotice(result.erro);
-        return;
-      }
-      setNomes((current) => [...current, result.nome].sort((a, b) => a.localeCompare(b, "pt-BR")));
-      setNome("");
-      setSenha("");
-      onNotice(`${result.nome} já pode entrar.`);
-    } catch {
-      onNotice("Sem rede para criar o acesso.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="mb-4 rounded-tile border border-line bg-surface p-4">
-      <button type="button" onClick={() => setOpen((value) => !value)} className="w-full text-left">
-        <span className="font-display text-3xl leading-none">Acessos</span>
-        <span className="mt-1 block text-sm text-muted">
-          {nomes.length === 0 ? "Nenhum preparador ainda." : nomes.join(", ")}
-        </span>
-      </button>
-      {open ? (
-        <div className="mt-3 grid gap-2">
-          <input
-            value={nome}
-            placeholder="Nome do preparador"
-            autoComplete="off"
-            onChange={(event) => setNome(event.target.value)}
-            className="w-full rounded-tile border border-line bg-surface-2 px-3 py-3 text-base text-fg"
-          />
-          <input
-            value={senha}
-            placeholder="Senha"
-            type="text"
-            autoComplete="off"
-            onChange={(event) => setSenha(event.target.value)}
-            className="w-full rounded-tile border border-line bg-surface-2 px-3 py-3 text-base text-fg"
-          />
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void criar()}
-            className="rounded-tile bg-accent py-3 font-semibold text-accent-ink disabled:opacity-60"
-          >
-            {busy ? "Salvando…" : "Criar preparador"}
-          </button>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 function SheetScreen({
   state,
-  initialMachine,
   today,
   offDay,
   onDate,
-  onTurno,
   papel,
   nome,
   onResend,
   onNotice,
 }: {
   state: State;
-  initialMachine: MachineId | null;
   today: string;
   offDay: boolean;
   onDate: (date: string) => void;
-  onTurno?: (turno: Turno) => void;
   papel: Papel;
   nome: string;
   onResend?: (entries: Entry[]) => number;
   onNotice: (text: string) => void;
 }) {
-  const [filter, setFilter] = useState<MachineId | "todas">(initialMachine ?? "todas");
   const [busy, setBusy] = useState<"foto" | "pdf" | null>(null);
   const view: State =
     papel === "preparador"
       ? { ...state, entries: state.entries.filter((entry) => entry.autor === nome) }
       : state;
-  const apontadas = MACHINES.filter((machine) => shiftEntries(view, machine).length > 0);
-  const shown = papel === "preparador" ? apontadas : filter === "todas" ? [...MACHINES] : [filter];
-  const exportMachines = papel === "preparador" ? apontadas : shown.filter((machine) => machineHasFicha(view, machine));
+  const shown = MACHINES.filter((machine) => shiftEntries(view, machine).length > 0);
   const fileBase = `perdas-${state.date}-turno-${state.turno}`;
 
   async function sendPhoto() {
-    if (exportMachines.length === 0) {
+    if (shown.length === 0) {
       onNotice("Nenhuma ficha neste turno.");
       return;
     }
     setBusy("foto");
     try {
       const files: File[] = [];
-      for (const machine of exportMachines) {
+      for (const machine of shown) {
         const blob = await renderFichaPng(view, machine);
         files.push(
           new File([blob], `${fileBase}-maquina-${machine}.png`, { type: "image/png" }),
@@ -1595,7 +1533,7 @@ function SheetScreen({
         onNotice("Foto baixada. Envie ao gestor.");
         return;
       }
-      const pdf = await renderFichasPdf(view, exportMachines);
+      const pdf = await renderFichasPdf(view, shown);
       downloadBlob(`${fileBase}.pdf`, pdf);
       onNotice("O celular não abriu o compartilhamento. O PDF foi baixado.");
     } catch {
@@ -1606,13 +1544,13 @@ function SheetScreen({
   }
 
   async function downloadPdf() {
-    if (exportMachines.length === 0) {
+    if (shown.length === 0) {
       onNotice("Nenhuma ficha neste turno.");
       return;
     }
     setBusy("pdf");
     try {
-      const pdf = await renderFichasPdf(view, exportMachines);
+      const pdf = await renderFichasPdf(view, shown);
       downloadBlob(`${fileBase}.pdf`, pdf);
       onNotice("PDF baixado. Uma máquina por folha.");
     } catch {
@@ -1625,49 +1563,23 @@ function SheetScreen({
   return (
     <div>
       {papel === "lider" ? (
-        <p className="mb-3 text-sm text-muted">
-          Você acompanha os lançamentos. Quem aponta e envia para a planilha é o preparador.
-        </p>
+        <p className="mb-3 text-sm text-muted">Só as máquinas apontadas neste turno.</p>
       ) : (
         <p className="mb-3 text-sm text-muted">
           Cada toque seu vai para a planilha, uma sola por vez. A foto e o PDF saem com o seu nome.
         </p>
       )}
-      {papel === "lider" ? <Acessos onNotice={onNotice} /> : null}
       <DayControls state={state} today={today} offDay={offDay} onDate={onDate} />
-      {onTurno ? (
-        <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
-          {(["1", "2", "3"] as const).map((turno) => (
-            <Chip key={turno} active={state.turno === turno} onClick={() => onTurno(turno)}>
-              {TURNO_LABEL[turno]}
-            </Chip>
-          ))}
-        </div>
-      ) : null}
-      {papel === "lider" ? (
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          <Chip active={filter === "todas"} onClick={() => setFilter("todas")}>
-            Todas
-          </Chip>
-          {MACHINES.map((item) => (
-            <Chip key={item} active={filter === item} onClick={() => setFilter(item)}>
-              {item}
-            </Chip>
-          ))}
-        </div>
-      ) : null}
 
       <div className="mt-4">
         {shown.length === 0 ? (
           <p className="rounded-tile border border-dashed border-line bg-surface px-4 py-6 text-base text-muted">
             {papel === "preparador"
               ? "Você ainda não apontou máquina neste turno."
-              : "Nenhuma máquina neste filtro."}
+              : "Nenhuma máquina apontada neste turno."}
           </p>
         ) : (
-          shown.map((machine) => (
-            <FichaSheet key={machine} state={view} machine={machine} force={papel === "lider" && filter !== "todas"} />
-          ))
+          shown.map((machine) => <FichaSheet key={machine} state={view} machine={machine} force={false} />)
         )}
       </div>
 
@@ -2031,27 +1943,4 @@ function FichaTable({ lines }: { lines: FichaLine[] }) {
   );
 }
 
-function Chip({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: string | number;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onClick}
-      className={cx(
-        "min-h-11 min-w-11 shrink-0 rounded-tile px-3 font-display text-xl leading-none",
-        active ? "bg-accent text-accent-ink" : "bg-surface-2 text-fg",
-      )}
-    >
-      {children}
-    </button>
-  );
-}
 

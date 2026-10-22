@@ -37,7 +37,7 @@ function cleanSenha(value: unknown) {
 
 function seed(): Conta[] {
   const lista: [string, string, Papel][] = [
-    ["0000", "0000", "lider"],
+    ["1111", "0000", "lider"],
     ["Guilherme", "guilherme123", "preparador"],
     ["Wesley", "wesley123", "preparador"],
     ["Yan", "yan123", "preparador"],
@@ -51,6 +51,7 @@ function comSeed(contas: Conta[]) {
   const map = new Map(contas.map((conta) => [chave(conta.nome), conta]));
   let changed = false;
   if (map.delete("lider")) changed = true;
+  if (map.delete("0000")) changed = true;
   for (const conta of seed()) {
     const atual = map.get(chave(conta.nome));
     if (!atual || atual.senha !== conta.senha || atual.papel !== conta.papel || atual.nome !== conta.nome) {
