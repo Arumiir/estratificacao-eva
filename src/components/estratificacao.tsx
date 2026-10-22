@@ -5,6 +5,8 @@ import {
   ChevronDown,
   ClipboardList,
   Download,
+  Eye,
+  EyeOff,
   ImageDown,
   Maximize2,
   Minus,
@@ -891,6 +893,7 @@ function PapelScreen({
 }) {
   const [nome, setNome] = useState("");
   const [senha, setSenha] = useState("");
+  const [mostraSenha, setMostraSenha] = useState(false);
   const [busy, setBusy] = useState(false);
   const [erro, setErro] = useState("");
 
@@ -935,13 +938,23 @@ function PapelScreen({
       </label>
       <label className="mt-3 block">
         <span className="mb-1 block text-sm font-semibold text-muted">Senha</span>
-        <input
-          type="password"
-          value={senha}
-          autoComplete="current-password"
-          onChange={(event) => setSenha(event.target.value)}
-          className="w-full rounded-tile border border-line bg-surface-2 px-3 py-3 text-base text-fg"
-        />
+        <span className="relative block">
+          <input
+            type={mostraSenha ? "text" : "password"}
+            value={senha}
+            autoComplete="current-password"
+            onChange={(event) => setSenha(event.target.value)}
+            className="w-full rounded-tile border border-line bg-surface-2 px-3 py-3 pr-12 text-base text-fg"
+          />
+          <button
+            type="button"
+            onClick={() => setMostraSenha((value) => !value)}
+            aria-label={mostraSenha ? "Ocultar senha" : "Mostrar senha"}
+            className="absolute inset-y-0 right-0 grid w-12 place-items-center text-muted"
+          >
+            {mostraSenha ? <EyeOff className="size-5" /> : <Eye className="size-5" />}
+          </button>
+        </span>
       </label>
       {erro ? <p className="mt-2 text-sm font-semibold text-accent">{erro}</p> : null}
       <button

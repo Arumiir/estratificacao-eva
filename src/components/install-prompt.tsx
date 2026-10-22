@@ -6,7 +6,25 @@ import {
   registerAppWorker,
 } from "@/lib/install-prompt";
 
-const DISMISS_KEY = "perdas-install-dismissed";
+const DISMISS_KEY = "perdas-install-dismissed-until";
+const TWO_DAYS = 2 * 24 * 60 * 60 * 1000;
+
+function dismissedForNow() {
+  try {
+    const until = Number(localStorage.getItem(DISMISS_KEY));
+    return Number.isFinite(until) && until > Date.now();
+  } catch {
+    return false;
+  }
+}
+
+function rememberDismiss() {
+  try {
+    localStorage.setItem(DISMISS_KEY, String(Date.now() + TWO_DAYS));
+  } catch {
+    /* sem armazenamento, o aviso só some nesta abertura */
+  }
+}
 
 export function InstallPrompt() {
   const [open, setOpen] = useState(false);
@@ -15,7 +33,7 @@ export function InstallPrompt() {
 
   useEffect(() => {
     if (isStandalone()) return;
-    if (sessionStorage.getItem(DISMISS_KEY) === "1") return;
+    if (dismissedForNow()) return;
     if (window.parent === window) registerAppWorker();
     setIos(isIosBrowser());
     setOpen(true);
@@ -24,14 +42,14 @@ export function InstallPrompt() {
   if (!open) return null;
 
   function dismiss() {
-    sessionStorage.setItem(DISMISS_KEY, "1");
+    rememberDismiss();
     setOpen(false);
   }
 
   async function install() {
     const outcome = await promptInstall();
     if (outcome === "accepted" || outcome === "dismissed") {
-      if (outcome === "dismissed") sessionStorage.setItem(DISMISS_KEY, "1");
+      if (outcome === "dismissed") rememberDismiss();
       setOpen(false);
       return;
     }
