@@ -8,7 +8,6 @@ import {
   Eye,
   EyeOff,
   ImageDown,
-  Maximize2,
   Minus,
   Plus,
   X,
@@ -24,7 +23,6 @@ import {
   describeMatrix,
   emptyConfig,
   fichaLines,
-  fichaTotal,
   formatDateBR,
   GRID_MACHINES,
   gridTargets,
@@ -1803,9 +1801,7 @@ function FichaSheet({
   onDelete?: (entries: Entry[]) => void;
 }) {
   const lines = fichaLines(state, machine);
-  const total = fichaTotal(lines);
   const filled = machineHasFicha(state, machine);
-  const [wide, setWide] = useState(false);
   const [open, setOpen] = useState(force);
   const [askDelete, setAskDelete] = useState(false);
   const mine = shiftEntries(state, machine);
@@ -1832,7 +1828,6 @@ function FichaSheet({
         <div className="flex items-end justify-between gap-3">
           <h2 className="font-display text-4xl leading-none">Máquina {machine}</h2>
           <span className="flex items-center gap-2">
-            <span className="font-display text-3xl leading-none tabular-nums">{total}</span>
             <ChevronDown className={cx("size-6 transition-transform", open && "rotate-180")} />
           </span>
         </div>
@@ -1845,14 +1840,6 @@ function FichaSheet({
       {open ? (
         <>
           <div className="grid gap-2 px-3 pt-3">
-            <button
-              type="button"
-              onClick={() => void openLandscape(setWide)}
-              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-tile bg-accent-soft font-semibold text-accent"
-            >
-              <Maximize2 className="size-5" />
-              Ver em paisagem
-            </button>
             {onDelete && mine.length > 0 ? (
               askDelete ? (
                 <div className="flex items-center gap-2 rounded-tile bg-surface-2 px-3 py-2">
@@ -1888,26 +1875,17 @@ function FichaSheet({
               )
             ) : null}
           </div>
-          <p className="px-3 py-2 text-sm text-muted">
-            Desça a tabela: os problemas ficam fixos. Para o lado, o restante das colunas.
-          </p>
-          <div className="max-h-[65dvh] overflow-auto">
-            <FichaTable lines={lines} />
-          </div>
+          <p className="px-3 pt-3 text-sm text-muted">Uma sola no lado fecha 1 par. Esquerda e direita não se somam.</p>
+          <ApontamentosLista lines={lines} />
         </>
-      ) : null}
-      {wide ? (
-        <LandscapeSheet
-          machine={machine}
-          date={formatDateBR(state.date)}
-          turno={TURNO_LABEL[state.turno]}
-          total={total}
-          lines={lines}
-          onClose={() => setWide(false)}
-        />
       ) : null}
     </section>
   );
+}
+
+function pares(solas: number): number {
+  if (solas <= 0) return 0;
+  return Math.ceil(solas / 2);
 }
 
 function TopProblems({ lines }: { lines: FichaLine[] }) {
@@ -1916,24 +1894,90 @@ function TopProblems({ lines }: { lines: FichaLine[] }) {
   return (
     <ol className="mt-3 space-y-1">
       {leaders.map((item, index) => (
-        <li key={item.name} className="flex items-center gap-2 rounded-lg bg-white/15 px-2 py-1">
+        <li key={item.name} className="flex items-start gap-2 rounded-lg bg-white/15 px-2 py-1.5">
           <span className="w-5 shrink-0 font-display text-xl leading-none">{index + 1}</span>
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold">{item.name}</span>
-          <span className="shrink-0 font-display text-2xl leading-none tabular-nums">{item.count}</span>
+          <span className="min-w-0 flex-1 text-sm font-semibold leading-snug">{item.name}</span>
+          <span className="shrink-0 text-right text-xs font-semibold leading-snug">
+            {item.solas} {item.solas === 1 ? "sola" : "solas"}
+          </span>
         </li>
       ))}
     </ol>
   );
 }
 
-function topProblems(lines: FichaLine[]): { name: string; count: number }[] {
-  const ranked = PROBLEMS.map((problem, index) => ({
-    name: problem.short,
-    count: lines.reduce((sum, line) => sum + (line.counts[index] ?? 0), 0),
-  })).sort((a, b) => b.count - a.count);
-  const acima = ranked.filter((item) => item.count > 3);
-  const lista = acima.length > 0 ? acima : ranked.filter((item) => item.count >= 2);
+function topProblems(lines: FichaLine[]): { name: string; solas: number; pares: number }[] {
+  const ranked = PROBLEMS.map((problem, index) => {
+    const solas = lines.reduce((sum, line) => sum + (line.counts[index] ?? 0), 0);
+    const emPares = lines.reduce((sum, line) => sum + pares(line.counts[index] ?? 0), 0);
+    return { name: problem.name, solas, pares: emPares };
+  }).sort((a, b) => b.solas - a.solas);
+  const acima = ranked.filter((item) => item.solas > 3);
+  const lista = acima.length > 0 ? acima : ranked.filter((item) => item.solas >= 2);
   return lista.slice(0, 3);
+}
+
+function ApontamentosLista({ lines }: { lines: FichaLine[] }) {
+  const stations = STATIONS.flatMap((station) => {
+    const rows = SIDES.flatMap((side) => {
+      const line = lines.find((item) => item.station === station && item.side === side);
+      if (!line) return [];
+      const items = PROBLEMS.flatMap((problem, index) => {
+        const solas = line.counts[index] ?? 0;
+        if (solas <= 0) return [];
+        return [{ id: problem.id, name: problem.name, solas, pares: pares(solas) }];
+      });
+      if (items.length === 0) return [];
+      const solas = items.reduce((sum, item) => sum + item.solas, 0);
+      return [{ side, numero: line.numero, referencia: line.referencia, shared: line.shared, items, solas, pares: pares(solas) }];
+    });
+    if (rows.length === 0) return [];
+    return [{ station, rows }];
+  });
+
+  if (stations.length === 0) {
+    return <p className="px-3 py-4 text-sm text-muted">Nenhuma perda apontada nesta máquina.</p>;
+  }
+
+  return (
+    <div className="grid gap-2 px-3 py-3">
+      {stations.map((station) => (
+        <section key={station.station} className="rounded-tile border border-line bg-surface-2 p-3">
+          <h3 className="font-display text-2xl leading-none">Estação {pad2(station.station)}</h3>
+          {station.rows.map((row) => (
+            <div key={row.side} className="mt-3 border-t border-line pt-3">
+              <div className="flex items-start justify-between gap-3">
+                <p className="min-w-0 text-sm font-semibold leading-snug text-accent">
+                  {SIDE_LABEL[row.side]}
+                  {row.numero || row.referencia
+                    ? ` · Nº ${row.numero || "—"}${row.referencia ? ` · Ref. ${row.referencia}` : ""}`
+                    : ""}
+                </p>
+                <p className="shrink-0 text-right leading-none">
+                  <span className="block font-display text-2xl tabular-nums">
+                    {row.pares} {row.pares === 1 ? "par" : "pares"}
+                  </span>
+                  <span className="text-xs font-semibold text-muted">
+                    {row.solas} {row.solas === 1 ? "sola" : "solas"}
+                  </span>
+                </p>
+              </div>
+              <ul className="mt-1">
+                {row.items.map((item) => (
+                  <li key={item.id} className="border-b border-line py-2 text-sm font-semibold leading-snug last:border-b-0">
+                    {item.name}
+                    <span className="mt-0.5 block text-xs font-semibold text-muted">
+                      {item.solas} {item.solas === 1 ? "sola" : "solas"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </section>
+      ))}
+    </div>
+  );
 }
 
 function LandscapeSheet({
