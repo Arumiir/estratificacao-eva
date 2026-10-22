@@ -1736,13 +1736,13 @@ function TopProblems({ lines }: { lines: FichaLine[] }) {
 }
 
 function topProblems(lines: FichaLine[]): { name: string; count: number }[] {
-  return PROBLEMS.map((problem, index) => ({
+  const ranked = PROBLEMS.map((problem, index) => ({
     name: problem.short,
     count: lines.reduce((sum, line) => sum + (line.counts[index] ?? 0), 0),
-  }))
-    .filter((item) => item.count > 3)
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 3);
+  })).sort((a, b) => b.count - a.count);
+  const acima = ranked.filter((item) => item.count > 3);
+  const lista = acima.length > 0 ? acima : ranked.filter((item) => item.count >= 2);
+  return lista.slice(0, 3);
 }
 
 function LandscapeSheet({
