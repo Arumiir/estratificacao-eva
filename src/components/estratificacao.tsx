@@ -1740,7 +1740,7 @@ function topProblems(lines: FichaLine[]): { name: string; count: number }[] {
     name: problem.short,
     count: lines.reduce((sum, line) => sum + (line.counts[index] ?? 0), 0),
   }))
-    .filter((item) => item.count > 0)
+    .filter((item) => item.count > 3)
     .sort((a, b) => b.count - a.count)
     .slice(0, 3);
 }
