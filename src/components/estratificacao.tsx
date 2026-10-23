@@ -131,6 +131,27 @@ function usePerdas() {
   }, []);
 
   useEffect(() => {
+    function snapToToday() {
+      const today = todayISO();
+      setState((current) => {
+        if (!current || current.date === today) return current;
+        const next = { ...current, date: today };
+        ref.current = next;
+        return next;
+      });
+    }
+    function onVisible() {
+      if (document.visibilityState === "visible") snapToToday();
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("pageshow", snapToToday);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pageshow", snapToToday);
+    };
+  }, []);
+
+  useEffect(() => {
     if (state) saveState(state);
   }, [state]);
 

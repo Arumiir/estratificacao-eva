@@ -336,10 +336,7 @@ export function loadState(): State {
     return {
       stations,
       entries,
-      date:
-        typeof data.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(data.date)
-          ? data.date
-          : base.date,
+      date: base.date,
       turno: parseTurno(data.turno) ?? base.turno,
     };
   } catch {
