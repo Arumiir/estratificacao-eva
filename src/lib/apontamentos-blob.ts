@@ -52,14 +52,34 @@ async function readDay(date: string): Promise<{ bag: DayBag; etag: string | null
   return { bag: { entries, removed, grades: readGrades(parsed.grades) }, etag: result.blob.etag };
 }
 
+function etagForms(etag: string | null): Array<string | null> {
+  if (!etag) return [null];
+  const bare = etag.replace(/^W\//, "").replace(/^"|"$/g, "");
+  const forms = [etag, bare, `"${bare}"`].filter((item, index, list) => item && list.indexOf(item) === index);
+  return [...forms, null];
+}
+
 async function writeDay(date: string, bag: DayBag, etag: string | null) {
   const { put } = await import("@vercel/blob");
-  await put(pathFor(date), JSON.stringify(bag), {
-    access: "private",
-    addRandomSuffix: false,
-    contentType: "application/json",
-    ...(etag ? { ifMatch: etag } : {}),
-  });
+  const body = JSON.stringify(bag);
+  let lastError: unknown;
+  for (const match of etagForms(etag)) {
+    try {
+      await put(pathFor(date), body, {
+        access: "private",
+        addRandomSuffix: false,
+        allowOverwrite: true,
+        contentType: "application/json",
+        ...(match ? { ifMatch: match } : {}),
+      });
+      return;
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : "";
+      if (!match || !/etag|precondition/i.test(message)) throw error;
+    }
+  }
+  throw lastError;
 }
 
 export async function pullDay(date: string): Promise<DayBag> {
