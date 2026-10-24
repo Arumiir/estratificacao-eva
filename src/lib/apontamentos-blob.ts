@@ -1,5 +1,5 @@
 import type { Entry, StationConfig } from "@/lib/perdas";
-import { coerceEntry, readGrades } from "@/lib/perdas";
+import { apontamentoBloqueado, coerceEntry, readGrades } from "@/lib/perdas";
 
 type DayBag = { entries: Entry[]; removed: string[]; grades: Record<string, StationConfig> };
 
@@ -12,21 +12,33 @@ export function applyDayChanges(
   grades: Record<string, StationConfig> = {},
 ): DayBag {
   const gone = new Set(day.removed);
-  for (const item of removed) gone.add(item.id);
+  const blocked = new Set(day.entries.filter((entry) => apontamentoBloqueado(entry)).map((entry) => entry.id));
+  for (const item of removed) {
+    if (!blocked.has(item.id)) gone.add(item.id);
+  }
   const map = new Map<string, Entry>();
   for (const entry of day.entries) {
     if (!gone.has(entry.id)) map.set(entry.id, entry);
   }
-  const removedNow = new Set(removed.map((item) => item.id));
+  const removedNow = new Set(removed.filter((item) => !blocked.has(item.id)).map((item) => item.id));
   for (const entry of upserts) {
     if (removedNow.has(entry.id)) continue;
+    const prev = map.get(entry.id);
+    if (prev && apontamentoBloqueado(prev)) continue;
     gone.delete(entry.id);
     map.set(entry.id, entry);
+  }
+  const nextGrades = { ...day.grades };
+  for (const [key, config] of Object.entries(readGrades(grades))) {
+    const prevAt = nextGrades[key]?.salvoEm ?? 0;
+    const nextAt = config.salvoEm ?? 0;
+    if (nextGrades[key] && prevAt > nextAt) continue;
+    nextGrades[key] = config;
   }
   return {
     entries: [...map.values()],
     removed: [...gone],
-    grades: { ...day.grades, ...readGrades(grades) },
+    grades: nextGrades,
   };
 }
 

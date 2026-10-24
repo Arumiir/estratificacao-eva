@@ -20,6 +20,7 @@ import {
   SIDES,
   STATIONS,
   activeMatrix,
+  apontamentoBloqueado,
   describeMatrix,
   emptyConfig,
   fichaLines,
@@ -159,7 +160,7 @@ function usePerdas() {
   const lastEntries = useRef<State["entries"] | null>(null);
   const held = useRef<Set<string>>(new Set());
   const dirtyGrades = useRef<Set<string>>(new Set());
-  const seededGrades = useRef(false);
+  const gradesGen = useRef(0);
   const excelSent = useRef<Set<string>>(loadExcelSent());
   const excelQueue = useRef<Array<{ entry: Entry; solas: 1 | -1 }>>([]);
   const excelBusy = useRef(false);
@@ -227,7 +228,9 @@ function usePerdas() {
     if (!state) return;
     if (!synced.current) synced.current = new Set();
     const known = synced.current;
-    const stamped = state.entries.map((entry) => withMatrix(entry, state.stations));
+    const stamped = state.entries.map((entry) =>
+      apontamentoBloqueado(entry) ? entry : withMatrix(entry, state.stations),
+    );
     if (stamped.some((entry, index) => entry !== state.entries[index])) {
       for (const entry of stamped) {
         const before = state.entries.find((item) => item.id === entry.id);
@@ -244,12 +247,6 @@ function usePerdas() {
     const removed = (previous ?? []).filter((entry) => !state.entries.some((item) => item.id === entry.id));
     for (const entry of removed) held.current.add(entry.id);
     const grades: Record<string, StationConfig> = {};
-    if (!seededGrades.current) {
-      seededGrades.current = true;
-      for (const [key, config] of Object.entries(state.stations)) {
-        if (gradeHasNumbers(config)) grades[key] = config;
-      }
-    }
     for (const key of dirtyGrades.current) {
       const config = state.stations[key];
       if (config && gradeHasNumbers(config)) grades[key] = config;
@@ -264,11 +261,13 @@ function usePerdas() {
       for (const entry of removed) queueRemoval(entry);
     }
     const sentGrades = Object.keys(grades);
+    const gen = gradesGen.current;
     void pushApontamentos({ data: { upserts, removed, grades, date: state.date } })
       .then((result) => {
         setCloud(result.cloud);
         for (const entry of upserts) known.add(entry.id);
         for (const item of removed) known.delete(item.id);
+        if (gradesGen.current !== gen) return;
         for (const key of sentGrades) dirtyGrades.current.delete(key);
       })
       .catch(() => {});
@@ -283,6 +282,9 @@ function usePerdas() {
     let stationsChanged = false;
     for (const [key, config] of Object.entries(remote.grades ?? {})) {
       if (dirtyGrades.current.has(key) || !gradeHasNumbers(config)) continue;
+      const localAt = stations[key]?.salvoEm ?? 0;
+      const remoteAt = config.salvoEm ?? 0;
+      if (localAt > remoteAt) continue;
       if (JSON.stringify(stations[key]) !== JSON.stringify(config)) {
         stations[key] = config;
         stationsChanged = true;
@@ -291,7 +293,9 @@ function usePerdas() {
     const merged = mergeSharedEntries(current.entries, remote.entries, remote.removed, current.date).filter(
       (entry) => !held.current.has(entry.id),
     );
-    const entries = merged.map((entry) => withMatrix(entry, stations));
+    const entries = merged.map((entry) =>
+      apontamentoBloqueado(entry) ? entry : withMatrix(entry, stations),
+    );
     if (!synced.current) synced.current = new Set();
     for (let index = 0; index < entries.length; index += 1) {
       const entry = entries[index];
@@ -315,7 +319,9 @@ function usePerdas() {
   async function refresh() {
     const current = ref.current;
     if (!current) return false;
+    const gen = gradesGen.current;
     const remote = await pullApontamentos({ data: { date: current.date } });
+    if (gradesGen.current !== gen) return true;
     setCloud(remote.cloud);
     const next = takeRemote(current, remote);
     if (next === current) return true;
@@ -350,9 +356,10 @@ function usePerdas() {
   useEffect(() => {
     if (!state) return;
     let cancel = false;
+    const gen = gradesGen.current;
     void pullApontamentos({ data: { date: state.date } })
       .then((remote) => {
-        if (cancel || !ref.current || ref.current.date !== state.date) return;
+        if (cancel || !ref.current || ref.current.date !== state.date || gradesGen.current !== gen) return;
         setCloud(remote.cloud);
         const next = takeRemote(ref.current, remote);
         if (next === ref.current) return;
@@ -374,6 +381,7 @@ function usePerdas() {
   }
 
   function markGrades(keys: string[]) {
+    gradesGen.current += 1;
     for (const key of keys) dirtyGrades.current.add(key);
   }
 
@@ -577,6 +585,10 @@ export function EstratificacaoApp() {
     if (!current) return;
     const entry = current.entries.find((item) => item.id === id);
     if (!entry) return;
+    if (apontamentoBloqueado(entry)) {
+      flash("1º turno até 14:49 está bloqueado.");
+      return;
+    }
     commit((s) => ({ ...s, entries: s.entries.filter((item) => item.id !== id) }));
     flash(label, () => restore(entry));
   }
@@ -614,12 +626,13 @@ export function EstratificacaoApp() {
   }
 
   function saveGrade(machine: MachineId, configs: StationConfig[]) {
+    const salvoEm = Date.now();
     markGrades(STATIONS.map((station) => stationKey(machine, station)));
     commit((current) => {
       const stations = { ...current.stations };
       STATIONS.forEach((station, index) => {
         const config = configs[index];
-        if (config) stations[stationKey(machine, station)] = config;
+        if (config) stations[stationKey(machine, station)] = { ...config, salvoEm };
       });
       return { ...current, stations };
     });
@@ -671,27 +684,33 @@ export function EstratificacaoApp() {
   function removeLast(machine: MachineId, station: number, side: Side, problem: string) {
     const current = read();
     if (!current) return;
-    const match = [...current.entries]
-      .reverse()
-      .find(
-        (entry) =>
-          inShift(entry, current) &&
-          entry.machine === machine &&
-          entry.station === station &&
-          entry.side === side &&
-          entry.problem === problem &&
-          sameAuthor(entry),
-      );
-    if (!match) return;
+    const pool = current.entries.filter(
+      (entry) =>
+        inShift(entry, current) &&
+        entry.machine === machine &&
+        entry.station === station &&
+        entry.side === side &&
+        entry.problem === problem &&
+        sameAuthor(entry),
+    );
+    const match = [...pool].reverse().find((entry) => !apontamentoBloqueado(entry));
+    if (!match) {
+      if (pool.some((entry) => apontamentoBloqueado(entry))) flash("1º turno até 14:49 está bloqueado.");
+      return;
+    }
     removeEntry(match.id, "Um lançamento tirado");
   }
 
   function removeMany(ids: string[], label: string) {
     const current = read();
     if (!current || ids.length === 0) return;
-    const gone = current.entries.filter((entry) => ids.includes(entry.id));
-    if (gone.length === 0) return;
-    commit((s) => ({ ...s, entries: s.entries.filter((entry) => !ids.includes(entry.id)) }));
+    const gone = current.entries.filter((entry) => ids.includes(entry.id) && !apontamentoBloqueado(entry));
+    if (gone.length === 0) {
+      flash("1º turno até 14:49 está bloqueado.");
+      return;
+    }
+    const drop = new Set(gone.map((entry) => entry.id));
+    commit((s) => ({ ...s, entries: s.entries.filter((entry) => !drop.has(entry.id)) }));
     flash(label, () => {
       releaseHold(gone.map((entry) => entry.id));
       commit((s) => ({
@@ -1826,6 +1845,7 @@ function FichaSheet({
   const [open, setOpen] = useState(force);
   const [askDelete, setAskDelete] = useState(false);
   const mine = shiftEntries(state, machine);
+  const editable = mine.filter((entry) => !apontamentoBloqueado(entry));
   useEffect(() => {
     setOpen(force);
   }, [force, machine]);
@@ -1861,11 +1881,11 @@ function FichaSheet({
       {open ? (
         <>
           <div className="grid gap-2 px-3 pt-3">
-            {onDelete && mine.length > 0 ? (
+            {onDelete && editable.length > 0 ? (
               askDelete ? (
                 <div className="flex items-center gap-2 rounded-tile bg-surface-2 px-3 py-2">
                   <span className="min-w-0 flex-1 text-sm font-semibold">
-                    Excluir {mine.length} apontamento{mine.length === 1 ? "" : "s"} desta máquina?
+                    Excluir {editable.length} apontamento{editable.length === 1 ? "" : "s"} desta máquina?
                   </span>
                   <button
                     type="button"
@@ -1878,7 +1898,7 @@ function FichaSheet({
                     type="button"
                     onClick={() => {
                       setAskDelete(false);
-                      onDelete(mine);
+                      onDelete(editable);
                     }}
                     className="shrink-0 rounded-tile bg-[#9b3a34] px-3 py-2 text-sm font-semibold text-white"
                   >
@@ -1896,7 +1916,10 @@ function FichaSheet({
               )
             ) : null}
           </div>
-          <p className="px-3 pt-3 text-sm text-muted">Uma sola no lado fecha 1 par. Esquerda e direita não se somam.</p>
+          <p className="px-3 pt-3 text-sm text-muted">
+            Uma sola no lado fecha 1 par. Esquerda e direita não se somam.
+            {mine.length > editable.length ? " 1º turno até 14:49 não sai." : ""}
+          </p>
           <ApontamentosLista lines={lines} />
         </>
       ) : null}

@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { pullDay, pushDays } from "@/lib/apontamentos-blob";
 import { dbSource, getSql } from "@/lib/db";
-import { coerceEntry, problemName, readGrades, type Entry, type StationConfig } from "@/lib/perdas";
+import { apontamentoBloqueado, coerceEntry, problemName, readGrades, type Entry, type StationConfig } from "@/lib/perdas";
 
 type SyncResult = {
   entries: Entry[];
@@ -109,6 +109,11 @@ export const pushApontamentos = createServerFn({ method: "POST" })
     }
     const sql = await getSql();
     for (const item of data.removed) {
+      const existing = await sql<{ date: string; turno: string; at: number }>`
+        select date, turno, at from apontamentos where id = ${item.id}
+      `;
+      const row = existing[0];
+      if (row && apontamentoBloqueado({ date: row.date, turno: row.turno, at: Number(row.at) })) continue;
       await sql`delete from apontamentos where id = ${item.id}`;
       await sql`
         insert into apontamentos_removidos (id, date)
@@ -119,6 +124,11 @@ export const pushApontamentos = createServerFn({ method: "POST" })
     const removedIds = new Set(data.removed.map((item) => item.id));
     for (const entry of data.upserts) {
       if (removedIds.has(entry.id)) continue;
+      const existing = await sql<{ date: string; turno: string; at: number }>`
+        select date, turno, at from apontamentos where id = ${entry.id}
+      `;
+      const row = existing[0];
+      if (row && apontamentoBloqueado({ date: row.date, turno: row.turno, at: Number(row.at) })) continue;
       await sql`delete from apontamentos_removidos where id = ${entry.id}`;
       await sql`
         insert into apontamentos (id, date, turno, machine, station, side, problem, at, numero, referencia, autor)
@@ -141,6 +151,11 @@ export const pushApontamentos = createServerFn({ method: "POST" })
     }
     if (data.date) {
       for (const [key, config] of Object.entries(data.grades)) {
+        const existing = await sql<{ config: StationConfig }>`
+          select config from grades where date = ${data.date} and key = ${key}
+        `;
+        const prevAt = existing[0]?.config?.salvoEm ?? 0;
+        if (existing[0] && prevAt > (config.salvoEm ?? 0)) continue;
         await sql`
           insert into grades (date, key, config)
           values (${data.date}, ${key}, ${JSON.stringify(config)}::jsonb)

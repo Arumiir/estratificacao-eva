@@ -30,6 +30,7 @@ export type StationConfig = {
   referencia: string;
   esq: MatrixSlot;
   dir: MatrixSlot;
+  salvoEm?: number;
 };
 
 export type Entry = {
@@ -77,6 +78,10 @@ export const SIDE_SHORT: Record<Side, string> = {
 };
 
 const KEY = "estratificacao-perdas-v1";
+
+export function apontamentoBloqueado(entry: { date: string; turno: string; at: number }): boolean {
+  return entry.date === "2026-10-24" && entry.turno === "1" && entry.at <= Date.parse("2026-10-24T14:49:00-03:00");
+}
 
 export function todayISO(now = new Date()): string {
   const y = now.getFullYear();
@@ -257,6 +262,10 @@ function readSlot(v: unknown): MatrixSlot {
   };
 }
 
+function withSavedAt(config: StationConfig, raw: Record<string, unknown>): StationConfig {
+  return typeof raw.salvoEm === "number" && Number.isFinite(raw.salvoEm) ? { ...config, salvoEm: raw.salvoEm } : config;
+}
+
 function readConfig(v: unknown): StationConfig | null {
   if (!isRecord(v)) return null;
   if (v.mode === "uma" || v.mode === "duas") {
@@ -264,24 +273,30 @@ function readConfig(v: unknown): StationConfig | null {
     const dir = readSlot(v.dir);
     if (v.mode === "uma") {
       const lado = v.lado === "dir" ? "dir" : "esq";
-      return {
-        ambos: false,
-        numero: "",
-        referencia: "",
-        esq: lado === "esq" ? esq : emptySlot(),
-        dir: lado === "dir" ? dir : emptySlot(),
-      };
+      return withSavedAt(
+        {
+          ambos: false,
+          numero: "",
+          referencia: "",
+          esq: lado === "esq" ? esq : emptySlot(),
+          dir: lado === "dir" ? dir : emptySlot(),
+        },
+        v,
+      );
     }
-    return { ambos: false, numero: "", referencia: "", esq, dir };
+    return withSavedAt({ ambos: false, numero: "", referencia: "", esq, dir }, v);
   }
   if (typeof v.ambos !== "boolean") return null;
-  return {
-    ambos: v.ambos,
-    numero: typeof v.numero === "string" ? v.numero : "",
-    referencia: typeof v.referencia === "string" ? v.referencia : "",
-    esq: readSlot(v.esq),
-    dir: readSlot(v.dir),
-  };
+  return withSavedAt(
+    {
+      ambos: v.ambos,
+      numero: typeof v.numero === "string" ? v.numero : "",
+      referencia: typeof v.referencia === "string" ? v.referencia : "",
+      esq: readSlot(v.esq),
+      dir: readSlot(v.dir),
+    },
+    v,
+  );
 }
 
 export function coerceEntry(v: unknown): Entry | null {
