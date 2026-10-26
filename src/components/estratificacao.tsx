@@ -43,6 +43,7 @@ import {
   turnoPeloRelogio,
   TURNO_LABEL,
   withMatrix,
+  diasAte,
   gradeHasNumbers,
   type Entry,
   type FichaLine,
@@ -54,7 +55,7 @@ import {
   type Turno,
 } from "@/lib/perdas";
 import { downloadBlob, renderFichaPng, renderFichasPdf } from "@/lib/ficha-image";
-import { enviarPlanilha, pullApontamentos, pushApontamentos } from "@/lib/apontamentos.functions";
+import { enviarPlanilha, pullApontamentos, pullHistorico, pushApontamentos } from "@/lib/apontamentos.functions";
 import { entrar } from "@/lib/login.functions";
 
 type Papel = "preparador" | "lider";
@@ -1715,6 +1716,7 @@ function SheetScreen({
 }) {
   const [busy, setBusy] = useState<"foto" | "pdf" | null>(null);
   const [fotoPick, setFotoPick] = useState(false);
+  const [aba, setAba] = useState<"turno" | "historico">("turno");
   const view: State =
     papel === "preparador"
       ? { ...state, entries: state.entries.filter((entry) => entry.autor === nome) }
@@ -1864,21 +1866,312 @@ function SheetScreen({
       </div>
       </div>
       <div className="hidden lg:block">
-        <PainelMesa
-          state={view}
-          today={today}
-          offDay={offDay}
-          onDate={onDate}
-          papel={papel}
-          shown={shown}
-          busy={busy}
-          onPhoto={(machine) => void sendPhoto(machine)}
-          onPdf={() => void downloadPdf()}
-          onDelete={onDelete}
-        />
+        <div className="mb-3 flex gap-1 border-b border-[#c8c6c4]">
+          {(
+            [
+              ["turno", "Turno"],
+              ["historico", "Histórico"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setAba(id)}
+              className={cx(
+                "px-4 py-2 text-sm font-semibold",
+                aba === id ? "border-b-2 border-accent text-accent" : "text-muted",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {aba === "turno" ? (
+          <PainelMesa
+            state={view}
+            today={today}
+            offDay={offDay}
+            onDate={onDate}
+            papel={papel}
+            shown={shown}
+            busy={busy}
+            onPhoto={(machine) => void sendPhoto(machine)}
+            onPdf={() => void downloadPdf()}
+            onDelete={onDelete}
+          />
+        ) : (
+          <PainelHistorico state={state} today={today} onDate={onDate} />
+        )}
       </div>
     </>
   );
+}
+
+function PainelHistorico({
+  state,
+  today,
+  onDate,
+}: {
+  state: State;
+  today: string;
+  onDate: (date: string) => void;
+}) {
+  const [remoto, setRemoto] = useState<Entry[] | null>(null);
+  const [erro, setErro] = useState(false);
+  const [turno, setTurno] = useState<Turno | "todos">("todos");
+  const datas = diasAte(state.date, 31);
+  const semana = new Set(diasAte(state.date, 7));
+  const mes = new Set(datas);
+
+  useEffect(() => {
+    let ativo = true;
+    setRemoto(null);
+    setErro(false);
+    pullHistorico({ data: { ate: state.date, dias: 31 } })
+      .then((resultado) => {
+        if (ativo) setRemoto(resultado.entries);
+      })
+      .catch(() => {
+        if (ativo) setErro(true);
+      });
+    return () => {
+      ativo = false;
+    };
+  }, [state.date]);
+
+  const entradas = juntarHistorico(remoto ?? [], state.entries, mes).filter(
+    (entry) => turno === "todos" || entry.turno === turno,
+  );
+  const doDia = entradas.filter((entry) => entry.date === state.date);
+  const daSemana = entradas.filter((entry) => semana.has(entry.date));
+  const porDia = new Map<string, number>();
+  for (const dia of datas) porDia.set(dia, 0);
+  for (const entry of entradas) porDia.set(entry.date, (porDia.get(entry.date) ?? 0) + 1);
+  const maxDia = Math.max(1, ...porDia.values());
+  const porMaquina = MACHINES.map((machine) => ({
+    machine,
+    solas: entradas.filter((entry) => entry.machine === machine).length,
+  }))
+    .filter((item) => item.solas > 0)
+    .sort((a, b) => b.solas - a.solas);
+  const maxMaquina = Math.max(1, ...porMaquina.map((item) => item.solas));
+  const porProblema = PROBLEMS.map((problem) => ({
+    name: problem.name,
+    solas: entradas.filter((entry) => entry.problem === problem.id).length,
+  }))
+    .filter((item) => item.solas > 0)
+    .sort((a, b) => b.solas - a.solas);
+  const maxProblema = Math.max(1, ...porProblema.map((item) => item.solas));
+  const total = entradas.length;
+
+  return (
+    <div className="grid gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#c8c6c4] pb-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">
+            Dados já salvos · até {formatDateBR(state.date)}
+          </p>
+          <h2 className="font-display text-4xl leading-none text-fg">Histórico</h2>
+          <p className="mt-1 text-sm text-muted">
+            {erro
+              ? "Não leu a nuvem. Mostrando o que este computador já tem."
+              : remoto === null
+                ? "Lendo os últimos 31 dias…"
+                : `${total} solas no recorte · ${turno === "todos" ? "todos os turnos" : TURNO_LABEL[turno]}`}
+          </p>
+        </div>
+        <label className="text-xs font-semibold text-muted">
+          Até
+          <input
+            type="date"
+            value={state.date}
+            onChange={(event) => onDate(event.target.value)}
+            className="mt-1 block rounded border border-[#c8c6c4] bg-white px-2 py-2 text-sm font-semibold text-fg"
+          />
+        </label>
+      </div>
+
+      <div className="flex flex-wrap gap-1">
+        {(
+          [
+            ["todos", "Todos os turnos"],
+            ["1", "1º TURNO"],
+            ["2", "2º TURNO"],
+            ["3", "3º TURNO"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setTurno(id)}
+            className={cx(
+              "rounded px-3 py-1.5 text-sm font-semibold",
+              turno === id ? "bg-accent text-accent-ink" : "bg-white text-fg",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+        {state.date !== today ? (
+          <button type="button" onClick={() => onDate(today)} className="rounded px-3 py-1.5 text-sm font-semibold text-accent">
+            Hoje
+          </button>
+        ) : null}
+      </div>
+
+      <section className="rounded-md border border-[#e1dfdd] bg-white p-3 shadow-[0_1.6px_3.6px_rgba(0,0,0,.12)]">
+        <h3 className="text-sm font-semibold">Solas por dia</h3>
+        <p className="text-xs text-muted">31 dias até {formatDateBR(state.date)}. O dia marcado é o recorte do ranking diário.</p>
+        <div className="mt-3 flex h-44 items-end gap-1">
+          {datas.map((dia) => {
+            const valor = porDia.get(dia) ?? 0;
+            const rotulo = dia.slice(8);
+            return (
+              <div key={dia} className="flex h-full min-w-0 flex-1 flex-col justify-end">
+                <div className="flex h-36 items-end">
+                  <div
+                    title={`${formatDateBR(dia)} · ${valor} solas`}
+                    className={cx("w-full rounded-sm", dia === state.date ? "bg-accent" : "bg-[#8fb0cb]")}
+                    style={{ height: `${Math.max(valor > 0 ? 8 : 2, (valor / maxDia) * 100)}%` }}
+                  />
+                </div>
+                <span className={cx("mt-1 text-center text-[10px] tabular-nums", dia === state.date ? "font-semibold text-accent" : "text-muted")}>
+                  {rotulo}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <div className="grid gap-3 xl:grid-cols-2">
+        <section className="rounded-md border border-[#e1dfdd] bg-white p-3 shadow-[0_1.6px_3.6px_rgba(0,0,0,.12)]">
+          <h3 className="text-sm font-semibold">Máquinas no período</h3>
+          <div className="mt-3 grid gap-2">
+            {porMaquina.length === 0 ? (
+              <p className="text-sm text-muted">Sem apontamento salvo nesse recorte.</p>
+            ) : (
+              porMaquina.map((item) => (
+                <div key={item.machine} className="grid grid-cols-[4.5rem_minmax(0,1fr)_4.5rem] items-center gap-2">
+                  <span className="text-xs font-semibold">{item.machine}</span>
+                  <span className="h-5 overflow-hidden rounded-sm bg-[#f3f2f1]">
+                    <span className="block h-full rounded-sm bg-accent" style={{ width: `${Math.max(4, (item.solas / maxMaquina) * 100)}%` }} />
+                  </span>
+                  <span className="text-right text-xs font-semibold tabular-nums">
+                    {item.solas} · {total > 0 ? Math.round((item.solas / total) * 100) : 0}%
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+        <section className="rounded-md border border-[#e1dfdd] bg-white p-3 shadow-[0_1.6px_3.6px_rgba(0,0,0,.12)]">
+          <h3 className="text-sm font-semibold">Perdas no período</h3>
+          <div className="mt-3 grid gap-2">
+            {porProblema.length === 0 ? (
+              <p className="text-sm text-muted">Sem apontamento salvo nesse recorte.</p>
+            ) : (
+              porProblema.map((item) => (
+                <div key={item.name} className="grid grid-cols-[minmax(0,1fr)_4.5rem] items-center gap-2">
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold leading-snug">{item.name}</p>
+                    <span className="mt-1 block h-2.5 overflow-hidden rounded-sm bg-[#f3f2f1]">
+                      <span className="block h-full rounded-sm bg-accent" style={{ width: `${Math.max(4, (item.solas / maxProblema) * 100)}%` }} />
+                    </span>
+                  </div>
+                  <span className="text-right text-xs font-semibold tabular-nums">
+                    {item.solas} · {total > 0 ? Math.round((item.solas / total) * 100) : 0}%
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+      </div>
+
+      <div className="grid gap-3 xl:grid-cols-3">
+        <RankingNumeros titulo="5 piores números do dia" detalhe={formatDateBR(state.date)} entries={doDia} />
+        <RankingNumeros titulo="5 piores da semana" detalhe="7 dias até a data" entries={daSemana} />
+        <RankingNumeros titulo="5 piores do mês" detalhe="31 dias até a data" entries={entradas} />
+      </div>
+    </div>
+  );
+}
+
+function RankingNumeros({
+  titulo,
+  detalhe,
+  entries,
+}: {
+  titulo: string;
+  detalhe: string;
+  entries: Entry[];
+}) {
+  const lista = rankNumeros(entries);
+  return (
+    <section className="rounded-md border border-[#e1dfdd] bg-white p-3 shadow-[0_1.6px_3.6px_rgba(0,0,0,.12)]">
+      <h3 className="text-sm font-semibold">{titulo}</h3>
+      <p className="text-xs text-muted">{detalhe} · {entries.length} solas</p>
+      {lista.length === 0 ? (
+        <p className="mt-3 text-sm text-muted">Sem número apontado.</p>
+      ) : (
+        <ol className="mt-3 grid gap-2">
+          {lista.map((item, index) => (
+            <li key={item.chave} className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2 border-b border-[#f3f2f1] pb-2 last:border-b-0">
+              <span className="font-display text-2xl leading-none text-accent">{index + 1}</span>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold leading-snug">
+                  Nº {item.numero}
+                  {item.referencia ? ` · Ref. ${item.referencia}` : ""}
+                </p>
+                <p className="text-xs text-muted">{item.maquinas}</p>
+                <p className="text-xs font-semibold tabular-nums">
+                  {item.solas} solas · {item.pares} {item.pares === 1 ? "par" : "pares"} · {item.percentual}%
+                </p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  );
+}
+
+function juntarHistorico(remoto: Entry[], local: Entry[], datas: Set<string>): Entry[] {
+  const mapa = new Map(remoto.filter((entry) => datas.has(entry.date)).map((entry) => [entry.id, entry]));
+  for (const entry of local) {
+    if (datas.has(entry.date) && !mapa.has(entry.id)) mapa.set(entry.id, entry);
+  }
+  return [...mapa.values()];
+}
+
+function rankNumeros(entries: Entry[]) {
+  const grupos = new Map<string, { numero: string; referencia: string; machines: Map<string, number>; solas: number }>();
+  for (const entry of entries) {
+    const numero = entry.matrizNumero.trim();
+    const referencia = entry.matrizRel.trim();
+    const chave = `${numero}||${referencia}`;
+    const atual = grupos.get(chave) ?? { numero, referencia, machines: new Map<string, number>(), solas: 0 };
+    atual.solas += 1;
+    atual.machines.set(entry.machine, (atual.machines.get(entry.machine) ?? 0) + 1);
+    grupos.set(chave, atual);
+  }
+  const total = entries.length;
+  return [...grupos.values()]
+    .map((item) => ({
+      chave: `${item.numero}||${item.referencia}`,
+      numero: item.numero || "sem nº",
+      referencia: item.referencia,
+      maquinas: [...item.machines.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([machine]) => machine)
+        .join(" · "),
+      solas: item.solas,
+      pares: pares(item.solas),
+      percentual: total > 0 ? Math.round((item.solas / total) * 100) : 0,
+    }))
+    .sort((a, b) => b.solas - a.solas || a.numero.localeCompare(b.numero, "pt-BR"))
+    .slice(0, 5);
 }
 
 function PainelMesa({

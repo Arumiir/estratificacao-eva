@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { pullDay, pushDays } from "@/lib/apontamentos-blob";
 import { dbSource, getSql } from "@/lib/db";
-import { apontamentoBloqueado, coerceEntry, podeAlterarApontamento, problemName, readGrades, todayISO, turnoPeloRelogio, type Entry, type StationConfig } from "@/lib/perdas";
+import { apontamentoBloqueado, coerceEntry, diasAte, podeAlterarApontamento, problemName, readGrades, todayISO, turnoPeloRelogio, type Entry, type StationConfig } from "@/lib/perdas";
 
 type SyncResult = {
   entries: Entry[];
@@ -225,4 +225,57 @@ export const pullApontamentos = createServerFn({ method: "POST" })
       Object.fromEntries(gradeRows.map((row) => [row.key, row.config])),
     );
     return { entries, removed: removedRows.map((row) => row.id), grades, cloud: cloudOn() };
+  });
+
+export const pullHistorico = createServerFn({ method: "POST" })
+  .validator((data: { ate?: unknown; dias?: unknown }) => {
+    const ate = typeof data?.ate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(data.ate) ? data.ate : "";
+    const dias = typeof data?.dias === "number" && Number.isFinite(data.dias) ? data.dias : 31;
+    return { ate, dias: Math.min(31, Math.max(1, Math.floor(dias))) };
+  })
+  .handler(async ({ data }): Promise<{ entries: Entry[]; cloud: boolean }> => {
+    if (!data.ate) return { entries: [], cloud: cloudOn() };
+    const datas = diasAte(data.ate, data.dias);
+    const inicio = datas[0] ?? data.ate;
+    if (usesBlob()) {
+      const days = await Promise.all(datas.map((date) => pullDay(date)));
+      return { entries: days.flatMap((day) => day.entries), cloud: true };
+    }
+    const sql = await getSql();
+    const rows = await sql<{
+      id: string;
+      date: string;
+      turno: string;
+      machine: string;
+      station: number;
+      side: string;
+      problem: string;
+      at: number;
+      numero: string;
+      referencia: string;
+      autor: string;
+    }>`
+      select id, date, turno, machine, station, side, problem, at, numero, referencia, autor
+      from apontamentos
+      where date >= ${inicio} and date <= ${data.ate}
+    `;
+    return {
+      entries: rows.flatMap((row) => {
+        const entry = coerceEntry({
+          id: row.id,
+          date: row.date,
+          turno: row.turno,
+          machine: row.machine,
+          station: Number(row.station),
+          side: row.side,
+          problem: row.problem,
+          at: Number(row.at),
+          matrizNumero: row.numero,
+          matrizRel: row.referencia,
+          autor: row.autor,
+        });
+        return entry ? [entry] : [];
+      }),
+      cloud: cloudOn(),
+    };
   });

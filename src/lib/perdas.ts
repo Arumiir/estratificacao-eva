@@ -121,6 +121,22 @@ export function todayISO(now = new Date()): string {
   return partesFortaleza(now.getTime()).date;
 }
 
+export function diasAte(ate: string, quantidade: number): string[] {
+  const [year, month, day] = ate.split("-").map(Number);
+  if (!year || !month || !day) return [];
+  const total = Math.min(31, Math.max(1, quantidade));
+  const cursor = new Date(Date.UTC(year, month - 1, day));
+  const dias: string[] = [];
+  for (let index = total - 1; index >= 0; index -= 1) {
+    const item = new Date(cursor);
+    item.setUTCDate(cursor.getUTCDate() - index);
+    const mes = String(item.getUTCMonth() + 1).padStart(2, "0");
+    const dia = String(item.getUTCDate()).padStart(2, "0");
+    dias.push(`${item.getUTCFullYear()}-${mes}-${dia}`);
+  }
+  return dias;
+}
+
 export function formatDateBR(iso: string): string {
   const [y, m, d] = iso.split("-");
   if (!y || !m || !d) return iso;
