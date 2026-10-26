@@ -750,7 +750,7 @@ export function EstratificacaoApp() {
     <div className="relative flex h-dvh flex-col bg-bg text-fg">
       <header className="shrink-0 border-b border-line bg-surface">
         <div className="h-1 bg-accent" />
-        <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
+        <div className="mx-auto flex w-full max-w-6xl items-center gap-3 px-4 py-3 lg:max-w-none lg:px-5">
           {stack.length > 1 ? (
             <button
               type="button"
@@ -872,7 +872,8 @@ export function EstratificacaoApp() {
         <div
           key={key}
           className={cx(
-            "mx-auto w-full max-w-6xl px-4 py-4 pb-28 lg:px-8",
+            "mx-auto w-full px-4 py-4 pb-28",
+            screen.kind === "sheet" ? "max-w-6xl lg:max-w-none lg:px-5 lg:py-3" : "max-w-6xl lg:px-8",
             dir === "forward" ? "enter-forward" : "enter-back",
           )}
         >
@@ -1783,7 +1784,8 @@ function SheetScreen({
   }
 
   return (
-    <div>
+    <>
+      <div className="lg:hidden">
       {papel === "lider" ? (
         <p className="mb-3 text-sm text-muted">Só as máquinas apontadas neste turno. As matrizes ficam no botão de cada uma.</p>
       ) : (
@@ -1795,7 +1797,7 @@ function SheetScreen({
 
       {papel === "lider" ? <MatrizariaConsulta state={view} ocultar={shown} /> : null}
 
-      <div className="mt-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-3">
+      <div className="mt-4">
         {shown.length === 0 ? (
           <p className="rounded-tile border border-dashed border-line bg-surface px-4 py-6 text-base text-muted">
             {papel === "preparador"
@@ -1860,7 +1862,375 @@ function SheetScreen({
           {busy === "pdf" ? "Gerando…" : "Baixar PDF"}
         </button>
       </div>
+      </div>
+      <div className="hidden lg:block">
+        <PainelMesa
+          state={view}
+          today={today}
+          offDay={offDay}
+          onDate={onDate}
+          papel={papel}
+          shown={shown}
+          busy={busy}
+          onPhoto={(machine) => void sendPhoto(machine)}
+          onPdf={() => void downloadPdf()}
+          onDelete={onDelete}
+        />
+      </div>
+    </>
+  );
+}
+
+function PainelMesa({
+  state,
+  today,
+  offDay,
+  onDate,
+  papel,
+  shown,
+  busy,
+  onPhoto,
+  onPdf,
+  onDelete,
+}: {
+  state: State;
+  today: string;
+  offDay: boolean;
+  onDate: (date: string) => void;
+  papel: Papel;
+  shown: MachineId[];
+  busy: "foto" | "pdf" | null;
+  onPhoto: (machine?: MachineId) => void;
+  onPdf: () => void;
+  onDelete?: (entries: Entry[]) => void;
+}) {
+  const [foco, setFoco] = useState<MachineId | null>(null);
+  const [fotoAberta, setFotoAberta] = useState(false);
+  const [pedirExclusao, setPedirExclusao] = useState(false);
+  const recorte = foco && shown.includes(foco) ? shown.filter((machine) => machine === foco) : shown;
+  const linhas = linhasDaMesa(state, recorte);
+  const solas = linhas.reduce((sum, linha) => sum + linha.solas, 0);
+  const totalPares = linhas.reduce((sum, linha) => sum + linha.pares, 0);
+  const porMaquina = shown.map((machine) => ({
+    machine,
+    solas: linhasDaMesa(state, [machine]).reduce((sum, linha) => sum + linha.solas, 0),
+  }));
+  const maxMaquina = Math.max(1, ...porMaquina.map((item) => item.solas));
+  const porProblema = PROBLEMS.map((problem) => ({
+    name: problem.name,
+    solas: linhas.filter((linha) => linha.perda === problem.name).reduce((sum, linha) => sum + linha.solas, 0),
+  }))
+    .filter((item) => item.solas > 0)
+    .sort((a, b) => b.solas - a.solas);
+  const maxProblema = Math.max(1, ...porProblema.map((item) => item.solas));
+  const pior = porProblema[0];
+  const autores = [
+    ...new Set(
+      recorte.flatMap((machine) =>
+        shiftEntries(state, machine)
+          .map((entry) => entry.autor.trim())
+          .filter(Boolean),
+      ),
+    ),
+  ];
+  const editaveis = foco
+    ? shiftEntries(state, foco).filter((entry) => podeAlterarApontamento(entry))
+    : [];
+
+  return (
+    <div className="grid items-start gap-3 xl:grid-cols-[17rem_minmax(0,1fr)]">
+      <aside className="grid content-start gap-3 xl:sticky xl:top-3">
+        <section className="rounded-md border border-[#e1dfdd] bg-white p-3 shadow-[0_1.6px_3.6px_rgba(0,0,0,.12)]">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">Segmentação</p>
+          <label className="mt-3 block text-xs font-semibold text-muted">
+            Data
+            <input
+              type="date"
+              value={state.date}
+              onChange={(event) => onDate(event.target.value)}
+              className="mt-1 w-full rounded border border-[#c8c6c4] bg-[#faf9f8] px-2 py-2 text-sm font-semibold text-fg"
+            />
+          </label>
+          {offDay ? (
+            <button
+              type="button"
+              onClick={() => onDate(today)}
+              className="mt-2 w-full rounded bg-accent py-2 text-sm font-semibold text-accent-ink"
+            >
+              Voltar para hoje
+            </button>
+          ) : null}
+          <p className="mt-3 text-xs font-semibold text-muted">Turno</p>
+          <p className="mt-1 rounded border border-[#c8c6c4] bg-[#f3f2f1] px-2 py-2 text-sm font-semibold">
+            {TURNO_LABEL[state.turno]}
+          </p>
+        </section>
+        <section className="rounded-md border border-[#e1dfdd] bg-white p-3 shadow-[0_1.6px_3.6px_rgba(0,0,0,.12)]">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">Máquina</p>
+          <div className="mt-2 grid grid-cols-2 gap-1.5">
+            <button
+              type="button"
+              onClick={() => setFoco(null)}
+              className={cx(
+                "rounded px-2 py-2 text-left text-sm font-semibold",
+                foco === null ? "bg-accent text-accent-ink" : "bg-[#f3f2f1] text-fg",
+              )}
+            >
+              Todas
+            </button>
+            {shown.map((machine) => (
+              <button
+                key={machine}
+                type="button"
+                onClick={() => setFoco((atual) => (atual === machine ? null : machine))}
+                className={cx(
+                  "rounded px-2 py-2 text-left text-sm font-semibold",
+                  foco === machine ? "bg-accent text-accent-ink" : "bg-[#f3f2f1] text-fg",
+                )}
+              >
+                {machine}
+              </button>
+            ))}
+          </div>
+          {shown.length === 0 ? <p className="mt-2 text-sm text-muted">Nenhuma máquina neste turno.</p> : null}
+        </section>
+        {papel === "lider" ? <MatrizariaConsulta state={state} ocultar={shown} /> : null}
+      </aside>
+
+      <div className="grid min-w-0 gap-3">
+        <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#c8c6c4] pb-3">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">
+              Estratificação das perdas · EVA
+            </p>
+            <h2 className="font-display text-4xl leading-none text-fg">
+              {papel === "lider" ? "Acompanhamento" : "Lançamentos"}
+            </h2>
+            <p className="mt-1 text-sm text-muted">
+              {formatDateBR(state.date)} · {TURNO_LABEL[state.turno]}
+              {foco ? ` · recorte ${foco}` : " · turno inteiro"}
+              {autores.length > 0 ? ` · ${autores.join(" · ")}` : ""}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={busy !== null || shown.length === 0}
+              onClick={() => {
+                if (foco) {
+                  onPhoto(foco);
+                  return;
+                }
+                if (papel === "lider" && shown.length > 1) {
+                  setFotoAberta((open) => !open);
+                  return;
+                }
+                onPhoto(shown[0]);
+              }}
+              className="rounded border border-[#c8c6c4] bg-white px-3 py-2 text-sm font-semibold disabled:opacity-50"
+            >
+              {busy === "foto" ? "Gerando foto…" : "Enviar foto"}
+            </button>
+            <button
+              type="button"
+              disabled={busy !== null || shown.length === 0}
+              onClick={onPdf}
+              className="rounded border border-[#c8c6c4] bg-white px-3 py-2 text-sm font-semibold disabled:opacity-50"
+            >
+              {busy === "pdf" ? "Gerando PDF…" : "Baixar PDF"}
+            </button>
+          </div>
+        </div>
+
+        {fotoAberta ? (
+          <div className="flex flex-wrap gap-2">
+            {shown.map((machine) => (
+              <button
+                key={machine}
+                type="button"
+                onClick={() => onPhoto(machine)}
+                className="rounded bg-accent-soft px-3 py-2 text-sm font-semibold text-accent"
+              >
+                Foto {machine}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Kpi titulo="Solas" valor={String(solas)} detalhe="apontadas no recorte" />
+          <Kpi titulo="Pares" valor={String(totalPares)} detalhe="1 sola fecha 1 par" />
+          <Kpi titulo="Máquinas" valor={String(recorte.length)} detalhe={foco ? "recorte ativo" : "com apontamento"} />
+          <Kpi titulo="Maior perda" valor={pior ? String(pior.solas) : "—"} detalhe={pior?.name ?? "sem perda neste turno"} />
+        </div>
+
+        <div className="grid gap-3 xl:grid-cols-2">
+          <section className="rounded-md border border-[#e1dfdd] bg-white p-3 shadow-[0_1.6px_3.6px_rgba(0,0,0,.12)]">
+            <h3 className="text-sm font-semibold">Solas por máquina</h3>
+            <p className="text-xs text-muted">Clique na barra para filtrar o relatório.</p>
+            <div className="mt-3 grid gap-2">
+              {porMaquina.length === 0 ? (
+                <p className="text-sm text-muted">Sem apontamento neste turno.</p>
+              ) : (
+                porMaquina.map((item) => (
+                  <button
+                    key={item.machine}
+                    type="button"
+                    onClick={() => setFoco((atual) => (atual === item.machine ? null : item.machine))}
+                    className="grid grid-cols-[4.5rem_minmax(0,1fr)_2.5rem] items-center gap-2 text-left"
+                  >
+                    <span className={cx("text-xs font-semibold", foco === item.machine && "text-accent")}>{item.machine}</span>
+                    <span className="h-6 overflow-hidden rounded-sm bg-[#f3f2f1]">
+                      <span
+                        className={cx("block h-full rounded-sm", foco && foco !== item.machine ? "bg-[#c5d7e6]" : "bg-accent")}
+                        style={{ width: `${Math.max(4, (item.solas / maxMaquina) * 100)}%` }}
+                      />
+                    </span>
+                    <span className="text-right text-sm font-semibold tabular-nums">{item.solas}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          </section>
+          <section className="rounded-md border border-[#e1dfdd] bg-white p-3 shadow-[0_1.6px_3.6px_rgba(0,0,0,.12)]">
+            <h3 className="text-sm font-semibold">Solas por perda</h3>
+            <p className="text-xs text-muted">Esquerda e direita não se somam. O par é de cada lado.</p>
+            <div className="mt-3 grid gap-2">
+              {porProblema.length === 0 ? (
+                <p className="text-sm text-muted">Sem perda neste recorte.</p>
+              ) : (
+                porProblema.map((item) => (
+                  <div key={item.name} className="grid grid-cols-[minmax(0,1fr)_2.5rem] items-center gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-semibold">{item.name}</p>
+                      <span className="mt-1 block h-2.5 overflow-hidden rounded-sm bg-[#f3f2f1]">
+                        <span
+                          className="block h-full rounded-sm bg-accent"
+                          style={{ width: `${Math.max(4, (item.solas / maxProblema) * 100)}%` }}
+                        />
+                      </span>
+                    </div>
+                    <span className="text-right text-sm font-semibold tabular-nums">{item.solas}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+        </div>
+
+        {foco ? (
+          <section className="rounded-md border border-[#e1dfdd] bg-white p-3 shadow-[0_1.6px_3.6px_rgba(0,0,0,.12)]">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold">Matrizaria · {foco}</h3>
+              {onDelete && editaveis.length > 0 ? (
+                pedirExclusao ? (
+                  <span className="flex items-center gap-2 text-sm">
+                    <span>Excluir {editaveis.length} apontamentos abertos?</span>
+                    <button type="button" onClick={() => setPedirExclusao(false)} className="font-semibold text-muted">
+                      Não
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPedirExclusao(false);
+                        onDelete(editaveis);
+                      }}
+                      className="rounded bg-[#9b3a34] px-2 py-1 font-semibold text-white"
+                    >
+                      Excluir
+                    </button>
+                  </span>
+                ) : (
+                  <button type="button" onClick={() => setPedirExclusao(true)} className="text-sm font-semibold text-[#9b3a34]">
+                    Excluir apontamentos abertos
+                  </button>
+                )
+              ) : null}
+            </div>
+            <GradeSomenteLeitura state={state} machine={foco} />
+          </section>
+        ) : null}
+
+        <section className="overflow-hidden rounded-md border border-[#e1dfdd] bg-white shadow-[0_1.6px_3.6px_rgba(0,0,0,.12)]">
+          <div className="flex items-center justify-between border-b border-[#e1dfdd] px-3 py-2">
+            <h3 className="text-sm font-semibold">Detalhe do apontamento</h3>
+            <p className="text-xs text-muted">{linhas.length} linhas</p>
+          </div>
+          <div className="max-h-[32rem] overflow-auto">
+            <table className="w-full border-collapse text-left text-sm">
+              <thead className="sticky top-0 bg-[#f3f2f1] text-[11px] uppercase tracking-wide text-muted">
+                <tr>
+                  {["Máquina", "Estação", "Lado", "Nº", "Ref.", "Perda", "Solas", "Pares"].map((coluna) => (
+                    <th key={coluna} className="whitespace-nowrap border-b border-[#e1dfdd] px-3 py-2 font-semibold">
+                      {coluna}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {linhas.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-3 py-8 text-center text-muted">
+                      Nenhum apontamento neste recorte.
+                    </td>
+                  </tr>
+                ) : (
+                  linhas.map((linha, index) => (
+                    <tr key={linha.key} className={index % 2 === 0 ? "bg-white" : "bg-[#faf9f8]"}>
+                      <td className="whitespace-nowrap px-3 py-1.5 font-semibold">{linha.machine}</td>
+                      <td className="px-3 py-1.5 tabular-nums">{pad2(linha.station)}</td>
+                      <td className="px-3 py-1.5">{SIDE_SHORT[linha.side]}</td>
+                      <td className="px-3 py-1.5">{linha.numero || "—"}</td>
+                      <td className="px-3 py-1.5">{linha.referencia || "—"}</td>
+                      <td className="px-3 py-1.5">{linha.perda}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">{linha.solas}</td>
+                      <td className="px-3 py-1.5 text-right font-semibold tabular-nums">{linha.pares}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
     </div>
+  );
+}
+
+function Kpi({ titulo, valor, detalhe }: { titulo: string; valor: string; detalhe: string }) {
+  return (
+    <section className="overflow-hidden rounded-md border border-[#e1dfdd] bg-white shadow-[0_1.6px_3.6px_rgba(0,0,0,.12)]">
+      <div className="h-1 bg-accent" />
+      <div className="px-3 py-3">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">{titulo}</p>
+        <p className="mt-1 font-display text-5xl leading-none tabular-nums text-fg">{valor}</p>
+        <p className="mt-2 line-clamp-2 text-xs text-muted">{detalhe}</p>
+      </div>
+    </section>
+  );
+}
+
+function linhasDaMesa(state: State, machines: MachineId[]) {
+  return machines.flatMap((machine) =>
+    fichaLines(state, machine).flatMap((line) =>
+      PROBLEMS.flatMap((problem, index) => {
+        const solas = line.counts[index] ?? 0;
+        if (solas <= 0) return [];
+        return [
+          {
+            key: `${machine}-${line.station}-${line.side}-${problem.id}`,
+            machine,
+            station: line.station,
+            side: line.side,
+            numero: line.numero,
+            referencia: line.referencia,
+            perda: problem.name,
+            solas,
+            pares: pares(solas),
+          },
+        ];
+      }),
+    ),
   );
 }
 
