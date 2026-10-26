@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { pullDay, pushDays } from "@/lib/apontamentos-blob";
 import { dbSource, getSql } from "@/lib/db";
-import { apontamentoBloqueado, coerceEntry, problemName, readGrades, type Entry, type StationConfig } from "@/lib/perdas";
+import { apontamentoBloqueado, coerceEntry, podeAlterarApontamento, problemName, readGrades, todayISO, turnoPeloRelogio, type Entry, type StationConfig } from "@/lib/perdas";
 
 type SyncResult = {
   entries: Entry[];
@@ -113,7 +113,7 @@ export const pushApontamentos = createServerFn({ method: "POST" })
         select date, turno, at from apontamentos where id = ${item.id}
       `;
       const row = existing[0];
-      if (row && apontamentoBloqueado({ date: row.date, turno: row.turno, at: Number(row.at) })) continue;
+      if (row && (apontamentoBloqueado({ date: row.date, turno: row.turno, at: Number(row.at) }) || !podeAlterarApontamento({ date: row.date, turno: row.turno, at: Number(row.at) }))) continue;
       await sql`delete from apontamentos where id = ${item.id}`;
       await sql`
         insert into apontamentos_removidos (id, date)
@@ -128,13 +128,17 @@ export const pushApontamentos = createServerFn({ method: "POST" })
         select date, turno, at from apontamentos where id = ${entry.id}
       `;
       const row = existing[0];
-      if (row && apontamentoBloqueado({ date: row.date, turno: row.turno, at: Number(row.at) })) continue;
+      if (row && (apontamentoBloqueado({ date: row.date, turno: row.turno, at: Number(row.at) }) || !podeAlterarApontamento({ date: row.date, turno: row.turno, at: Number(row.at) }))) continue;
+      const salvo = row
+        ? entry
+        : { ...entry, date: todayISO(new Date(entry.at)), turno: turnoPeloRelogio(entry.at) };
+      if (!row && salvo.date !== todayISO()) continue;
       await sql`delete from apontamentos_removidos where id = ${entry.id}`;
       await sql`
         insert into apontamentos (id, date, turno, machine, station, side, problem, at, numero, referencia, autor)
         values (
-          ${entry.id}, ${entry.date}, ${entry.turno}, ${entry.machine}, ${entry.station}, ${entry.side},
-          ${entry.problem}, ${entry.at}, ${entry.matrizNumero}, ${entry.matrizRel}, ${entry.autor}
+          ${salvo.id}, ${salvo.date}, ${salvo.turno}, ${salvo.machine}, ${salvo.station}, ${salvo.side},
+          ${salvo.problem}, ${salvo.at}, ${salvo.matrizNumero}, ${salvo.matrizRel}, ${salvo.autor}
         )
         on conflict (id) do update set
           date = excluded.date,

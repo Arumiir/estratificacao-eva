@@ -34,11 +34,13 @@ import {
   mergeSharedEntries,
   nomesNaFicha,
   pad2,
+  podeAlterarApontamento,
   problemName,
   saveState,
   shiftEntries,
   stationKey,
   todayISO,
+  turnoPeloRelogio,
   TURNO_LABEL,
   withMatrix,
   gradeHasNumbers,
@@ -229,7 +231,7 @@ function usePerdas() {
     if (!synced.current) synced.current = new Set();
     const known = synced.current;
     const stamped = state.entries.map((entry) =>
-      apontamentoBloqueado(entry) ? entry : withMatrix(entry, state.stations),
+      podeAlterarApontamento(entry) ? withMatrix(entry, state.stations) : entry,
     );
     if (stamped.some((entry, index) => entry !== state.entries[index])) {
       for (const entry of stamped) {
@@ -294,7 +296,7 @@ function usePerdas() {
       (entry) => !held.current.has(entry.id),
     );
     const entries = merged.map((entry) =>
-      apontamentoBloqueado(entry) ? entry : withMatrix(entry, stations),
+      podeAlterarApontamento(entry) ? withMatrix(entry, stations) : entry,
     );
     if (!synced.current) synced.current = new Set();
     for (let index = 0; index < entries.length; index += 1) {
@@ -580,13 +582,19 @@ export function EstratificacaoApp() {
     });
   }
 
+  function avisoFechado(entry: Entry) {
+    if (apontamentoBloqueado(entry)) return "1º turno até 14:49 está bloqueado.";
+    if (entry.date !== todayISO()) return "Dia fechado. Só o dia de hoje pode ser alterado.";
+    return "Fora do horário. Esse turno não pode ser alterado agora.";
+  }
+
   function removeEntry(id: string, label = "Lançamento apagado") {
     const current = read();
     if (!current) return;
     const entry = current.entries.find((item) => item.id === id);
     if (!entry) return;
-    if (apontamentoBloqueado(entry)) {
-      flash("1º turno até 14:49 está bloqueado.");
+    if (!podeAlterarApontamento(entry)) {
+      flash(avisoFechado(entry));
       return;
     }
     commit((s) => ({ ...s, entries: s.entries.filter((item) => item.id !== id) }));
@@ -646,32 +654,43 @@ export function EstratificacaoApp() {
   }
 
   function addProblem(machine: MachineId, station: number, side: Side, problem: string) {
+    const current = read();
+    if (!current) return;
+    if (current.date !== todayISO()) {
+      flash("Dia fechado. Só o dia de hoje pode ser alterado.");
+      return;
+    }
     const id = crypto.randomUUID();
+    const at = Date.now();
+    const turno = turnoPeloRelogio(at);
     let snapshot = { numero: "", referencia: "" };
-    commit((current) => {
-      const slot = activeMatrix(current.stations[stationKey(machine, station)], side);
+    commit((stateNow) => {
+      const slot = activeMatrix(stateNow.stations[stationKey(machine, station)], side);
       snapshot = {
         numero: slot?.numero.trim() ?? "",
         referencia: slot?.referencia.trim() ?? "",
       };
       const entry: Entry = {
         id,
-        date: current.date,
-        turno: current.turno,
+        date: todayISO(),
+        turno,
         machine,
         station,
         side,
         problem,
-        at: Date.now(),
+        at,
         matrizNumero: snapshot.numero,
         matrizRel: snapshot.referencia,
         autor: nome,
       };
-      return { ...current, entries: [...current.entries, entry] };
+      return { ...stateNow, turno, date: todayISO(), entries: [...stateNow.entries, entry] };
     });
     navigator.vibrate?.(12);
     const where = `${problemName(problem)} · ${SIDE_LABEL[side].toLowerCase()}`;
-    flash(`Lançado: ${where}`, () => removeEntry(id, "Lançamento desfeito"));
+    flash(
+      turno === current.turno ? `Lançado: ${where}` : `Lançado no ${TURNO_LABEL[turno]}: ${where}`,
+      () => removeEntry(id, "Lançamento desfeito"),
+    );
   }
 
   function sameAuthor(entry: Entry) {
@@ -693,9 +712,10 @@ export function EstratificacaoApp() {
         entry.problem === problem &&
         sameAuthor(entry),
     );
-    const match = [...pool].reverse().find((entry) => !apontamentoBloqueado(entry));
+    const match = [...pool].reverse().find((entry) => podeAlterarApontamento(entry));
     if (!match) {
-      if (pool.some((entry) => apontamentoBloqueado(entry))) flash("1º turno até 14:49 está bloqueado.");
+      const fechado = [...pool].reverse().find((entry) => !podeAlterarApontamento(entry));
+      if (fechado) flash(avisoFechado(fechado));
       return;
     }
     removeEntry(match.id, "Um lançamento tirado");
@@ -704,9 +724,10 @@ export function EstratificacaoApp() {
   function removeMany(ids: string[], label: string) {
     const current = read();
     if (!current || ids.length === 0) return;
-    const gone = current.entries.filter((entry) => ids.includes(entry.id) && !apontamentoBloqueado(entry));
+    const gone = current.entries.filter((entry) => ids.includes(entry.id) && podeAlterarApontamento(entry));
     if (gone.length === 0) {
-      flash("1º turno até 14:49 está bloqueado.");
+      const fechado = current.entries.find((entry) => ids.includes(entry.id));
+      flash(fechado ? avisoFechado(fechado) : "Dia fechado. Só o dia de hoje pode ser alterado.");
       return;
     }
     const drop = new Set(gone.map((entry) => entry.id));
@@ -729,7 +750,7 @@ export function EstratificacaoApp() {
     <div className="relative flex h-dvh flex-col bg-bg text-fg">
       <header className="shrink-0 border-b border-line bg-surface">
         <div className="h-1 bg-accent" />
-        <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-3">
+        <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
           {stack.length > 1 ? (
             <button
               type="button"
@@ -827,7 +848,7 @@ export function EstratificacaoApp() {
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 px-4 pb-4">
           <div
             role="status"
-            className="pointer-events-auto mx-auto flex w-full max-w-3xl items-center gap-3 rounded-tile bg-accent px-4 py-3 text-accent-ink"
+            className="pointer-events-auto mx-auto flex w-full max-w-6xl items-center gap-3 rounded-tile bg-accent px-4 py-3 text-accent-ink"
           >
             <span className="min-w-0 flex-1 text-base font-semibold">{banner.text}</span>
             {banner.undo ? (
@@ -851,7 +872,7 @@ export function EstratificacaoApp() {
         <div
           key={key}
           className={cx(
-            "mx-auto w-full max-w-3xl px-4 py-4 pb-28",
+            "mx-auto w-full max-w-6xl px-4 py-4 pb-28 lg:px-8",
             dir === "forward" ? "enter-forward" : "enter-back",
           )}
         >
@@ -1088,6 +1109,7 @@ function PapelScreen({
         event.preventDefault();
         void submit();
       }}
+      className="mx-auto w-full max-w-md rounded-tile border border-line bg-surface p-5 lg:mt-10 lg:p-8"
     >
       <p className="text-base text-muted">Entre com o seu nome e a sua senha.</p>
       <label className="mt-4 block">
@@ -1141,7 +1163,7 @@ function TurnosScreen({
   return (
     <div>
       <p className="text-base text-muted">{hint}</p>
-      <div className="mt-4 grid gap-3">
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
         {( ["1", "2", "3"] as const).map((turno) => (
           <button
             key={turno}
@@ -1210,8 +1232,11 @@ function MachinesScreen({
       <p className="mb-3 font-display text-4xl leading-none text-accent">
         {TURNO_LABEL[state.turno]}
       </p>
+      <p className="mb-3 text-sm font-semibold text-muted">
+        Aberto agora: {TURNO_LABEL[turnoPeloRelogio()]}. 1º 06:00–14:49, 2º até 23:59, 3º até 05:59.
+      </p>
       <DayControls state={state} today={today} offDay={offDay} onDate={onDate} />
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         {GRID_MACHINES.map((machine) => {
           const count = gridTargets(machine).reduce(
             (sum, id) => sum + shiftEntries(state, id).length,
@@ -1256,7 +1281,7 @@ function Sie05Screen({
   return (
     <div>
       <p className="text-base text-muted">Dois modelos nesta máquina. Escolha A ou B.</p>
-      <div className="mt-4 grid gap-3">
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
         {models.map((model) => {
           const count = shiftEntries(state, model.id).length;
           return (
@@ -1380,7 +1405,7 @@ function SideScreen({
   return (
     <div>
       <ContextLine state={state} offDay={offDay} />
-      <div className="mt-4 grid gap-3">
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
         {SIDES.map((side) => {
           const count = rows.filter((entry) => entry.side === side).length;
           const matrix = describeMatrix(config, side);
@@ -1441,8 +1466,15 @@ function ProblemsScreen({
   return (
     <div>
       <ContextLine state={state} offDay={offDay} />
+      {offDay ? (
+        <p className="mt-2 text-sm font-semibold text-accent">Dia fechado. Só o dia de hoje pode ser alterado.</p>
+      ) : state.turno !== turnoPeloRelogio() ? (
+        <p className="mt-2 text-sm font-semibold text-accent">
+          Neste horário o lançamento entra no {TURNO_LABEL[turnoPeloRelogio()]}.
+        </p>
+      ) : null}
       {matrix ? <p className="mt-2 text-base font-semibold">{matrix}</p> : null}
-      <div className="mt-4 grid gap-2">
+      <div className="mt-4 grid gap-2 lg:grid-cols-2">
         {PROBLEMS.map((problem) => {
           const count = rows.filter((entry) => entry.problem === problem.id).length;
           return (
@@ -1470,9 +1502,10 @@ function ProblemsScreen({
               </div>
               <button
                 type="button"
+                disabled={offDay}
                 aria-label={`Lançar ${problem.name}`}
                 onClick={() => onAdd(problem.id)}
-                className="grid size-14 shrink-0 place-items-center rounded-tile bg-accent text-accent-ink touch-manipulation"
+                className="grid size-14 shrink-0 place-items-center rounded-tile bg-accent text-accent-ink touch-manipulation disabled:opacity-30"
               >
                 <Plus className="size-7" />
               </button>
@@ -1560,7 +1593,7 @@ function MatrixGradeScreen({
       <p className="text-base text-muted">
         Em cada estação, ative o seletor se a mesma numeração vale para a esquerda e a direita.
       </p>
-      <div className="mt-4 grid gap-3">
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
         {STATIONS.map((station, index) => {
           const draft = drafts[index] ?? emptyConfig();
           return (
@@ -1762,7 +1795,7 @@ function SheetScreen({
 
       {papel === "lider" ? <MatrizariaConsulta state={view} ocultar={shown} /> : null}
 
-      <div className="mt-4">
+      <div className="mt-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-3">
         {shown.length === 0 ? (
           <p className="rounded-tile border border-dashed border-line bg-surface px-4 py-6 text-base text-muted">
             {papel === "preparador"
@@ -1924,7 +1957,7 @@ function FichaSheet({
   const [open, setOpen] = useState(force);
   const [askDelete, setAskDelete] = useState(false);
   const mine = shiftEntries(state, machine);
-  const editable = mine.filter((entry) => !apontamentoBloqueado(entry));
+  const editable = mine.filter((entry) => podeAlterarApontamento(entry));
   useEffect(() => {
     setOpen(force);
   }, [force, machine]);
@@ -1938,7 +1971,7 @@ function FichaSheet({
   }
 
   return (
-    <section className="mt-3 overflow-hidden rounded-tile border-2 border-accent bg-surface first:mt-0">
+    <section className="mt-3 overflow-hidden rounded-tile border-2 border-accent bg-surface first:mt-0 lg:mt-0">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
@@ -1998,7 +2031,7 @@ function FichaSheet({
           <MatrizesDaMaquina state={state} machine={machine} />
           <p className="px-3 pt-3 text-sm text-muted">
             Uma sola no lado fecha 1 par. Esquerda e direita não se somam.
-            {mine.length > editable.length ? " 1º turno até 14:49 não sai." : ""}
+            {mine.length > editable.length ? " Turno fechado não sai." : ""}
           </p>
           <ApontamentosLista lines={lines} />
         </>

@@ -83,11 +83,42 @@ export function apontamentoBloqueado(entry: { date: string; turno: string; at: n
   return entry.date === "2026-10-24" && entry.turno === "1" && entry.at <= Date.parse("2026-10-24T14:49:00-03:00");
 }
 
+function partesFortaleza(at = Date.now()) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "America/Fortaleza",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(at));
+  const read = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return {
+    date: `${read("year")}-${read("month")}-${read("day")}`,
+    minutes: Number(read("hour")) * 60 + Number(read("minute")),
+  };
+}
+
+export function turnoPeloRelogio(at = Date.now()): Turno {
+  const { minutes } = partesFortaleza(at);
+  if (minutes >= 6 * 60 && minutes <= 14 * 60 + 49) return "1";
+  if (minutes >= 14 * 60 + 50) return "2";
+  return "3";
+}
+
+export function podeAlterarApontamento(
+  entry: { date: string; turno: string; at: number },
+  now = Date.now(),
+): boolean {
+  if (apontamentoBloqueado(entry)) return false;
+  const agora = partesFortaleza(now);
+  if (entry.date !== agora.date) return false;
+  return entry.turno === turnoPeloRelogio(now);
+}
+
 export function todayISO(now = new Date()): string {
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+  return partesFortaleza(now.getTime()).date;
 }
 
 export function formatDateBR(iso: string): string {

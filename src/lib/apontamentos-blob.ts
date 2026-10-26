@@ -1,5 +1,5 @@
 import type { Entry, StationConfig } from "@/lib/perdas";
-import { apontamentoBloqueado, coerceEntry, readGrades } from "@/lib/perdas";
+import { apontamentoBloqueado, coerceEntry, podeAlterarApontamento, readGrades, todayISO, turnoPeloRelogio } from "@/lib/perdas";
 
 type DayBag = { entries: Entry[]; removed: string[]; grades: Record<string, StationConfig> };
 
@@ -12,21 +12,39 @@ export function applyDayChanges(
   grades: Record<string, StationConfig> = {},
 ): DayBag {
   const gone = new Set(day.removed);
-  const blocked = new Set(day.entries.filter((entry) => apontamentoBloqueado(entry)).map((entry) => entry.id));
+  const agora = Date.now();
+  const fechado = (entry: Entry) => apontamentoBloqueado(entry) || !podeAlterarApontamento(entry, agora);
   for (const item of removed) {
-    if (!blocked.has(item.id)) gone.add(item.id);
+    const current = day.entries.find((entry) => entry.id === item.id);
+    if (current && fechado(current)) continue;
+    gone.add(item.id);
   }
   const map = new Map<string, Entry>();
   for (const entry of day.entries) {
     if (!gone.has(entry.id)) map.set(entry.id, entry);
   }
-  const removedNow = new Set(removed.filter((item) => !blocked.has(item.id)).map((item) => item.id));
+  const removedNow = new Set(
+    removed
+      .filter((item) => {
+        const current = day.entries.find((entry) => entry.id === item.id);
+        return !(current && fechado(current));
+      })
+      .map((item) => item.id),
+  );
   for (const entry of upserts) {
     if (removedNow.has(entry.id)) continue;
     const prev = map.get(entry.id);
-    if (prev && apontamentoBloqueado(prev)) continue;
+    if (prev && fechado(prev)) continue;
+    const next = { ...entry };
+    if (!prev) {
+      const hoje = todayISO(new Date(agora));
+      const quando = todayISO(new Date(entry.at));
+      if (quando !== hoje) continue;
+      next.date = quando;
+      next.turno = turnoPeloRelogio(entry.at);
+    }
     gone.delete(entry.id);
-    map.set(entry.id, entry);
+    map.set(entry.id, next);
   }
   const nextGrades = { ...day.grades };
   for (const [key, config] of Object.entries(readGrades(grades))) {
