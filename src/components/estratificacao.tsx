@@ -1752,13 +1752,15 @@ function SheetScreen({
   return (
     <div>
       {papel === "lider" ? (
-        <p className="mb-3 text-sm text-muted">Só as máquinas apontadas neste turno.</p>
+        <p className="mb-3 text-sm text-muted">Só as máquinas apontadas neste turno. As matrizes ficam no botão de cada uma.</p>
       ) : (
         <p className="mb-3 text-sm text-muted">
           Cada toque seu vai para a planilha, uma sola por vez. A foto e o PDF saem com o seu nome.
         </p>
       )}
       <DayControls state={state} today={today} offDay={offDay} onDate={onDate} />
+
+      {papel === "lider" ? <MatrizariaConsulta state={view} ocultar={shown} /> : null}
 
       <div className="mt-4">
         {shown.length === 0 ? (
@@ -1825,6 +1827,83 @@ function SheetScreen({
           {busy === "pdf" ? "Gerando…" : "Baixar PDF"}
         </button>
       </div>
+    </div>
+  );
+}
+
+function MatrizariaConsulta({ state, ocultar }: { state: State; ocultar: MachineId[] }) {
+  const [aberta, setAberta] = useState<MachineId | null>(null);
+  const machines = MACHINES.filter(
+    (machine) => machineHasMatrices(state, machine) && !ocultar.includes(machine),
+  );
+  if (machines.length === 0) return null;
+  return (
+    <div className="mt-4">
+      <p className="text-sm font-semibold text-muted">Matrizes sem apontamento</p>
+      <div className="mt-2 grid grid-cols-3 gap-2">
+        {machines.map((machine) => (
+          <button
+            key={machine}
+            type="button"
+            onClick={() => setAberta((atual) => (atual === machine ? null : machine))}
+            className={cx(
+              "rounded-tile border px-2 py-3 font-display text-2xl leading-none",
+              aberta === machine ? "border-accent bg-accent text-accent-ink" : "border-line bg-surface",
+            )}
+          >
+            {machine}
+          </button>
+        ))}
+      </div>
+      {aberta ? <GradeSomenteLeitura state={state} machine={aberta} /> : null}
+    </div>
+  );
+}
+
+function MatrizesDaMaquina({ state, machine }: { state: State; machine: MachineId }) {
+  const [open, setOpen] = useState(false);
+  if (!machineHasMatrices(state, machine)) return null;
+  return (
+    <div className="px-3 pt-3">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex min-h-11 w-full items-center justify-center rounded-tile bg-accent-soft font-semibold text-accent"
+      >
+        {open ? "Ocultar matrizes" : "Ver matrizes"}
+      </button>
+      {open ? <GradeSomenteLeitura state={state} machine={machine} /> : null}
+    </div>
+  );
+}
+
+function GradeSomenteLeitura({ state, machine }: { state: State; machine: MachineId }) {
+  return (
+    <div className="mt-2 grid gap-2">
+      {STATIONS.map((station) => {
+        const config = state.stations[stationKey(machine, station)];
+        const esq = describeMatrix(config, "esq");
+        const dir = describeMatrix(config, "dir");
+        return (
+          <div key={station} className="rounded-tile border border-line bg-surface-2 px-3 py-2">
+            <p className="font-display text-xl leading-none">Estação {pad2(station)}</p>
+            {config?.ambos ? (
+              <p className="mt-1 text-sm font-semibold leading-snug">Ambos · {esq || "sem numeração"}</p>
+            ) : (
+              <>
+                <p className="mt-1 text-sm leading-snug">
+                  <span className="font-semibold text-muted">Esq. </span>
+                  {esq || "sem numeração"}
+                </p>
+                <p className="text-sm leading-snug">
+                  <span className="font-semibold text-muted">Dir. </span>
+                  {dir || "sem numeração"}
+                </p>
+              </>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1916,6 +1995,7 @@ function FichaSheet({
               )
             ) : null}
           </div>
+          <MatrizesDaMaquina state={state} machine={machine} />
           <p className="px-3 pt-3 text-sm text-muted">
             Uma sola no lado fecha 1 par. Esquerda e direita não se somam.
             {mine.length > editable.length ? " 1º turno até 14:49 não sai." : ""}

@@ -43,6 +43,7 @@ function seed(): Conta[] {
     ["Yan", "yan123", "preparador"],
     ["Francisvaldo", "francisvaldo123", "preparador"],
     ["Felipe", "felipe123", "preparador"],
+    ["Caua", "caua123", "preparador"],
   ];
   return lista.map(([nome, senha, papel]) => ({ nome, senha: hashSenha(senha), papel }));
 }
