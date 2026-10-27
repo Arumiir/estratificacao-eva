@@ -280,7 +280,7 @@ function usePerdas() {
         if (gradesGen.current !== gen) return;
         for (const key of sentGrades) dirtyGrades.current.delete(key);
       })
-      .catch(() => {});
+      .catch(() => setCloud(false));
   }, [state]);
 
   function takeRemote(
@@ -359,10 +359,10 @@ function usePerdas() {
               for (const entry of upserts) known.add(entry.id);
               lastOutros.current = JSON.stringify(outros);
             })
-            .catch(() => {});
+            .catch(() => setCloud(false));
         }
       }
-      void refresh().catch(() => {});
+      void refresh().catch(() => setCloud(false));
       void pumpExcel();
     }, 15000);
     return () => window.clearInterval(timer);
@@ -382,7 +382,7 @@ function usePerdas() {
         lastEntries.current = next.entries;
         setState(next);
       })
-      .catch(() => {});
+      .catch(() => setCloud(false));
     return () => {
       cancel = true;
     };
