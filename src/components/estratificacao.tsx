@@ -32,6 +32,7 @@ import {
   machineHasFicha,
   machineHasMatrices,
   mergeOutros,
+  outroVivo,
   mergeSharedEntries,
   nomesNaFicha,
   pad2,
@@ -736,6 +737,32 @@ export function EstratificacaoApp() {
     back();
   }
 
+  function removeOutro(id: string) {
+    const current = read();
+    if (!current) return;
+    const item = current.outros.find((outro) => outro.id === id && outroVivo(outro));
+    if (!item) return;
+    if (current.date !== todayISO() || item.date !== todayISO()) {
+      flash("Dia fechado. Só o dia de hoje pode ser alterado.");
+      return;
+    }
+    const ligados = current.entries.filter((entry) => entry.outroId === id);
+    const travado = ligados.find((entry) => !podeAlterarApontamento(entry));
+    if (travado) {
+      flash(avisoFechado(travado));
+      return;
+    }
+    const drop = new Set(ligados.map((entry) => entry.id));
+    commit((s) => ({
+      ...s,
+      entries: s.entries.filter((entry) => !drop.has(entry.id)),
+      outros: s.outros.map((outro) =>
+        outro.id === id ? { ...outro, excluido: true, salvoEm: Date.now() } : outro,
+      ),
+    }));
+    flash(ligados.length > 0 ? "Troca e perdas excluídas" : "Troca excluída");
+  }
+
   function addProblem(machine: MachineId, station: number, side: Side, problem: string, outroId = "") {
     const current = read();
     if (!current) return;
@@ -1015,6 +1042,7 @@ export function EstratificacaoApp() {
                       outroId: outro.id,
                     })
               }
+              onDeleteOutro={removeOutro}
             />
           ) : null}
 
@@ -1419,6 +1447,7 @@ function StationsScreen({
   onMatrices,
   onOutros,
   onOpenOutro,
+  onDeleteOutro,
 }: {
   state: State;
   machine: MachineId;
@@ -1427,9 +1456,11 @@ function StationsScreen({
   onMatrices: () => void;
   onOutros: () => void;
   onOpenOutro: (outro: OutroMatriz) => void;
+  onDeleteOutro: (id: string) => void;
 }) {
+  const [pedindo, setPedindo] = useState("");
   const outros = state.outros.filter(
-    (item) => item.machine === machine && item.date === state.date && item.turno === state.turno,
+    (item) => outroVivo(item) && item.machine === machine && item.date === state.date && item.turno === state.turno,
   );
   return (
     <div>
@@ -1487,23 +1518,49 @@ function StationsScreen({
               const lugar = outro.station >= 1 ? `Estação ${pad2(outro.station)}` : "Sem estação";
               const lado = outro.ambos ? "Ambos os lados" : SIDE_LABEL[outro.side];
               return (
-                <button
+                <div
                   key={outro.id}
-                  type="button"
-                  onClick={() => onOpenOutro(outro)}
-                  className="flex min-h-32 flex-col rounded-tile border border-accent bg-surface p-3 text-left"
+                  className="flex min-h-32 flex-col rounded-tile border border-accent bg-surface p-3"
                 >
-                  <span className="text-sm font-semibold text-accent">Troca</span>
-                  <span className="mt-1 font-display text-3xl leading-none">{lugar}</span>
-                  <span className="mt-1 text-base font-semibold leading-snug">
-                    {outro.numero || "sem nº"}
-                    {outro.referencia ? ` · ${outro.referencia}` : ""}
-                  </span>
-                  <span className="text-sm text-muted">{lado}</span>
-                  <span className={cx("mt-auto pt-3 font-display text-xl leading-none", count > 0 ? "text-accent" : "text-muted")}>
-                    {count > 0 ? `${count} perdas` : "sem perda"}
-                  </span>
-                </button>
+                  <button type="button" onClick={() => onOpenOutro(outro)} className="flex flex-1 flex-col text-left">
+                    <span className="text-sm font-semibold text-accent">Troca</span>
+                    <span className="mt-1 font-display text-3xl leading-none">{lugar}</span>
+                    <span className="mt-1 text-base font-semibold leading-snug">
+                      {outro.numero || "sem nº"}
+                      {outro.referencia ? ` · ${outro.referencia}` : ""}
+                    </span>
+                    <span className="text-sm text-muted">{lado}</span>
+                    <span className={cx("mt-auto pt-3 font-display text-xl leading-none", count > 0 ? "text-accent" : "text-muted")}>
+                      {count > 0 ? `${count} perdas` : "sem perda"}
+                    </span>
+                  </button>
+                  {offDay ? null : pedindo === outro.id ? (
+                    <span className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+                      <span>{count > 0 ? `Excluir esta troca e ${count} perdas?` : "Excluir esta troca?"}</span>
+                      <button type="button" onClick={() => setPedindo("")} className="font-semibold text-muted">
+                        Não
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPedindo("");
+                          onDeleteOutro(outro.id);
+                        }}
+                        className="rounded-full bg-[#9b3a34] px-3 py-1 font-semibold text-white"
+                      >
+                        Excluir
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setPedindo(outro.id)}
+                      className="mt-2 self-start text-sm font-semibold text-[#9b3a34]"
+                    >
+                      Excluir
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -3069,7 +3126,7 @@ function GradeSomenteLeitura({ state, machine }: { state: State; machine: Machin
         );
       })}
       {state.outros
-        .filter((item) => item.machine === machine && item.date === state.date && item.turno === state.turno)
+        .filter((item) => outroVivo(item) && item.machine === machine && item.date === state.date && item.turno === state.turno)
         .map((item) => (
           <div key={item.id} className="rounded-tile border border-accent bg-surface-2 px-3 py-2">
             <p className="font-display text-xl leading-none">

@@ -59,6 +59,7 @@ export type OutroMatriz = {
   numero: string;
   referencia: string;
   salvoEm: number;
+  excluido?: boolean;
 };
 
 export type State = {
@@ -418,9 +419,14 @@ export function readOutros(value: unknown): OutroMatriz[] {
         numero,
         referencia,
         salvoEm: typeof item.salvoEm === "number" && Number.isFinite(item.salvoEm) ? item.salvoEm : 0,
+        ...(item.excluido === true ? { excluido: true as const } : {}),
       },
     ];
   });
+}
+
+export function outroVivo(item: OutroMatriz) {
+  return item.excluido !== true;
 }
 
 export function mergeOutros(local: OutroMatriz[], remote: OutroMatriz[]): OutroMatriz[] {
@@ -561,7 +567,7 @@ export function fichaLines(state: State, machine: MachineId): FichaLine[] {
     });
   });
   const deOutros = state.outros
-    .filter((item) => item.machine === machine && item.date === state.date && item.turno === state.turno)
+    .filter((item) => outroVivo(item) && item.machine === machine && item.date === state.date && item.turno === state.turno)
     .flatMap((item) => {
       const lados = item.ambos ? SIDES : [item.side];
       return lados.map((side) => {
