@@ -74,29 +74,33 @@ function readConta(value: unknown): Conta | null {
 
 async function readContas(): Promise<{ contas: Conta[]; etag: string | null }> {
   if (!process.env.BLOB_READ_WRITE_TOKEN?.trim()) return { contas: seed(), etag: null };
-  const { get } = await import("@vercel/blob");
-  const result = await get(PATH, { access: "private", useCache: false });
-  let contas: Conta[] = [];
-  let etag: string | null = null;
-  if (result && result.statusCode === 200 && result.stream) {
-    const parsed = JSON.parse(await new Response(result.stream).text()) as unknown;
-    contas = Array.isArray(parsed)
-      ? parsed.flatMap((item) => {
-          const conta = readConta(item);
-          return conta ? [conta] : [];
-        })
-      : [];
-    etag = result.blob.etag;
-  }
-  const merged = comSeed(contas);
-  if (merged.changed) {
-    try {
-      await writeContas(merged.contas, etag);
-    } catch {
-      /* o login usa a lista nova mesmo se a gravação atrasar */
+  try {
+    const { get } = await import("@vercel/blob");
+    const result = await get(PATH, { access: "private", useCache: false });
+    let contas: Conta[] = [];
+    let etag: string | null = null;
+    if (result && result.statusCode === 200 && result.stream) {
+      const parsed = JSON.parse(await new Response(result.stream).text()) as unknown;
+      contas = Array.isArray(parsed)
+        ? parsed.flatMap((item) => {
+            const conta = readConta(item);
+            return conta ? [conta] : [];
+          })
+        : [];
+      etag = result.blob.etag;
     }
+    const merged = comSeed(contas);
+    if (merged.changed) {
+      try {
+        await writeContas(merged.contas, etag);
+      } catch {
+        /* o login usa a lista nova mesmo se a gravação atrasar */
+      }
+    }
+    return { contas: merged.contas, etag };
+  } catch {
+    return { contas: seed(), etag: null };
   }
-  return { contas: merged.contas, etag };
 }
 
 async function writeContas(contas: Conta[], etag: string | null) {
