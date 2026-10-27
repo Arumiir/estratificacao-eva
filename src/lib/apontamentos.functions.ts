@@ -1,12 +1,13 @@
 import { createServerFn } from "@tanstack/react-start";
 import { pullDay, pushDays } from "@/lib/apontamentos-blob";
 import { dbSource, getSql } from "@/lib/db";
-import { apontamentoBloqueado, coerceEntry, diasAte, podeAlterarApontamento, problemName, readGrades, todayISO, turnoPeloRelogio, type Entry, type StationConfig } from "@/lib/perdas";
+import { apontamentoBloqueado, coerceEntry, diasAte, mergeOutros, podeAlterarApontamento, problemName, readGrades, readOutros, todayISO, turnoPeloRelogio, type Entry, type OutroMatriz, type StationConfig } from "@/lib/perdas";
 
 type SyncResult = {
   entries: Entry[];
   removed: string[];
   grades: Record<string, StationConfig>;
+  outros: OutroMatriz[];
   cloud: boolean;
 };
 
@@ -35,7 +36,7 @@ function excelRow(entry: Entry, solas: 1 | -1) {
     data: entry.date,
     turno: entry.turno,
     maquina: entry.machine,
-    estacao: entry.station,
+    estacao: entry.outroId ? "Outros" : entry.station,
     lado: entry.side === "esq" ? "Esq." : "Dir.",
     problema: problemName(entry.problem),
     numero: entry.matrizNumero,
@@ -92,11 +93,12 @@ function cleanEntries(value: unknown): Entry[] {
 }
 
 export const pushApontamentos = createServerFn({ method: "POST" })
-  .validator((data: { upserts?: unknown; removed?: unknown; grades?: unknown; date?: unknown }) => ({
+  .validator((data: { upserts?: unknown; removed?: unknown; grades?: unknown; date?: unknown; outros?: unknown }) => ({
     upserts: cleanEntries(data?.upserts),
     removed: cleanRemoved(data?.removed),
     grades: readGrades(data?.grades),
     date: typeof data?.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(data.date) ? data.date : "",
+    outros: readOutros(data?.outros),
   }))
   .handler(async ({ data }) => {
     if (usesBlob()) {
@@ -104,6 +106,7 @@ export const pushApontamentos = createServerFn({ method: "POST" })
         data.upserts,
         data.removed,
         data.date && Object.keys(data.grades).length > 0 ? { date: data.date, grades: data.grades } : null,
+        data.date && data.outros.length > 0 ? { date: data.date, outros: data.outros } : null,
       );
       return { ok: true as const, cloud: true };
     }
@@ -166,6 +169,17 @@ export const pushApontamentos = createServerFn({ method: "POST" })
           on conflict (date, key) do update set config = excluded.config
         `;
       }
+      if (data.outros.length > 0) {
+        const existing = await sql<{ config: unknown }>`
+          select config from grades where date = ${data.date} and key = ${"__outros__"}
+        `;
+        const merged = mergeOutros(readOutros(existing[0]?.config), data.outros);
+        await sql`
+          insert into grades (date, key, config)
+          values (${data.date}, ${"__outros__"}, ${JSON.stringify(merged)}::jsonb)
+          on conflict (date, key) do update set config = excluded.config
+        `;
+      }
     }
     return { ok: true as const, cloud: cloudOn() };
   });
@@ -176,10 +190,10 @@ export const pullApontamentos = createServerFn({ method: "POST" })
     return { date };
   })
   .handler(async ({ data }): Promise<SyncResult> => {
-    if (!data.date) return { entries: [], removed: [], grades: {}, cloud: cloudOn() };
+    if (!data.date) return { entries: [], removed: [], grades: {}, outros: [], cloud: cloudOn() };
     if (usesBlob()) {
       const day = await pullDay(data.date);
-      return { entries: day.entries, removed: day.removed, grades: day.grades, cloud: true };
+      return { entries: day.entries, removed: day.removed, grades: day.grades, outros: day.outros, cloud: true };
     }
     const sql = await getSql();
     const rows = await sql<{
@@ -221,10 +235,11 @@ export const pullApontamentos = createServerFn({ method: "POST" })
     const gradeRows = await sql<{ key: string; config: unknown }>`
       select key, config from grades where date = ${data.date}
     `;
+    const outros = readOutros(gradeRows.find((row) => row.key === "__outros__")?.config);
     const grades = readGrades(
-      Object.fromEntries(gradeRows.map((row) => [row.key, row.config])),
+      Object.fromEntries(gradeRows.filter((row) => row.key !== "__outros__").map((row) => [row.key, row.config])),
     );
-    return { entries, removed: removedRows.map((row) => row.id), grades, cloud: cloudOn() };
+    return { entries, removed: removedRows.map((row) => row.id), grades, outros, cloud: cloudOn() };
   });
 
 export const pullHistorico = createServerFn({ method: "POST" })

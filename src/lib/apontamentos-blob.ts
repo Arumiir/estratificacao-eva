@@ -1,15 +1,16 @@
-import type { Entry, StationConfig } from "@/lib/perdas";
-import { apontamentoBloqueado, coerceEntry, podeAlterarApontamento, readGrades, todayISO, turnoPeloRelogio } from "@/lib/perdas";
+import type { Entry, OutroMatriz, StationConfig } from "@/lib/perdas";
+import { apontamentoBloqueado, coerceEntry, mergeOutros, podeAlterarApontamento, readGrades, readOutros, todayISO, turnoPeloRelogio } from "@/lib/perdas";
 
-type DayBag = { entries: Entry[]; removed: string[]; grades: Record<string, StationConfig> };
+type DayBag = { entries: Entry[]; removed: string[]; grades: Record<string, StationConfig>; outros: OutroMatriz[] };
 
-const emptyDay = (): DayBag => ({ entries: [], removed: [], grades: {} });
+const emptyDay = (): DayBag => ({ entries: [], removed: [], grades: {}, outros: [] });
 
 export function applyDayChanges(
   day: DayBag,
   upserts: Entry[],
   removed: { id: string; date: string }[],
   grades: Record<string, StationConfig> = {},
+  outros: OutroMatriz[] = [],
 ): DayBag {
   const gone = new Set(day.removed);
   const agora = Date.now();
@@ -57,6 +58,7 @@ export function applyDayChanges(
     entries: [...map.values()],
     removed: [...gone],
     grades: nextGrades,
+    outros: mergeOutros(day.outros ?? [], outros),
   };
 }
 
@@ -69,7 +71,7 @@ async function readDay(date: string): Promise<{ bag: DayBag; etag: string | null
   const result = await get(pathFor(date), { access: "private", useCache: false });
   if (!result || result.statusCode !== 200 || !result.stream) return { bag: emptyDay(), etag: null };
   const text = await new Response(result.stream).text();
-  const parsed = JSON.parse(text) as { entries?: unknown; removed?: unknown; grades?: unknown };
+  const parsed = JSON.parse(text) as { entries?: unknown; removed?: unknown; grades?: unknown; outros?: unknown };
   const entries = Array.isArray(parsed.entries)
     ? parsed.entries.flatMap((item) => {
         const entry = coerceEntry(item);
@@ -79,7 +81,7 @@ async function readDay(date: string): Promise<{ bag: DayBag; etag: string | null
   const removed = Array.isArray(parsed.removed)
     ? parsed.removed.filter((id): id is string => typeof id === "string")
     : [];
-  return { bag: { entries, removed, grades: readGrades(parsed.grades) }, etag: result.blob.etag };
+  return { bag: { entries, removed, grades: readGrades(parsed.grades), outros: readOutros(parsed.outros) }, etag: result.blob.etag };
 }
 
 function etagForms(etag: string | null): Array<string | null> {
@@ -121,9 +123,11 @@ export async function pushDays(
   upserts: Entry[],
   removed: { id: string; date: string }[],
   grades: { date: string; grades: Record<string, StationConfig> } | null = null,
+  outros: { date: string; outros: OutroMatriz[] } | null = null,
 ) {
   const dates = new Set([...upserts.map((entry) => entry.date), ...removed.map((item) => item.date)]);
   if (grades?.date) dates.add(grades.date);
+  if (outros?.date) dates.add(outros.date);
   for (const date of dates) {
     const dayUpserts = upserts.filter((entry) => entry.date === date);
     const dayRemoved = removed.filter((item) => item.date === date);
@@ -134,6 +138,7 @@ export async function pushDays(
         dayUpserts,
         dayRemoved,
         grades?.date === date ? grades.grades : {},
+        outros?.date === date ? outros.outros : [],
       );
       try {
         await writeDay(date, next, current.etag);

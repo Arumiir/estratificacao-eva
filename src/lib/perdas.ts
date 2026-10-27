@@ -45,10 +45,23 @@ export type Entry = {
   matrizNumero: string;
   matrizRel: string;
   autor: string;
+  outroId: string;
+};
+
+export type OutroMatriz = {
+  id: string;
+  date: string;
+  turno: Turno;
+  machine: MachineId;
+  side: Side;
+  numero: string;
+  referencia: string;
+  salvoEm: number;
 };
 
 export type State = {
   stations: Record<string, StationConfig>;
+  outros: OutroMatriz[];
   entries: Entry[];
   date: string;
   turno: Turno;
@@ -260,6 +273,7 @@ export function readGrades(value: unknown): Record<string, StationConfig> {
 }
 
 export function withMatrix(entry: Entry, stations: Record<string, StationConfig>): Entry {
+  if (entry.outroId) return entry;
   const slot = activeMatrix(stations[stationKey(entry.machine, entry.station)], entry.side);
   if (!slot) return entry;
   const numero = slot.numero.trim();
@@ -278,6 +292,7 @@ export function machineHasMatrices(state: State, machine: MachineId): boolean {
 export function emptyState(now = new Date()): State {
   return {
     stations: {},
+    outros: [],
     entries: [],
     date: todayISO(now),
     turno: "1",
@@ -371,7 +386,44 @@ function readEntry(v: unknown): Entry | null {
     matrizNumero: typeof v.matrizNumero === "string" ? v.matrizNumero : "",
     matrizRel: typeof v.matrizRel === "string" ? v.matrizRel : "",
     autor: typeof v.autor === "string" ? v.autor.slice(0, 32) : "",
+    outroId: typeof v.outroId === "string" ? v.outroId : "",
   };
+}
+
+export function readOutros(value: unknown): OutroMatriz[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!isRecord(item) || typeof item.id !== "string") return [];
+    const machine = parseMachine(item.machine);
+    const turno = parseTurno(item.turno);
+    if (!machine || !turno || !isSide(item.side)) return [];
+    const date = typeof item.date === "string" ? item.date : "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return [];
+    const numero = typeof item.numero === "string" ? item.numero.trim() : "";
+    const referencia = typeof item.referencia === "string" ? item.referencia.trim() : "";
+    if (!numero && !referencia) return [];
+    return [
+      {
+        id: item.id,
+        date,
+        turno,
+        machine,
+        side: item.side,
+        numero,
+        referencia,
+        salvoEm: typeof item.salvoEm === "number" && Number.isFinite(item.salvoEm) ? item.salvoEm : 0,
+      },
+    ];
+  });
+}
+
+export function mergeOutros(local: OutroMatriz[], remote: OutroMatriz[]): OutroMatriz[] {
+  const map = new Map(local.map((item) => [item.id, item]));
+  for (const item of remote) {
+    const prev = map.get(item.id);
+    if (!prev || item.salvoEm >= prev.salvoEm) map.set(item.id, item);
+  }
+  return [...map.values()];
 }
 
 export function loadState(): State {
@@ -397,6 +449,7 @@ export function loadState(): State {
       : [];
     return {
       stations,
+      outros: readOutros(data.outros),
       entries,
       date: base.date,
       turno: parseTurno(data.turno) ?? base.turno,
@@ -461,6 +514,7 @@ export type FichaLine = {
   referencia: string;
   shared: boolean;
   counts: number[];
+  outroId: string;
 };
 
 export function nomesNaFicha(state: State, machine: MachineId): string {
@@ -473,8 +527,8 @@ export function nomesNaFicha(state: State, machine: MachineId): string {
 }
 
 export function fichaLines(state: State, machine: MachineId): FichaLine[] {
-  const entries = shiftEntries(state, machine);
-  return STATIONS.flatMap((station) => {
+  const entries = shiftEntries(state, machine).filter((entry) => !entry.outroId);
+  const daGrade = STATIONS.flatMap((station) => {
     const config = state.stations[stationKey(machine, station)];
     const shared = Boolean(config?.ambos);
     return SIDES.map((side) => {
@@ -497,9 +551,28 @@ export function fichaLines(state: State, machine: MachineId): FichaLine[] {
               entry.station === station && entry.side === side && entry.problem === problem.id,
           ).length,
       );
-      return { machine, station, side, numero, referencia, shared, counts };
+      return { machine, station, side, numero, referencia, shared, counts, outroId: "" };
     });
   });
+  const deOutros = state.outros
+    .filter((item) => item.machine === machine && item.date === state.date && item.turno === state.turno)
+    .map((item) => {
+      const doItem = shiftEntries(state, machine).filter((entry) => entry.outroId === item.id);
+      const counts = PROBLEMS.map(
+        (problem) => doItem.filter((entry) => entry.problem === problem.id).length,
+      );
+      return {
+        machine,
+        station: 0,
+        side: item.side,
+        numero: item.numero,
+        referencia: item.referencia,
+        shared: false,
+        counts,
+        outroId: item.id,
+      };
+    });
+  return [...daGrade, ...deOutros];
 }
 
 export function fichaTotal(lines: FichaLine[]): number {

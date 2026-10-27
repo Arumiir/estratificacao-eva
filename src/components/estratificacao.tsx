@@ -31,6 +31,7 @@ import {
   loadState,
   machineHasFicha,
   machineHasMatrices,
+  mergeOutros,
   mergeSharedEntries,
   nomesNaFicha,
   pad2,
@@ -49,6 +50,7 @@ import {
   type FichaLine,
   type GridMachine,
   type MachineId,
+  type OutroMatriz,
   type Side,
   type State,
   type StationConfig,
@@ -96,8 +98,9 @@ type Screen =
   | { kind: "ask"; machine: MachineId }
   | { kind: "matrices"; machine: MachineId }
   | { kind: "stations"; machine: MachineId }
+  | { kind: "outros"; machine: MachineId }
   | { kind: "side"; machine: MachineId; station: number }
-  | { kind: "problems"; machine: MachineId; station: number; side: Side }
+  | { kind: "problems"; machine: MachineId; station: number; side: Side; outroId?: string }
   | { kind: "sheet"; machine: MachineId | null };
 
 type Banner = {
@@ -161,6 +164,7 @@ function usePerdas() {
 
   const synced = useRef<Set<string> | null>(null);
   const lastEntries = useRef<State["entries"] | null>(null);
+  const lastOutros = useRef("");
   const held = useRef<Set<string>>(new Set());
   const dirtyGrades = useRef<Set<string>>(new Set());
   const gradesGen = useRef(0);
@@ -254,7 +258,9 @@ function usePerdas() {
       const config = state.stations[key];
       if (config && gradeHasNumbers(config)) grades[key] = config;
     }
-    if (upserts.length === 0 && removed.length === 0 && Object.keys(grades).length === 0) {
+    const outros = state.outros.filter((item) => item.date === state.date);
+    const outrosMudou = JSON.stringify(outros) !== lastOutros.current;
+    if (upserts.length === 0 && removed.length === 0 && Object.keys(grades).length === 0 && !outrosMudou) {
       skipExcelBacklog.current = false;
       return;
     }
@@ -265,11 +271,12 @@ function usePerdas() {
     }
     const sentGrades = Object.keys(grades);
     const gen = gradesGen.current;
-    void pushApontamentos({ data: { upserts, removed, grades, date: state.date } })
+    void pushApontamentos({ data: { upserts, removed, grades, date: state.date, outros } })
       .then((result) => {
         setCloud(result.cloud);
         for (const entry of upserts) known.add(entry.id);
         for (const item of removed) known.delete(item.id);
+        lastOutros.current = JSON.stringify(outros);
         if (gradesGen.current !== gen) return;
         for (const key of sentGrades) dirtyGrades.current.delete(key);
       })
@@ -278,7 +285,7 @@ function usePerdas() {
 
   function takeRemote(
     current: State,
-    remote: { entries: Entry[]; removed: string[]; grades?: Record<string, StationConfig> },
+    remote: { entries: Entry[]; removed: string[]; grades?: Record<string, StationConfig>; outros?: OutroMatriz[] },
   ) {
     for (const id of remote.removed) held.current.delete(id);
     const stations = { ...current.stations };
@@ -315,8 +322,10 @@ function usePerdas() {
           entry.matrizNumero === current.entries[index]?.matrizNumero &&
           entry.matrizRel === current.entries[index]?.matrizRel,
       );
-    if (!stationsChanged && sameEntries) return current;
-    return { ...current, stations, entries };
+    const outros = mergeOutros(current.outros, remote.outros ?? []);
+    const outrosIguais = JSON.stringify(outros) === JSON.stringify(current.outros);
+    if (!stationsChanged && sameEntries && outrosIguais) return current;
+    return { ...current, stations, entries, outros };
   }
 
   async function refresh() {
@@ -341,11 +350,14 @@ function usePerdas() {
       const known = synced.current;
       if (current && known) {
         const upserts = current.entries.filter((entry) => !known.has(entry.id));
-        if (upserts.length > 0) {
-          void pushApontamentos({ data: { upserts, removed: [] } })
+        const outros = current.outros.filter((item) => item.date === current.date);
+        const outrosMudou = JSON.stringify(outros) !== lastOutros.current;
+        if (upserts.length > 0 || outrosMudou) {
+          void pushApontamentos({ data: { upserts, removed: [], date: current.date, outros } })
             .then((result) => {
               setCloud(result.cloud);
               for (const entry of upserts) known.add(entry.id);
+              lastOutros.current = JSON.stringify(outros);
             })
             .catch(() => {});
         }
@@ -411,10 +423,12 @@ function screenKey(screen: Screen): string {
       return `matrices-${screen.machine}`;
     case "stations":
       return `stations-${screen.machine}`;
+    case "outros":
+      return `outros-${screen.machine}`;
     case "side":
       return `side-${screen.machine}-${screen.station}`;
     case "problems":
-      return `problems-${screen.machine}-${screen.station}-${screen.side}`;
+      return `problems-${screen.machine}-${screen.outroId || screen.station}-${screen.side}`;
     case "sheet":
       return `sheet-${screen.machine ?? "all"}`;
   }
@@ -654,7 +668,38 @@ export function EstratificacaoApp() {
     );
   }
 
-  function addProblem(machine: MachineId, station: number, side: Side, problem: string) {
+  function addOutro(machine: MachineId, side: Side, numero: string, referencia: string) {
+    const cleanNumero = numero.trim();
+    const cleanRef = referencia.trim();
+    if (!cleanNumero && !cleanRef) {
+      flash("Informe a numeração ou a referência.");
+      return;
+    }
+    if (read()?.date !== todayISO()) {
+      flash("Dia fechado. Só o dia de hoje pode ser alterado.");
+      return;
+    }
+    const item: OutroMatriz = {
+      id: crypto.randomUUID(),
+      date: todayISO(),
+      turno: turnoPeloRelogio(),
+      machine,
+      side,
+      numero: cleanNumero,
+      referencia: cleanRef,
+      salvoEm: Date.now(),
+    };
+    commit((current) => ({
+      ...current,
+      date: todayISO(),
+      turno: item.turno,
+      outros: [...current.outros, item],
+    }));
+    flash("Matriz adicionada em Outros");
+    back();
+  }
+
+  function addProblem(machine: MachineId, station: number, side: Side, problem: string, outroId = "") {
     const current = read();
     if (!current) return;
     if (current.date !== todayISO()) {
@@ -666,7 +711,10 @@ export function EstratificacaoApp() {
     const turno = turnoPeloRelogio(at);
     let snapshot = { numero: "", referencia: "" };
     commit((stateNow) => {
-      const slot = activeMatrix(stateNow.stations[stationKey(machine, station)], side);
+      const outro = outroId ? stateNow.outros.find((item) => item.id === outroId) : undefined;
+      const slot = outro
+        ? { numero: outro.numero, referencia: outro.referencia }
+        : activeMatrix(stateNow.stations[stationKey(machine, station)], side);
       snapshot = {
         numero: slot?.numero.trim() ?? "",
         referencia: slot?.referencia.trim() ?? "",
@@ -676,13 +724,14 @@ export function EstratificacaoApp() {
         date: todayISO(),
         turno,
         machine,
-        station,
-        side,
+        station: outro ? 0 : station,
+        side: outro?.side ?? side,
         problem,
         at,
         matrizNumero: snapshot.numero,
         matrizRel: snapshot.referencia,
         autor: nome,
+        outroId,
       };
       return { ...stateNow, turno, date: todayISO(), entries: [...stateNow.entries, entry] };
     });
@@ -701,17 +750,16 @@ export function EstratificacaoApp() {
     return autor === mine || autor === "";
   }
 
-  function removeLast(machine: MachineId, station: number, side: Side, problem: string) {
+  function removeLast(machine: MachineId, station: number, side: Side, problem: string, outroId = "") {
     const current = read();
     if (!current) return;
     const pool = current.entries.filter(
       (entry) =>
         inShift(entry, current) &&
         entry.machine === machine &&
-        entry.station === station &&
-        entry.side === side &&
         entry.problem === problem &&
-        sameAuthor(entry),
+        sameAuthor(entry) &&
+        (outroId ? entry.outroId === outroId : !entry.outroId && entry.station === station && entry.side === side),
     );
     const match = [...pool].reverse().find((entry) => podeAlterarApontamento(entry));
     if (!match) {
@@ -933,6 +981,24 @@ export function EstratificacaoApp() {
               offDay={offDay}
               onOpen={(station) => push({ kind: "side", machine: screen.machine, station })}
               onMatrices={() => push({ kind: "matrices", machine: screen.machine })}
+              onOutros={() => push({ kind: "outros", machine: screen.machine })}
+              onOpenOutro={(outro) =>
+                push({
+                  kind: "problems",
+                  machine: screen.machine,
+                  station: 0,
+                  side: outro.side,
+                  outroId: outro.id,
+                })
+              }
+            />
+          ) : null}
+
+          {papel === "preparador" && screen.kind === "outros" ? (
+            <OutrosScreen
+              machine={screen.machine}
+              offDay={offDay}
+              onSave={(side, numero, referencia) => addOutro(screen.machine, side, numero, referencia)}
             />
           ) : null}
 
@@ -961,10 +1027,13 @@ export function EstratificacaoApp() {
               side={screen.side}
               offDay={offDay}
               autor={papel === "preparador" ? nome : ""}
-              onAdd={(problem) => addProblem(screen.machine, screen.station, screen.side, problem)}
-              onRemove={(problem) =>
-                removeLast(screen.machine, screen.station, screen.side, problem)
+              onAdd={(problem) =>
+                addProblem(screen.machine, screen.station, screen.side, problem, screen.outroId ?? "")
               }
+              onRemove={(problem) =>
+                removeLast(screen.machine, screen.station, screen.side, problem, screen.outroId ?? "")
+              }
+              outroId={screen.outroId ?? ""}
             />
           ) : null}
 
@@ -1022,11 +1091,15 @@ function headerFor(screen: Screen): { context: string } {
       return { context: `Máquina ${screen.machine} · matrizes` };
     case "stations":
       return { context: `Máquina ${screen.machine}` };
+    case "outros":
+      return { context: `Máquina ${screen.machine} · Outros` };
     case "side":
       return { context: `Máquina ${screen.machine} · Estação ${pad2(screen.station)}` };
     case "problems":
       return {
-        context: `Máquina ${screen.machine} · Estação ${pad2(screen.station)} · ${SIDE_LABEL[screen.side]}`,
+        context: screen.outroId
+          ? `Máquina ${screen.machine} · Outros · ${SIDE_LABEL[screen.side]}`
+          : `Máquina ${screen.machine} · Estação ${pad2(screen.station)} · ${SIDE_LABEL[screen.side]}`,
       };
     case "sheet":
       return { context: "Lançamentos" };
@@ -1319,28 +1392,44 @@ function StationsScreen({
   offDay,
   onOpen,
   onMatrices,
+  onOutros,
+  onOpenOutro,
 }: {
   state: State;
   machine: MachineId;
   offDay: boolean;
   onOpen: (station: number) => void;
   onMatrices: () => void;
+  onOutros: () => void;
+  onOpenOutro: (outro: OutroMatriz) => void;
 }) {
+  const outros = state.outros.filter(
+    (item) => item.machine === machine && item.date === state.date && item.turno === state.turno,
+  );
   return (
     <div>
       <ContextLine state={state} offDay={offDay} />
-      <button
-        type="button"
-        onClick={onMatrices}
-        className="mt-4 w-full rounded-tile border border-line bg-surface px-4 py-3 text-left text-base font-semibold text-accent"
-      >
-        Editar matrizes
-      </button>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        <button
+          type="button"
+          onClick={onMatrices}
+          className="rounded-tile border border-line bg-surface px-4 py-3 text-left text-base font-semibold text-accent"
+        >
+          Editar matrizes
+        </button>
+        <button
+          type="button"
+          onClick={onOutros}
+          className="rounded-tile border border-line bg-surface px-4 py-3 text-left text-base font-semibold text-accent"
+        >
+          Matriz em Outros
+        </button>
+      </div>
       <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
         {STATIONS.map((station) => {
           const config = state.stations[stationKey(machine, station)];
           const count = shiftEntries(state, machine).filter(
-            (entry) => entry.station === station,
+            (entry) => !entry.outroId && entry.station === station,
           ).length;
           return (
             <button
@@ -1364,6 +1453,82 @@ function StationsScreen({
           );
         })}
       </div>
+      {outros.length > 0 ? (
+        <div className="mt-4">
+          <p className="text-sm font-semibold text-muted">Outros · troca no meio do turno</p>
+          <div className="mt-2 grid grid-cols-2 gap-3">
+            {outros.map((outro) => {
+              const count = shiftEntries(state, machine).filter((entry) => entry.outroId === outro.id).length;
+              return (
+                <button
+                  key={outro.id}
+                  type="button"
+                  onClick={() => onOpenOutro(outro)}
+                  className="flex min-h-32 flex-col rounded-tile border border-accent bg-surface p-3 text-left"
+                >
+                  <span className="text-sm font-semibold text-accent">Outros</span>
+                  <span className="mt-1 text-base font-semibold leading-snug">
+                    {outro.numero || "sem nº"}
+                    {outro.referencia ? ` · ${outro.referencia}` : ""}
+                  </span>
+                  <span className="text-sm text-muted">{SIDE_LABEL[outro.side]}</span>
+                  <span className={cx("mt-auto pt-3 font-display text-xl leading-none", count > 0 ? "text-accent" : "text-muted")}>
+                    {count > 0 ? `${count} perdas` : "sem perda"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function OutrosScreen({
+  machine,
+  offDay,
+  onSave,
+}: {
+  machine: MachineId;
+  offDay: boolean;
+  onSave: (side: Side, numero: string, referencia: string) => void;
+}) {
+  const [side, setSide] = useState<Side>("esq");
+  const [numero, setNumero] = useState("");
+  const [referencia, setReferencia] = useState("");
+  return (
+    <div>
+      <p className="text-base text-muted">
+        Troca no meio do turno da Máquina {machine}. A grade da estação continua onde está. As perdas desta matriz entram só nela, na área Outros.
+      </p>
+      {offDay ? <p className="mt-2 text-sm font-semibold text-accent">Dia fechado. Só o dia de hoje pode ser alterado.</p> : null}
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        {SIDES.map((item) => (
+          <button
+            key={item}
+            type="button"
+            onClick={() => setSide(item)}
+            className={cx(
+              "rounded-tile border px-3 py-3 text-base font-semibold",
+              side === item ? "border-accent bg-accent text-accent-ink" : "border-line bg-surface",
+            )}
+          >
+            {SIDE_LABEL[item]}
+          </button>
+        ))}
+      </div>
+      <div className="mt-4">
+        <NumberPair numero={numero} referencia={referencia} onNumero={setNumero} onReferencia={setReferencia} />
+      </div>
+      <button
+        type="button"
+        disabled={offDay}
+        onClick={() => onSave(side, numero, referencia)}
+        className="mt-4 w-full rounded-tile bg-accent py-4 font-display text-3xl leading-none text-accent-ink disabled:opacity-50"
+      >
+        Adicionar matriz
+      </button>
     </div>
   );
 }
@@ -1403,7 +1568,7 @@ function SideScreen({
   onChoose: (side: Side) => void;
 }) {
   const config = state.stations[stationKey(machine, station)];
-  const rows = shiftEntries(state, machine).filter((entry) => entry.station === station);
+  const rows = shiftEntries(state, machine).filter((entry) => !entry.outroId && entry.station === station);
   return (
     <div>
       <ContextLine state={state} offDay={offDay} />
@@ -1444,6 +1609,7 @@ function ProblemsScreen({
   autor,
   onAdd,
   onRemove,
+  outroId = "",
 }: {
   state: State;
   machine: MachineId;
@@ -1453,12 +1619,18 @@ function ProblemsScreen({
   autor: string;
   onAdd: (problem: string) => void;
   onRemove: (problem: string) => void;
+  outroId?: string;
 }) {
   const [ask, setAsk] = useState<string | null>(null);
+  const outro = state.outros.find((item) => item.id === outroId);
   const config = state.stations[stationKey(machine, station)];
-  const matrix = describeMatrix(config, side);
+  const matrix = outro
+    ? [outro.numero, outro.referencia].filter(Boolean).join(" · ")
+    : describeMatrix(config, side);
   const mine = autor.trim().toLocaleLowerCase("pt-BR");
   const rows = shiftEntries(state, machine).filter((entry) => {
+    if (outroId) return entry.outroId === outroId;
+    if (entry.outroId) return false;
     if (entry.station !== station || entry.side !== side) return false;
     if (!mine) return true;
     const who = entry.autor.trim().toLocaleLowerCase("pt-BR");
@@ -2471,7 +2643,7 @@ function PainelMesa({
                   linhas.map((linha, index) => (
                     <tr key={linha.key} className={index % 2 === 0 ? "bg-white" : "bg-[#faf9f8]"}>
                       <td className="whitespace-nowrap px-3 py-1.5 font-semibold">{linha.machine}</td>
-                      <td className="px-3 py-1.5 tabular-nums">{pad2(linha.station)}</td>
+                      <td className="px-3 py-1.5 tabular-nums">{linha.station === 0 ? "Outros" : pad2(linha.station)}</td>
                       <td className="px-3 py-1.5">{SIDE_SHORT[linha.side]}</td>
                       <td className="px-3 py-1.5">{linha.numero || "—"}</td>
                       <td className="px-3 py-1.5">{linha.referencia || "—"}</td>
@@ -2600,6 +2772,17 @@ function GradeSomenteLeitura({ state, machine }: { state: State; machine: Machin
           </div>
         );
       })}
+      {state.outros
+        .filter((item) => item.machine === machine && item.date === state.date && item.turno === state.turno)
+        .map((item) => (
+          <div key={item.id} className="rounded-tile border border-accent bg-surface-2 px-3 py-2">
+            <p className="font-display text-xl leading-none">Outros</p>
+            <p className="mt-1 text-sm font-semibold leading-snug">
+              {SIDE_LABEL[item.side]} · {item.numero || "sem nº"}
+              {item.referencia ? ` · ${item.referencia}` : ""}
+            </p>
+          </div>
+        ))}
     </div>
   );
 }
@@ -2752,18 +2935,46 @@ function ApontamentosLista({ lines }: { lines: FichaLine[] }) {
       return [{ side, numero: line.numero, referencia: line.referencia, shared: line.shared, items, solas, pares: pares(solas) }];
     });
     if (rows.length === 0) return [];
-    return [{ station, rows }];
+    return [{ key: String(station), title: `Estação ${pad2(station)}`, rows }];
   });
+  const extras = lines.flatMap((line) => {
+    if (!line.outroId) return [];
+    const items = PROBLEMS.flatMap((problem, index) => {
+      const solas = line.counts[index] ?? 0;
+      if (solas <= 0) return [];
+      return [{ id: problem.id, name: problem.name, solas, pares: pares(solas) }];
+    });
+    if (items.length === 0) return [];
+    const solas = items.reduce((sum, item) => sum + item.solas, 0);
+    return [
+      {
+        key: line.outroId,
+        title: "Outros",
+        rows: [
+          {
+            side: line.side,
+            numero: line.numero,
+            referencia: line.referencia,
+            shared: false,
+            items,
+            solas,
+            pares: pares(solas),
+          },
+        ],
+      },
+    ];
+  });
+  const groups = [...stations, ...extras];
 
-  if (stations.length === 0) {
+  if (groups.length === 0) {
     return <p className="px-3 py-4 text-sm text-muted">Nenhuma perda apontada nesta máquina.</p>;
   }
 
   return (
     <div className="grid gap-2 px-3 py-3">
-      {stations.map((station) => (
-        <section key={station.station} className="rounded-tile border border-line bg-surface-2 p-3">
-          <h3 className="font-display text-2xl leading-none">Estação {pad2(station.station)}</h3>
+      {groups.map((station) => (
+        <section key={station.key} className="rounded-tile border border-line bg-surface-2 p-3">
+          <h3 className="font-display text-2xl leading-none">{station.title}</h3>
           {station.rows.map((row) => (
             <div key={row.side} className="mt-3 border-t border-line pt-3">
               <div className="flex items-start justify-between gap-3">
