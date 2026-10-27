@@ -501,9 +501,11 @@ export function EstratificacaoApp() {
   useEffect(() => {
     const saved = loadSessao();
     const home: Screen =
-      saved?.papel === "lider" || saved?.papel === "preparador"
-        ? { kind: "turnos" }
-        : { kind: "papel" };
+      saved?.papel === "preparador"
+        ? { kind: "machines" }
+        : saved?.papel === "lider"
+          ? { kind: "sheet", machine: null }
+          : { kind: "papel" };
     homeRef.current = home;
     stackRef.current = [home];
     setStack([home]);
@@ -512,6 +514,24 @@ export function EstratificacaoApp() {
     depthRef.current = 1;
     window.history.replaceState(stampDepth(1), "");
   }, []);
+
+  useEffect(() => {
+    if (sessao?.papel !== "preparador") return;
+    function snapTurno() {
+      const turno = turnoPeloRelogio();
+      commit((current) => (current.turno === turno ? current : { ...current, turno }));
+    }
+    snapTurno();
+    function onVisible() {
+      if (document.visibilityState === "visible") snapTurno();
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("pageshow", snapTurno);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pageshow", snapTurno);
+    };
+  }, [sessao?.papel]);
 
   useEffect(() => {
     scroller.current?.scrollTo(0, 0);
@@ -564,7 +584,11 @@ export function EstratificacaoApp() {
   function chooseSessao(next: Sessao) {
     saveSessao(next);
     setSessao(next);
-    const home: Screen = { kind: "turnos" };
+    if (next.papel === "preparador") {
+      commit((current) => ({ ...current, turno: turnoPeloRelogio() }));
+    }
+    const home: Screen =
+      next.papel === "lider" ? { kind: "sheet", machine: null } : { kind: "machines" };
     homeRef.current = home;
     stackRef.current = [home];
     depthRef.current = 1;
@@ -663,8 +687,8 @@ export function EstratificacaoApp() {
     const sie05 = machine === "SIE05A" || machine === "SIE05B";
     adoptStack(
       sie05
-        ? [{ kind: "turnos" }, { kind: "machines" }, { kind: "sie05" }, { kind: "stations", machine }]
-        : [{ kind: "turnos" }, { kind: "machines" }, { kind: "stations", machine }],
+        ? [{ kind: "machines" }, { kind: "sie05" }, { kind: "stations", machine }]
+        : [{ kind: "machines" }, { kind: "stations", machine }],
     );
   }
 
@@ -827,11 +851,8 @@ export function EstratificacaoApp() {
             {screen.kind === "sheet" ? (
               <>
                 <h1 className="font-display text-4xl leading-none tracking-wide text-accent">
-                  {papel === "lider" ? "Acompanhamentos" : "Lançamentos"}
+                  {papel === "lider" ? "Dashboard geral" : "Lançamentos"}
                 </h1>
-                {papel === "lider" ? (
-                  <p className="mt-1 text-sm font-semibold tracking-wide text-accent">Área do Líder Técnico</p>
-                ) : null}
               </>
             ) : (
               <>
@@ -839,9 +860,6 @@ export function EstratificacaoApp() {
                   Estratificação
                 </h1>
                 <p className="font-display text-xl leading-none text-fg">das perdas - EVA</p>
-                {papel === "lider" ? (
-                  <p className="mt-1 text-sm font-semibold tracking-wide text-accent">Área do Líder Técnico</p>
-                ) : null}
                 {header.context ? (
                   <p className="mt-1 truncate text-sm font-semibold text-muted">{header.context}</p>
                 ) : null}
@@ -941,20 +959,6 @@ export function EstratificacaoApp() {
         >
           {screen.kind === "papel" ? (
             <PapelScreen onPick={chooseSessao} onFail={(text) => flash(text)} />
-          ) : null}
-
-          {papel && screen.kind === "turnos" ? (
-            <TurnosScreen
-              hint={
-                papel === "lider"
-                  ? "Escolha o turno para acompanhar."
-                  : "Escolha o turno antes de lançar as perdas."
-              }
-              onPick={(turno) => {
-                setTurno(turno);
-                push(papel === "lider" ? { kind: "sheet", machine: null } : { kind: "machines" });
-              }}
-            />
           ) : null}
 
           {papel === "preparador" && screen.kind === "machines" ? (
@@ -1067,6 +1071,7 @@ export function EstratificacaoApp() {
               today={today}
               offDay={offDay}
               onDate={setDate}
+              onTurno={setTurno}
               papel={papel}
               nome={nome}
               onDelete={(entries) =>
@@ -1256,28 +1261,22 @@ function PapelScreen({
   );
 }
 
-function TurnosScreen({
-  hint,
-  onPick,
-}: {
-  hint: string;
-  onPick: (turno: Turno) => void;
-}) {
+function TurnoPicker({ value, onChange }: { value: Turno; onChange: (turno: Turno) => void }) {
   return (
-    <div>
-      <p className="text-base text-muted">{hint}</p>
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
-        {( ["1", "2", "3"] as const).map((turno) => (
-          <button
-            key={turno}
-            type="button"
-            onClick={() => onPick(turno)}
-            className="min-h-28 rounded-tile border border-line bg-surface px-5 py-4 text-left"
-          >
-            <span className="font-display text-5xl leading-none">{TURNO_LABEL[turno]}</span>
-          </button>
-        ))}
-      </div>
+    <div className="grid grid-cols-3 gap-1">
+      {(["1", "2", "3"] as const).map((turno) => (
+        <button
+          key={turno}
+          type="button"
+          onClick={() => onChange(turno)}
+          className={cx(
+            "rounded px-2 py-2 text-sm font-semibold",
+            value === turno ? "bg-accent text-accent-ink" : "bg-white text-fg",
+          )}
+        >
+          {TURNO_LABEL[turno]}
+        </button>
+      ))}
     </div>
   );
 }
@@ -1332,11 +1331,9 @@ function MachinesScreen({
 }) {
   return (
     <div>
-      <p className="mb-3 font-display text-4xl leading-none text-accent">
-        {TURNO_LABEL[state.turno]}
-      </p>
+      <p className="mb-3 font-display text-4xl leading-none text-accent">{TURNO_LABEL[state.turno]}</p>
       <p className="mb-3 text-sm font-semibold text-muted">
-        Aberto agora: {TURNO_LABEL[turnoPeloRelogio()]}. 1º 06:00–14:49, 2º até 23:59, 3º até 05:59.
+        1º 06:01–14:47 · 2º 14:48–23:30 · 3º 23:31–06:00
       </p>
       <DayControls state={state} today={today} offDay={offDay} onDate={onDate} />
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
@@ -1944,6 +1941,7 @@ function SheetScreen({
   today,
   offDay,
   onDate,
+  onTurno,
   papel,
   nome,
   onDelete,
@@ -1953,6 +1951,7 @@ function SheetScreen({
   today: string;
   offDay: boolean;
   onDate: (date: string) => void;
+  onTurno: (turno: Turno) => void;
   papel: Papel;
   nome: string;
   onDelete?: (entries: Entry[]) => void;
@@ -2033,13 +2032,33 @@ function SheetScreen({
     <>
       <div className="lg:hidden">
       {papel === "lider" ? (
-        <p className="mb-3 text-sm text-muted">Só as máquinas apontadas neste turno. As matrizes ficam no botão de cada uma.</p>
+        <div className="mb-3 grid grid-cols-3 gap-2">
+          <div className="rounded-tile border border-line bg-surface px-3 py-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Máquinas</p>
+            <p className="font-display text-3xl leading-none">{shown.length}</p>
+          </div>
+          <div className="rounded-tile border border-line bg-surface px-3 py-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Solas</p>
+            <p className="font-display text-3xl leading-none">
+              {shown.reduce((sum, machine) => sum + shiftEntries(view, machine).length, 0)}
+            </p>
+          </div>
+          <div className="rounded-tile border border-line bg-surface px-3 py-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Turno</p>
+            <p className="font-display text-3xl leading-none">{state.turno}º</p>
+          </div>
+        </div>
       ) : (
         <p className="mb-3 text-sm text-muted">
           Cada toque seu vai para a planilha, uma sola por vez. A foto e o PDF saem com o seu nome.
         </p>
       )}
       <DayControls state={state} today={today} offDay={offDay} onDate={onDate} />
+      {papel === "lider" ? (
+        <div className="mb-4">
+          <TurnoPicker value={state.turno} onChange={onTurno} />
+        </div>
+      ) : null}
 
       {papel === "lider" ? <MatrizariaConsulta state={view} ocultar={shown} /> : null}
 
@@ -2136,6 +2155,7 @@ function SheetScreen({
             today={today}
             offDay={offDay}
             onDate={onDate}
+            onTurno={onTurno}
             papel={papel}
             shown={shown}
             busy={busy}
@@ -2423,6 +2443,7 @@ function PainelMesa({
   today,
   offDay,
   onDate,
+  onTurno,
   papel,
   shown,
   busy,
@@ -2434,6 +2455,7 @@ function PainelMesa({
   today: string;
   offDay: boolean;
   onDate: (date: string) => void;
+  onTurno: (turno: Turno) => void;
   papel: Papel;
   shown: MachineId[];
   busy: "foto" | "pdf" | null;
@@ -2498,9 +2520,15 @@ function PainelMesa({
             </button>
           ) : null}
           <p className="mt-3 text-xs font-semibold text-muted">Turno</p>
-          <p className="mt-1 rounded border border-[#c8c6c4] bg-[#f3f2f1] px-2 py-2 text-sm font-semibold">
-            {TURNO_LABEL[state.turno]}
-          </p>
+          {papel === "lider" ? (
+            <div className="mt-1">
+              <TurnoPicker value={state.turno} onChange={onTurno} />
+            </div>
+          ) : (
+            <p className="mt-1 rounded border border-[#c8c6c4] bg-[#f3f2f1] px-2 py-2 text-sm font-semibold">
+              {TURNO_LABEL[state.turno]}
+            </p>
+          )}
         </section>
         <section className="rounded-md border border-[#e1dfdd] bg-white p-3 shadow-[0_1.6px_3.6px_rgba(0,0,0,.12)]">
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">Máquina</p>
@@ -2541,7 +2569,7 @@ function PainelMesa({
               Estratificação das perdas · EVA
             </p>
             <h2 className="font-display text-4xl leading-none text-fg">
-              {papel === "lider" ? "Acompanhamento" : "Lançamentos"}
+              {papel === "lider" ? "Dashboard geral" : "Lançamentos"}
             </h2>
             <p className="mt-1 text-sm text-muted">
               {formatDateBR(state.date)} · {TURNO_LABEL[state.turno]}

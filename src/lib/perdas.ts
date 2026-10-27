@@ -117,8 +117,8 @@ function partesFortaleza(at = Date.now()) {
 
 export function turnoPeloRelogio(at = Date.now()): Turno {
   const { minutes } = partesFortaleza(at);
-  if (minutes >= 6 * 60 && minutes <= 14 * 60 + 49) return "1";
-  if (minutes >= 14 * 60 + 50) return "2";
+  if (minutes >= 6 * 60 + 1 && minutes < 14 * 60 + 48) return "1";
+  if (minutes >= 14 * 60 + 48 && minutes <= 23 * 60 + 30) return "2";
   return "3";
 }
 
