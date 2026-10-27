@@ -4,17 +4,17 @@
   --font-sans: "Source Sans 3", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
 
-  --color-bg: #e7ebf0;
-  --color-surface: #f5f7fa;
-  --color-surface-2: #dde4ec;
-  --color-fg: #243040;
-  --color-muted: #5c6b7c;
-  --color-line: #c9d3de;
-  --color-accent: #4682B4;
+  --color-bg: #e8eef8;
+  --color-surface: #ffffff;
+  --color-surface-2: #f3f6fb;
+  --color-fg: #1d2a3a;
+  --color-muted: #64748b;
+  --color-line: #e1e8f2;
+  --color-accent: #4682b4;
   --color-accent-ink: #f7fbff;
-  --color-accent-soft: #d3e4f0;
+  --color-accent-soft: #e4eef6;
 
-  --radius-tile: 1rem;
+  --radius-tile: 1.15rem;
 }
 
 @layer base {

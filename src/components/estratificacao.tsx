@@ -2032,21 +2032,14 @@ function SheetScreen({
     <>
       <div className="lg:hidden">
       {papel === "lider" ? (
-        <div className="mb-3 grid grid-cols-3 gap-2">
-          <div className="rounded-tile border border-line bg-surface px-3 py-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Máquinas</p>
-            <p className="font-display text-3xl leading-none">{shown.length}</p>
-          </div>
-          <div className="rounded-tile border border-line bg-surface px-3 py-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Solas</p>
-            <p className="font-display text-3xl leading-none">
-              {shown.reduce((sum, machine) => sum + shiftEntries(view, machine).length, 0)}
-            </p>
-          </div>
-          <div className="rounded-tile border border-line bg-surface px-3 py-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Turno</p>
-            <p className="font-display text-3xl leading-none">{state.turno}º</p>
-          </div>
+        <div className="mb-3 grid grid-cols-2 gap-2">
+          <Kpi tom="roxo" titulo="Máquinas" valor={String(shown.length)} detalhe="com apontamento" />
+          <Kpi
+            tom="azul"
+            titulo="Solas"
+            valor={String(shown.reduce((sum, machine) => sum + shiftEntries(view, machine).length, 0))}
+            detalhe={TURNO_LABEL[state.turno]}
+          />
         </div>
       ) : (
         <p className="mb-3 text-sm text-muted">
@@ -2129,10 +2122,10 @@ function SheetScreen({
       </div>
       </div>
       <div className="hidden lg:block">
-        <div className="mb-3 flex gap-1 border-b border-[#c8c6c4]">
+        <div className="mb-4 inline-flex rounded-full bg-white p-1 shadow-[0_8px_24px_rgba(47,84,150,0.08)]">
           {(
             [
-              ["turno", "Turno"],
+              ["turno", "Visão do turno"],
               ["historico", "Histórico"],
             ] as const
           ).map(([id, label]) => (
@@ -2141,8 +2134,8 @@ function SheetScreen({
               type="button"
               onClick={() => setAba(id)}
               className={cx(
-                "px-4 py-2 text-sm font-semibold",
-                aba === id ? "border-b-2 border-accent text-accent" : "text-muted",
+                "rounded-full px-4 py-2 text-sm font-semibold",
+                aba === id ? "bg-[#2457b8] text-white" : "text-muted",
               )}
             >
               {label}
@@ -2211,7 +2204,6 @@ function PainelHistorico({
   const porDia = new Map<string, number>();
   for (const dia of datas) porDia.set(dia, 0);
   for (const entry of entradas) porDia.set(entry.date, (porDia.get(entry.date) ?? 0) + 1);
-  const maxDia = Math.max(1, ...porDia.values());
   const porMaquina = MACHINES.map((machine) => ({
     machine,
     solas: entradas.filter((entry) => entry.machine === machine).length,
@@ -2225,135 +2217,91 @@ function PainelHistorico({
   }))
     .filter((item) => item.solas > 0)
     .sort((a, b) => b.solas - a.solas);
-  const maxProblema = Math.max(1, ...porProblema.map((item) => item.solas));
   const total = entradas.length;
 
+  const paresDia = pares(doDia.length);
+  const paresSemana = pares(daSemana.length);
+  const paresMes = pares(total);
+
   return (
-    <div className="grid gap-3">
-      <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#c8c6c4] pb-3">
+    <div className="grid gap-4">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Kpi tom="roxo" titulo="Dia" valor={String(doDia.length)} detalhe={`${paresDia} ${paresDia === 1 ? "par" : "pares"} · ${formatDateBR(state.date)}`} />
+        <Kpi tom="azul" titulo="Semana" valor={String(daSemana.length)} detalhe={`${paresSemana} ${paresSemana === 1 ? "par" : "pares"} · 7 dias`} />
+        <Kpi tom="verde" titulo="Mês" valor={String(total)} detalhe={`${paresMes} ${paresMes === 1 ? "par" : "pares"} · 31 dias`} />
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">
-            Dados já salvos · até {formatDateBR(state.date)}
-          </p>
-          <h2 className="font-display text-4xl leading-none text-fg">Histórico</h2>
-          <p className="mt-1 text-sm text-muted">
+          <h2 className="text-lg font-semibold text-fg">Histórico das perdas</h2>
+          <p className="text-sm text-muted">
             {erro
               ? "Não leu a nuvem. Mostrando o que este computador já tem."
               : remoto === null
                 ? "Lendo os últimos 31 dias…"
-                : `${total} solas no recorte · ${turno === "todos" ? "todos os turnos" : TURNO_LABEL[turno]}`}
+                : `${total} solas · ${turno === "todos" ? "todos os turnos" : TURNO_LABEL[turno]}`}
           </p>
         </div>
-        <label className="text-xs font-semibold text-muted">
-          Até
+        <div className="flex flex-wrap items-center gap-2">
+          {(
+            [
+              ["todos", "Todos"],
+              ["1", "1º"],
+              ["2", "2º"],
+              ["3", "3º"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setTurno(id)}
+              className={cx(
+                "rounded-full px-3 py-1.5 text-sm font-semibold",
+                turno === id ? "bg-[#2457b8] text-white" : "bg-white text-fg shadow-[0_6px_16px_rgba(47,84,150,0.06)]",
+              )}
+            >
+              {label}
+            </button>
+          ))}
           <input
             type="date"
             value={state.date}
+            aria-label="Até"
             onChange={(event) => onDate(event.target.value)}
-            className="mt-1 block rounded border border-[#c8c6c4] bg-white px-2 py-2 text-sm font-semibold text-fg"
+            className="rounded-xl border border-line bg-white px-3 py-2 text-sm font-semibold"
           />
-        </label>
-      </div>
-
-      <div className="flex flex-wrap gap-1">
-        {(
-          [
-            ["todos", "Todos os turnos"],
-            ["1", "1º TURNO"],
-            ["2", "2º TURNO"],
-            ["3", "3º TURNO"],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setTurno(id)}
-            className={cx(
-              "rounded px-3 py-1.5 text-sm font-semibold",
-              turno === id ? "bg-accent text-accent-ink" : "bg-white text-fg",
-            )}
-          >
-            {label}
-          </button>
-        ))}
-        {state.date !== today ? (
-          <button type="button" onClick={() => onDate(today)} className="rounded px-3 py-1.5 text-sm font-semibold text-accent">
-            Hoje
-          </button>
-        ) : null}
-      </div>
-
-      <section className="rounded-md border border-[#e1dfdd] bg-white p-3 shadow-[0_1.6px_3.6px_rgba(0,0,0,.12)]">
-        <h3 className="text-sm font-semibold">Solas por dia</h3>
-        <p className="text-xs text-muted">31 dias até {formatDateBR(state.date)}. O dia marcado é o recorte do ranking diário.</p>
-        <div className="mt-3 flex h-44 items-end gap-1">
-          {datas.map((dia) => {
-            const valor = porDia.get(dia) ?? 0;
-            const rotulo = dia.slice(8);
-            return (
-              <div key={dia} className="flex h-full min-w-0 flex-1 flex-col justify-end">
-                <div className="flex h-36 items-end">
-                  <div
-                    title={`${formatDateBR(dia)} · ${valor} solas`}
-                    className={cx("w-full rounded-sm", dia === state.date ? "bg-accent" : "bg-[#8fb0cb]")}
-                    style={{ height: `${Math.max(valor > 0 ? 8 : 2, (valor / maxDia) * 100)}%` }}
-                  />
-                </div>
-                <span className={cx("mt-1 text-center text-[10px] tabular-nums", dia === state.date ? "font-semibold text-accent" : "text-muted")}>
-                  {rotulo}
-                </span>
-              </div>
-            );
-          })}
+          {state.date !== today ? (
+            <button type="button" onClick={() => onDate(today)} className="text-sm font-semibold text-[#2457b8]">
+              Hoje
+            </button>
+          ) : null}
         </div>
+      </div>
+
+      <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+        <h3 className="text-base font-semibold">Solas por dia</h3>
+        <p className="text-xs text-muted">31 dias até {formatDateBR(state.date)}</p>
+        <LinhaDias pontos={datas.map((dia) => ({ rotulo: dia.slice(8), valor: porDia.get(dia) ?? 0, ativo: dia === state.date }))} />
       </section>
 
-      <div className="grid gap-3 xl:grid-cols-2">
-        <section className="rounded-md border border-[#e1dfdd] bg-white p-3 shadow-[0_1.6px_3.6px_rgba(0,0,0,.12)]">
-          <h3 className="text-sm font-semibold">Máquinas no período</h3>
-          <div className="mt-3 grid gap-2">
-            {porMaquina.length === 0 ? (
-              <p className="text-sm text-muted">Sem apontamento salvo nesse recorte.</p>
-            ) : (
-              porMaquina.map((item) => (
-                <div key={item.machine} className="grid grid-cols-[4.5rem_minmax(0,1fr)_4.5rem] items-center gap-2">
-                  <span className="text-xs font-semibold">{item.machine}</span>
-                  <span className="h-5 overflow-hidden rounded-sm bg-[#f3f2f1]">
-                    <span className="block h-full rounded-sm bg-accent" style={{ width: `${Math.max(4, (item.solas / maxMaquina) * 100)}%` }} />
-                  </span>
-                  <span className="text-right text-xs font-semibold tabular-nums">
-                    {item.solas} · {total > 0 ? Math.round((item.solas / total) * 100) : 0}%
-                  </span>
-                </div>
-              ))
-            )}
+      <div className="grid gap-4 xl:grid-cols-2">
+        <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+          <h3 className="text-base font-semibold">Perdas no período</h3>
+          <p className="text-xs text-muted">Parte de cada problema no total de solas.</p>
+          <div className="mt-3">
+            <Rosca fatias={porProblema.map((item) => ({ nome: item.name, valor: item.solas }))} />
           </div>
         </section>
-        <section className="rounded-md border border-[#e1dfdd] bg-white p-3 shadow-[0_1.6px_3.6px_rgba(0,0,0,.12)]">
-          <h3 className="text-sm font-semibold">Perdas no período</h3>
-          <div className="mt-3 grid gap-2">
-            {porProblema.length === 0 ? (
-              <p className="text-sm text-muted">Sem apontamento salvo nesse recorte.</p>
-            ) : (
-              porProblema.map((item) => (
-                <div key={item.name} className="grid grid-cols-[minmax(0,1fr)_4.5rem] items-center gap-2">
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold leading-snug">{item.name}</p>
-                    <span className="mt-1 block h-2.5 overflow-hidden rounded-sm bg-[#f3f2f1]">
-                      <span className="block h-full rounded-sm bg-accent" style={{ width: `${Math.max(4, (item.solas / maxProblema) * 100)}%` }} />
-                    </span>
-                  </div>
-                  <span className="text-right text-xs font-semibold tabular-nums">
-                    {item.solas} · {total > 0 ? Math.round((item.solas / total) * 100) : 0}%
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
+        <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+          <h3 className="text-base font-semibold">Máquinas no período</h3>
+          <Barras
+            itens={porMaquina.map((item) => ({ nome: item.machine, valor: item.solas }))}
+            maximo={maxMaquina}
+          />
         </section>
       </div>
 
-      <div className="grid gap-3 xl:grid-cols-3">
+      <div className="grid gap-4 xl:grid-cols-3">
         <RankingNumeros titulo="5 piores números do dia" detalhe={formatDateBR(state.date)} entries={doDia} />
         <RankingNumeros titulo="5 piores da semana" detalhe="7 dias até a data" entries={daSemana} />
         <RankingNumeros titulo="5 piores do mês" detalhe="31 dias até a data" entries={entradas} />
@@ -2373,7 +2321,7 @@ function RankingNumeros({
 }) {
   const lista = rankNumeros(entries);
   return (
-    <section className="rounded-md border border-[#e1dfdd] bg-white p-3 shadow-[0_1.6px_3.6px_rgba(0,0,0,.12)]">
+    <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
       <h3 className="text-sm font-semibold">{titulo}</h3>
       <p className="text-xs text-muted">{detalhe} · {entries.length} solas</p>
       {lista.length === 0 ? (
@@ -2481,7 +2429,6 @@ function PainelMesa({
   }))
     .filter((item) => item.solas > 0)
     .sort((a, b) => b.solas - a.solas);
-  const maxProblema = Math.max(1, ...porProblema.map((item) => item.solas));
   const pior = porProblema[0];
   const autores = [
     ...new Set(
@@ -2497,83 +2444,16 @@ function PainelMesa({
     : [];
 
   return (
-    <div className="grid items-start gap-3 xl:grid-cols-[17rem_minmax(0,1fr)]">
-      <aside className="grid content-start gap-3 xl:sticky xl:top-3">
-        <section className="rounded-md border border-[#e1dfdd] bg-white p-3 shadow-[0_1.6px_3.6px_rgba(0,0,0,.12)]">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">Segmentação</p>
-          <label className="mt-3 block text-xs font-semibold text-muted">
-            Data
-            <input
-              type="date"
-              value={state.date}
-              onChange={(event) => onDate(event.target.value)}
-              className="mt-1 w-full rounded border border-[#c8c6c4] bg-[#faf9f8] px-2 py-2 text-sm font-semibold text-fg"
-            />
-          </label>
-          {offDay ? (
-            <button
-              type="button"
-              onClick={() => onDate(today)}
-              className="mt-2 w-full rounded bg-accent py-2 text-sm font-semibold text-accent-ink"
-            >
-              Voltar para hoje
-            </button>
-          ) : null}
-          <p className="mt-3 text-xs font-semibold text-muted">Turno</p>
-          {papel === "lider" ? (
-            <div className="mt-1">
-              <TurnoPicker value={state.turno} onChange={onTurno} />
-            </div>
-          ) : (
-            <p className="mt-1 rounded border border-[#c8c6c4] bg-[#f3f2f1] px-2 py-2 text-sm font-semibold">
-              {TURNO_LABEL[state.turno]}
-            </p>
-          )}
-        </section>
-        <section className="rounded-md border border-[#e1dfdd] bg-white p-3 shadow-[0_1.6px_3.6px_rgba(0,0,0,.12)]">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">Máquina</p>
-          <div className="mt-2 grid grid-cols-2 gap-1.5">
-            <button
-              type="button"
-              onClick={() => setFoco(null)}
-              className={cx(
-                "rounded px-2 py-2 text-left text-sm font-semibold",
-                foco === null ? "bg-accent text-accent-ink" : "bg-[#f3f2f1] text-fg",
-              )}
-            >
-              Todas
-            </button>
-            {shown.map((machine) => (
-              <button
-                key={machine}
-                type="button"
-                onClick={() => setFoco((atual) => (atual === machine ? null : machine))}
-                className={cx(
-                  "rounded px-2 py-2 text-left text-sm font-semibold",
-                  foco === machine ? "bg-accent text-accent-ink" : "bg-[#f3f2f1] text-fg",
-                )}
-              >
-                {machine}
-              </button>
-            ))}
-          </div>
-          {shown.length === 0 ? <p className="mt-2 text-sm text-muted">Nenhuma máquina neste turno.</p> : null}
-        </section>
-        {papel === "lider" ? <MatrizariaConsulta state={state} ocultar={shown} /> : null}
-      </aside>
-
-      <div className="grid min-w-0 gap-3">
-        <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#c8c6c4] pb-3">
+    <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
+      <div className="grid min-w-0 gap-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">
-              Estratificação das perdas · EVA
-            </p>
-            <h2 className="font-display text-4xl leading-none text-fg">
+            <h2 className="text-lg font-semibold text-fg">
               {papel === "lider" ? "Dashboard geral" : "Lançamentos"}
             </h2>
-            <p className="mt-1 text-sm text-muted">
+            <p className="text-sm text-muted">
               {formatDateBR(state.date)} · {TURNO_LABEL[state.turno]}
-              {foco ? ` · recorte ${foco}` : " · turno inteiro"}
+              {foco ? ` · ${foco}` : " · turno inteiro"}
               {autores.length > 0 ? ` · ${autores.join(" · ")}` : ""}
             </p>
           </div>
@@ -2592,7 +2472,7 @@ function PainelMesa({
                 }
                 onPhoto(shown[0]);
               }}
-              className="rounded border border-[#c8c6c4] bg-white px-3 py-2 text-sm font-semibold disabled:opacity-50"
+              className="rounded-full bg-white px-4 py-2 text-sm font-semibold shadow-[0_6px_16px_rgba(47,84,150,0.08)] disabled:opacity-50"
             >
               {busy === "foto" ? "Gerando foto…" : "Enviar foto"}
             </button>
@@ -2600,7 +2480,7 @@ function PainelMesa({
               type="button"
               disabled={busy !== null || shown.length === 0}
               onClick={onPdf}
-              className="rounded border border-[#c8c6c4] bg-white px-3 py-2 text-sm font-semibold disabled:opacity-50"
+              className="rounded-full bg-white px-4 py-2 text-sm font-semibold shadow-[0_6px_16px_rgba(47,84,150,0.08)] disabled:opacity-50"
             >
               {busy === "pdf" ? "Gerando PDF…" : "Baixar PDF"}
             </button>
@@ -2614,7 +2494,7 @@ function PainelMesa({
                 key={machine}
                 type="button"
                 onClick={() => onPhoto(machine)}
-                className="rounded bg-accent-soft px-3 py-2 text-sm font-semibold text-accent"
+                className="rounded-full bg-[#e8eefc] px-3 py-2 text-sm font-semibold text-[#2457b8]"
               >
                 Foto {machine}
               </button>
@@ -2623,70 +2503,39 @@ function PainelMesa({
         ) : null}
 
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Kpi titulo="Solas" valor={String(solas)} detalhe="apontadas no recorte" />
-          <Kpi titulo="Pares" valor={String(totalPares)} detalhe="1 sola fecha 1 par" />
-          <Kpi titulo="Máquinas" valor={String(recorte.length)} detalhe={foco ? "recorte ativo" : "com apontamento"} />
-          <Kpi titulo="Maior perda" valor={pior ? String(pior.solas) : "—"} detalhe={pior?.name ?? "sem perda neste turno"} />
+          <Kpi tom="roxo" titulo="Solas" valor={String(solas)} detalhe="apontadas no recorte" />
+          <Kpi tom="azul" titulo="Pares" valor={String(totalPares)} detalhe="1 sola fecha 1 par" />
+          <Kpi tom="ciano" titulo="Máquinas" valor={String(recorte.length)} detalhe={foco ? "recorte ativo" : "com apontamento"} />
+          <Kpi tom="verde" titulo="Maior perda" valor={pior ? String(pior.solas) : "—"} detalhe={pior?.name ?? "sem perda neste turno"} />
         </div>
 
-        <div className="grid gap-3 xl:grid-cols-2">
-          <section className="rounded-md border border-[#e1dfdd] bg-white p-3 shadow-[0_1.6px_3.6px_rgba(0,0,0,.12)]">
-            <h3 className="text-sm font-semibold">Solas por máquina</h3>
+        <div className="grid gap-4 xl:grid-cols-2">
+          <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+            <h3 className="text-base font-semibold">Solas por máquina</h3>
             <p className="text-xs text-muted">Clique na barra para filtrar o relatório.</p>
-            <div className="mt-3 grid gap-2">
-              {porMaquina.length === 0 ? (
-                <p className="text-sm text-muted">Sem apontamento neste turno.</p>
-              ) : (
-                porMaquina.map((item) => (
-                  <button
-                    key={item.machine}
-                    type="button"
-                    onClick={() => setFoco((atual) => (atual === item.machine ? null : item.machine))}
-                    className="grid grid-cols-[4.5rem_minmax(0,1fr)_2.5rem] items-center gap-2 text-left"
-                  >
-                    <span className={cx("text-xs font-semibold", foco === item.machine && "text-accent")}>{item.machine}</span>
-                    <span className="h-6 overflow-hidden rounded-sm bg-[#f3f2f1]">
-                      <span
-                        className={cx("block h-full rounded-sm", foco && foco !== item.machine ? "bg-[#c5d7e6]" : "bg-accent")}
-                        style={{ width: `${Math.max(4, (item.solas / maxMaquina) * 100)}%` }}
-                      />
-                    </span>
-                    <span className="text-right text-sm font-semibold tabular-nums">{item.solas}</span>
-                  </button>
-                ))
-              )}
-            </div>
+            <Barras
+              itens={porMaquina.map((item) => ({
+                nome: item.machine,
+                valor: item.solas,
+                ativo: foco ? foco === item.machine : undefined,
+              }))}
+              maximo={maxMaquina}
+              onPick={(nome) => setFoco((atual) => (atual === nome ? null : (nome as MachineId)))}
+            />
           </section>
-          <section className="rounded-md border border-[#e1dfdd] bg-white p-3 shadow-[0_1.6px_3.6px_rgba(0,0,0,.12)]">
-            <h3 className="text-sm font-semibold">Solas por perda</h3>
-            <p className="text-xs text-muted">Esquerda e direita não se somam. O par é de cada lado.</p>
-            <div className="mt-3 grid gap-2">
-              {porProblema.length === 0 ? (
-                <p className="text-sm text-muted">Sem perda neste recorte.</p>
-              ) : (
-                porProblema.map((item) => (
-                  <div key={item.name} className="grid grid-cols-[minmax(0,1fr)_2.5rem] items-center gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-xs font-semibold">{item.name}</p>
-                      <span className="mt-1 block h-2.5 overflow-hidden rounded-sm bg-[#f3f2f1]">
-                        <span
-                          className="block h-full rounded-sm bg-accent"
-                          style={{ width: `${Math.max(4, (item.solas / maxProblema) * 100)}%` }}
-                        />
-                      </span>
-                    </div>
-                    <span className="text-right text-sm font-semibold tabular-nums">{item.solas}</span>
-                  </div>
-                ))
-              )}
+          <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+            <h3 className="text-base font-semibold">Composição das perdas</h3>
+            <p className="text-xs text-muted">Esquerda e direita continuam separadas na tabela.</p>
+            <div className="mt-2">
+              <Rosca fatias={porProblema.map((item) => ({ nome: item.name, valor: item.solas }))} />
             </div>
           </section>
         </div>
 
         {foco ? (
-          <section className="rounded-md border border-[#e1dfdd] bg-white p-3 shadow-[0_1.6px_3.6px_rgba(0,0,0,.12)]">
+          <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold">Matrizaria · {foco}</h3>
+              <h3 className="text-base font-semibold">Matrizaria · {foco}</h3>
               {onDelete && editaveis.length > 0 ? (
                 pedirExclusao ? (
                   <span className="flex items-center gap-2 text-sm">
@@ -2700,7 +2549,7 @@ function PainelMesa({
                         setPedirExclusao(false);
                         onDelete(editaveis);
                       }}
-                      className="rounded bg-[#9b3a34] px-2 py-1 font-semibold text-white"
+                      className="rounded-full bg-[#9b3a34] px-3 py-1 font-semibold text-white"
                     >
                       Excluir
                     </button>
@@ -2716,17 +2565,17 @@ function PainelMesa({
           </section>
         ) : null}
 
-        <section className="overflow-hidden rounded-md border border-[#e1dfdd] bg-white shadow-[0_1.6px_3.6px_rgba(0,0,0,.12)]">
-          <div className="flex items-center justify-between border-b border-[#e1dfdd] px-3 py-2">
-            <h3 className="text-sm font-semibold">Detalhe do apontamento</h3>
+        <section className="overflow-hidden rounded-3xl bg-white shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+          <div className="flex items-center justify-between px-4 py-3">
+            <h3 className="text-base font-semibold">Detalhe do apontamento</h3>
             <p className="text-xs text-muted">{linhas.length} linhas</p>
           </div>
           <div className="max-h-[32rem] overflow-auto">
             <table className="w-full border-collapse text-left text-sm">
-              <thead className="sticky top-0 bg-[#f3f2f1] text-[11px] uppercase tracking-wide text-muted">
+              <thead className="sticky top-0 bg-[#f6f8fc] text-[11px] uppercase tracking-wide text-muted">
                 <tr>
                   {["Máquina", "Estação", "Lado", "Nº", "Ref.", "Perda", "Solas", "Pares"].map((coluna) => (
-                    <th key={coluna} className="whitespace-nowrap border-b border-[#e1dfdd] px-3 py-2 font-semibold">
+                    <th key={coluna} className="whitespace-nowrap px-3 py-2 font-semibold">
                       {coluna}
                     </th>
                   ))}
@@ -2741,7 +2590,7 @@ function PainelMesa({
                   </tr>
                 ) : (
                   linhas.map((linha, index) => (
-                    <tr key={linha.key} className={index % 2 === 0 ? "bg-white" : "bg-[#faf9f8]"}>
+                    <tr key={linha.key} className={index % 2 === 0 ? "bg-white" : "bg-[#f8fafc]"}>
                       <td className="whitespace-nowrap px-3 py-1.5 font-semibold">{linha.machine}</td>
                       <td className="px-3 py-1.5 tabular-nums">
                         {linha.outroId ? `Troca ${linha.station >= 1 ? pad2(linha.station) : ""}`.trim() : pad2(linha.station)}
@@ -2760,20 +2609,242 @@ function PainelMesa({
           </div>
         </section>
       </div>
+
+      <aside className="grid content-start gap-4 xl:sticky xl:top-3">
+        <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+          <p className="text-sm font-semibold">Filtros</p>
+          <label className="mt-3 block text-xs font-semibold text-muted">
+            Data
+            <input
+              type="date"
+              value={state.date}
+              onChange={(event) => onDate(event.target.value)}
+              className="mt-1 w-full rounded-xl border border-line bg-[#f7f9fc] px-3 py-2 text-sm font-semibold text-fg"
+            />
+          </label>
+          {offDay ? (
+            <button
+              type="button"
+              onClick={() => onDate(today)}
+              className="mt-2 w-full rounded-full bg-[#2457b8] py-2 text-sm font-semibold text-white"
+            >
+              Voltar para hoje
+            </button>
+          ) : null}
+          <p className="mt-4 text-xs font-semibold text-muted">Turno</p>
+          {papel === "lider" ? (
+            <div className="mt-1">
+              <TurnoPicker value={state.turno} onChange={onTurno} />
+            </div>
+          ) : (
+            <p className="mt-1 rounded-xl bg-[#f7f9fc] px-3 py-2 text-sm font-semibold">{TURNO_LABEL[state.turno]}</p>
+          )}
+        </section>
+        <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+          <p className="text-sm font-semibold">Máquina</p>
+          <div className="mt-2 grid grid-cols-2 gap-1.5">
+            <button
+              type="button"
+              onClick={() => setFoco(null)}
+              className={cx(
+                "rounded-xl px-2 py-2 text-left text-sm font-semibold",
+                foco === null ? "bg-[#2457b8] text-white" : "bg-[#f3f6fb] text-fg",
+              )}
+            >
+              Todas
+            </button>
+            {shown.map((machine) => (
+              <button
+                key={machine}
+                type="button"
+                onClick={() => setFoco((atual) => (atual === machine ? null : machine))}
+                className={cx(
+                  "rounded-xl px-2 py-2 text-left text-sm font-semibold",
+                  foco === machine ? "bg-[#2457b8] text-white" : "bg-[#f3f6fb] text-fg",
+                )}
+              >
+                {machine}
+              </button>
+            ))}
+          </div>
+          {shown.length === 0 ? <p className="mt-2 text-sm text-muted">Nenhuma máquina neste turno.</p> : null}
+        </section>
+        {papel === "lider" ? <MatrizariaConsulta state={state} ocultar={shown} /> : null}
+      </aside>
     </div>
   );
 }
 
-function Kpi({ titulo, valor, detalhe }: { titulo: string; valor: string; detalhe: string }) {
+const CORES = ["#2f6fe0", "#6d5ef5", "#2bb3c7", "#3dcea0", "#ef6b7a", "#f0a04b", "#7aa2ff", "#8b7cf7", "#2457b8", "#14b8a6", "#fb7185"];
+
+function Kpi({
+  titulo,
+  valor,
+  detalhe,
+  tom,
+}: {
+  titulo: string;
+  valor: string;
+  detalhe: string;
+  tom: "roxo" | "azul" | "ciano" | "verde";
+}) {
+  const fundo = {
+    roxo: "bg-gradient-to-br from-[#6a4cff] to-[#8d74ff]",
+    azul: "bg-gradient-to-br from-[#2457d6] to-[#4d86f5]",
+    ciano: "bg-gradient-to-br from-[#128fb8] to-[#3ec8dc]",
+    verde: "bg-gradient-to-br from-[#129a78] to-[#3ddea4]",
+  }[tom];
   return (
-    <section className="overflow-hidden rounded-md border border-[#e1dfdd] bg-white shadow-[0_1.6px_3.6px_rgba(0,0,0,.12)]">
-      <div className="h-1 bg-accent" />
-      <div className="px-3 py-3">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">{titulo}</p>
-        <p className="mt-1 font-display text-5xl leading-none tabular-nums text-fg">{valor}</p>
-        <p className="mt-2 line-clamp-2 text-xs text-muted">{detalhe}</p>
-      </div>
+    <section className={cx("rounded-3xl px-4 py-4 text-white shadow-[0_12px_28px_rgba(47,84,150,0.16)]", fundo)}>
+      <p className="text-sm font-semibold text-white/80">{titulo}</p>
+      <p className="mt-2 font-display text-5xl leading-none tabular-nums">{valor}</p>
+      <p className="mt-2 line-clamp-2 text-xs leading-snug text-white/85">{detalhe}</p>
     </section>
+  );
+}
+
+function Rosca({ fatias }: { fatias: { nome: string; valor: number }[] }) {
+  const total = fatias.reduce((soma, item) => soma + item.valor, 0);
+  if (total <= 0) return <p className="py-8 text-sm text-muted">Sem perda neste recorte.</p>;
+  const raio = 58;
+  const volta = 2 * Math.PI * raio;
+  let cursor = 0;
+  const partes = fatias.map((item, index) => {
+    const fatia = (item.valor / total) * volta;
+    const parte = { ...item, fatia, resto: volta - fatia, inicio: cursor, cor: CORES[index % CORES.length] ?? CORES[0] };
+    cursor += fatia;
+    return parte;
+  });
+  return (
+    <div className="grid items-center gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
+      <svg viewBox="0 0 160 160" className="mx-auto h-52 w-52" role="img" aria-label="Composição das perdas">
+        <g transform="rotate(-90 80 80)">
+          {partes.map((parte) => (
+            <circle
+              key={parte.nome}
+              cx="80"
+              cy="80"
+              r={raio}
+              fill="none"
+              stroke={parte.cor}
+              strokeWidth="22"
+              strokeDasharray={`${parte.fatia} ${parte.resto}`}
+              strokeDashoffset={-parte.inicio}
+            />
+          ))}
+        </g>
+        <circle cx="80" cy="80" r="40" fill="white" />
+        <text x="80" y="76" textAnchor="middle" className="fill-[#1d2a3a] text-[11px] font-semibold">
+          Solas
+        </text>
+        <text x="80" y="94" textAnchor="middle" className="fill-[#1d2a3a] text-[16px] font-semibold">
+          {total}
+        </text>
+      </svg>
+      <ul className="grid gap-2">
+        {partes.map((parte) => (
+          <li key={parte.nome} className="grid grid-cols-[0.7rem_minmax(0,1fr)_auto] items-start gap-2 text-sm">
+            <span className="mt-1 size-2.5 rounded-full" style={{ background: parte.cor }} />
+            <span className="leading-snug">{parte.nome}</span>
+            <span className="font-semibold tabular-nums">{Math.round((parte.valor / total) * 1000) / 10}%</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function Barras({
+  itens,
+  maximo,
+  onPick,
+}: {
+  itens: { nome: string; valor: number; ativo?: boolean }[];
+  maximo: number;
+  onPick?: (nome: string) => void;
+}) {
+  if (itens.length === 0) return <p className="py-8 text-sm text-muted">Sem apontamento neste recorte.</p>;
+  return (
+    <div className="mt-3 grid gap-2.5">
+      {itens.map((item, index) => {
+        const corpo = (
+          <>
+            <span className="text-xs font-semibold">{item.nome}</span>
+            <span className="h-3 overflow-hidden rounded-full bg-[#eef2f8]">
+              <span
+                className="block h-full rounded-full"
+                style={{
+                  width: `${Math.max(6, (item.valor / maximo) * 100)}%`,
+                  background: `linear-gradient(90deg, ${CORES[index % CORES.length]}, #8eb6ff)`,
+                  opacity: item.ativo === false ? 0.35 : 1,
+                }}
+              />
+            </span>
+            <span className="text-right text-sm font-semibold tabular-nums">{item.valor}</span>
+          </>
+        );
+        const classe = "grid grid-cols-[4.6rem_minmax(0,1fr)_2.4rem] items-center gap-2 text-left";
+        if (!onPick) {
+          return (
+            <div key={item.nome} className={classe}>
+              {corpo}
+            </div>
+          );
+        }
+        return (
+          <button key={item.nome} type="button" onClick={() => onPick(item.nome)} className={classe}>
+            {corpo}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function LinhaDias({ pontos }: { pontos: { rotulo: string; valor: number; ativo: boolean }[] }) {
+  const largura = 720;
+  const altura = 210;
+  const esquerda = 32;
+  const direita = 8;
+  const topo = 16;
+  const base = 26;
+  const maximo = Math.max(1, ...pontos.map((ponto) => ponto.valor));
+  const mioloL = largura - esquerda - direita;
+  const mioloA = altura - topo - base;
+  const marcas = pontos.map((ponto, index) => {
+    const x = esquerda + (pontos.length <= 1 ? mioloL / 2 : (index / (pontos.length - 1)) * mioloL);
+    const y = topo + mioloA - (ponto.valor / maximo) * mioloA;
+    return { ...ponto, x, y };
+  });
+  const linha = marcas.map((ponto, index) => `${index === 0 ? "M" : "L"}${ponto.x.toFixed(1)},${ponto.y.toFixed(1)}`).join(" ");
+  const ultimo = marcas[marcas.length - 1];
+  const primeiro = marcas[0];
+  const area = ultimo && primeiro ? `${linha} L${ultimo.x},${topo + mioloA} L${primeiro.x},${topo + mioloA} Z` : "";
+  return (
+    <svg viewBox={`0 0 ${largura} ${altura}`} className="mt-2 h-56 w-full" role="img" aria-label="Solas por dia">
+      {[0, 0.5, 1].map((passo) => {
+        const y = topo + mioloA - passo * mioloA;
+        return <line key={passo} x1={esquerda} x2={largura - direita} y1={y} y2={y} stroke="#e6edf5" />;
+      })}
+      <path d={area} fill="url(#solas-area)" />
+      <path d={linha} fill="none" stroke="#2f6fe0" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
+      {marcas.filter((ponto) => ponto.ativo).map((ponto) => (
+        <circle key={ponto.rotulo} cx={ponto.x} cy={ponto.y} r="4.5" fill="#2457b8" />
+      ))}
+      {marcas.map((ponto, index) =>
+        index % 5 === 0 ? (
+          <text key={ponto.rotulo} x={ponto.x} y={altura - 6} textAnchor="middle" className="fill-[#64748b] text-[11px]">
+            {ponto.rotulo}
+          </text>
+        ) : null,
+      )}
+      <defs>
+        <linearGradient id="solas-area" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#2f6fe0" stopOpacity="0.28" />
+          <stop offset="100%" stopColor="#2f6fe0" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+    </svg>
   );
 }
 
