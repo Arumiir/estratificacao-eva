@@ -1959,7 +1959,7 @@ function SheetScreen({
 }) {
   const [busy, setBusy] = useState<"foto" | "pdf" | null>(null);
   const [fotoPick, setFotoPick] = useState(false);
-  const [aba, setAba] = useState<"turno" | "historico">("turno");
+  const [aba, setAba] = useState<"turno" | "comparativo">("turno");
   const view: State =
     papel === "preparador"
       ? { ...state, entries: state.entries.filter((entry) => entry.autor === nome) }
@@ -2030,6 +2030,33 @@ function SheetScreen({
 
   return (
     <>
+      {papel === "lider" ? (
+        <div className="mb-4 inline-flex rounded-full bg-white p-1 shadow-[0_8px_24px_rgba(47,84,150,0.08)] lg:hidden">
+          {(
+            [
+              ["turno", "Visão do turno"],
+              ["comparativo", "Comparativo"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setAba(id)}
+              className={cx(
+                "rounded-full px-4 py-2 text-sm font-semibold",
+                aba === id ? "bg-[#2457b8] text-white" : "text-muted",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {papel === "lider" && aba === "comparativo" ? (
+        <div className="lg:hidden">
+          <PainelHistorico state={state} today={today} onDate={onDate} />
+        </div>
+      ) : (
       <div className="lg:hidden">
       {papel === "lider" ? (
         <div className="mb-3 grid grid-cols-2 gap-2">
@@ -2121,12 +2148,13 @@ function SheetScreen({
         </button>
       </div>
       </div>
+      )}
       <div className="hidden lg:block">
         <div className="mb-4 inline-flex rounded-full bg-white p-1 shadow-[0_8px_24px_rgba(47,84,150,0.08)]">
           {(
             [
               ["turno", "Visão do turno"],
-              ["historico", "Histórico"],
+              ["comparativo", "Comparativo"],
             ] as const
           ).map(([id, label]) => (
             <button
@@ -2175,7 +2203,7 @@ function PainelHistorico({
 }) {
   const [remoto, setRemoto] = useState<Entry[] | null>(null);
   const [erro, setErro] = useState(false);
-  const [turno, setTurno] = useState<Turno | "todos">("todos");
+  const [janela, setJanela] = useState<"dia" | "semana" | "mes">("dia");
   const datas = diasAte(state.date, 31);
   const semana = new Set(diasAte(state.date, 7));
   const mes = new Set(datas);
@@ -2196,68 +2224,72 @@ function PainelHistorico({
     };
   }, [state.date]);
 
-  const entradas = juntarHistorico(remoto ?? [], state.entries, mes).filter(
-    (entry) => turno === "todos" || entry.turno === turno,
-  );
-  const doDia = entradas.filter((entry) => entry.date === state.date);
-  const daSemana = entradas.filter((entry) => semana.has(entry.date));
-  const porDia = new Map<string, number>();
-  for (const dia of datas) porDia.set(dia, 0);
-  for (const entry of entradas) porDia.set(entry.date, (porDia.get(entry.date) ?? 0) + 1);
-  const porMaquina = MACHINES.map((machine) => ({
-    machine,
-    solas: entradas.filter((entry) => entry.machine === machine).length,
-  }))
-    .filter((item) => item.solas > 0)
-    .sort((a, b) => b.solas - a.solas);
-  const maxMaquina = Math.max(1, ...porMaquina.map((item) => item.solas));
-  const porProblema = PROBLEMS.map((problem) => ({
-    name: problem.name,
-    solas: entradas.filter((entry) => entry.problem === problem.id).length,
-  }))
-    .filter((item) => item.solas > 0)
-    .sort((a, b) => b.solas - a.solas);
-  const total = entradas.length;
-
-  const paresDia = pares(doDia.length);
-  const paresSemana = pares(daSemana.length);
-  const paresMes = pares(total);
+  const base = juntarHistorico(remoto ?? [], state.entries, mes);
+  const diasJanela = janela === "dia" ? [state.date] : janela === "semana" ? diasAte(state.date, 7) : datas;
+  const periodo = base.filter((entry) => diasJanela.includes(entry.date));
+  const doDia = base.filter((entry) => entry.date === state.date);
+  const daSemana = base.filter((entry) => semana.has(entry.date));
+  const turnos = (["1", "2", "3"] as const).map((turno) => {
+    const lista = periodo.filter((entry) => entry.turno === turno);
+    return { turno, lista, solas: lista.length, pares: paresDasEntradas(lista) };
+  });
+  const total = periodo.length;
+  const totalPares = turnos.reduce((soma, item) => soma + item.pares, 0);
+  const maior = Math.max(0, ...turnos.map((item) => item.solas));
+  const piorTurno = [...turnos].sort((a, b) => b.solas - a.solas)[0];
+  const porProblema = PROBLEMS.map((problem) => {
+    const colunas = { "1": 0, "2": 0, "3": 0 } as Record<"1" | "2" | "3", number>;
+    for (const entry of periodo) {
+      if (entry.problem === problem.id) colunas[entry.turno] += 1;
+    }
+    return { name: problem.name, ...colunas, total: colunas["1"] + colunas["2"] + colunas["3"] };
+  })
+    .filter((item) => item.total > 0)
+    .sort((a, b) => b.total - a.total);
+  const porMaquina = MACHINES.map((machine) => {
+    const colunas = { "1": 0, "2": 0, "3": 0 } as Record<"1" | "2" | "3", number>;
+    for (const entry of periodo) {
+      if (entry.machine === machine) colunas[entry.turno] += 1;
+    }
+    return { machine, ...colunas, total: colunas["1"] + colunas["2"] + colunas["3"] };
+  })
+    .filter((item) => item.total > 0)
+    .sort((a, b) => b.total - a.total);
+  const serie = (["1", "2", "3"] as const).map((turno) => ({
+    nome: TURNO_LABEL[turno],
+    cor: turno === "1" ? "#6a4cff" : turno === "2" ? "#2457d6" : "#129a78",
+    valores: diasJanela.map((dia) => base.filter((entry) => entry.date === dia && entry.turno === turno).length),
+  }));
+  const tituloJanela = janela === "dia" ? "24 horas" : janela === "semana" ? "Semana" : "Mês";
 
   return (
     <div className="grid gap-4">
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Kpi tom="roxo" titulo="Dia" valor={String(doDia.length)} detalhe={`${paresDia} ${paresDia === 1 ? "par" : "pares"} · ${formatDateBR(state.date)}`} />
-        <Kpi tom="azul" titulo="Semana" valor={String(daSemana.length)} detalhe={`${paresSemana} ${paresSemana === 1 ? "par" : "pares"} · 7 dias`} />
-        <Kpi tom="verde" titulo="Mês" valor={String(total)} detalhe={`${paresMes} ${paresMes === 1 ? "par" : "pares"} · 31 dias`} />
-      </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-fg">Histórico das perdas</h2>
+          <h2 className="text-lg font-semibold text-fg">Comparativo dos turnos</h2>
           <p className="text-sm text-muted">
             {erro
               ? "Não leu a nuvem. Mostrando o que este computador já tem."
               : remoto === null
                 ? "Lendo os últimos 31 dias…"
-                : `${total} solas · ${turno === "todos" ? "todos os turnos" : TURNO_LABEL[turno]}`}
+                : "1º, 2º e 3º no mesmo gráfico. O turno que ainda não apontou fica em zero."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {(
             [
-              ["todos", "Todos"],
-              ["1", "1º"],
-              ["2", "2º"],
-              ["3", "3º"],
+              ["dia", "24 horas"],
+              ["semana", "Semana"],
+              ["mes", "Mês"],
             ] as const
           ).map(([id, label]) => (
             <button
               key={id}
               type="button"
-              onClick={() => setTurno(id)}
+              onClick={() => setJanela(id)}
               className={cx(
                 "rounded-full px-3 py-1.5 text-sm font-semibold",
-                turno === id ? "bg-[#2457b8] text-white" : "bg-white text-fg shadow-[0_6px_16px_rgba(47,84,150,0.06)]",
+                janela === id ? "bg-[#2457b8] text-white" : "bg-white text-fg shadow-[0_6px_16px_rgba(47,84,150,0.06)]",
               )}
             >
               {label}
@@ -2278,33 +2310,127 @@ function PainelHistorico({
         </div>
       </div>
 
-      <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
-        <h3 className="text-base font-semibold">Solas por dia</h3>
-        <p className="text-xs text-muted">31 dias até {formatDateBR(state.date)}</p>
-        <LinhaDias pontos={datas.map((dia) => ({ rotulo: dia.slice(8), valor: porDia.get(dia) ?? 0, ativo: dia === state.date }))} />
-      </section>
+      <div className="grid gap-3 sm:grid-cols-3">
+        {turnos.map((item) => (
+          <Kpi
+            key={item.turno}
+            tom={item.turno === "1" ? "roxo" : item.turno === "2" ? "azul" : "verde"}
+            titulo={TURNO_LABEL[item.turno]}
+            valor={String(item.solas)}
+            detalhe={
+              item.solas === 0
+                ? "sem apontamento neste período"
+                : `${item.pares} ${item.pares === 1 ? "par" : "pares"} · ${total > 0 ? Math.round((item.solas / total) * 100) : 0}% do período${maior > 0 && item.solas === maior ? " · perde mais" : ""}`
+            }
+          />
+        ))}
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Kpi tom="ciano" titulo="24 horas" valor={String(doDia.length)} detalhe={`${paresDasEntradas(doDia)} pares · ${formatDateBR(state.date)} · os 3 turnos`} />
+        <Kpi tom="azul" titulo="Semana" valor={String(daSemana.length)} detalhe={`${paresDasEntradas(daSemana)} pares · 7 dias · os 3 turnos`} />
+        <Kpi tom="verde" titulo="Mês" valor={String(base.length)} detalhe={`${paresDasEntradas(base)} pares · 31 dias · os 3 turnos`} />
+      </div>
+
+      {piorTurno && piorTurno.solas > 0 ? (
+        <p className="rounded-2xl bg-white px-4 py-3 text-sm text-fg shadow-[0_8px_24px_rgba(47,84,150,0.06)]">
+          Em {tituloJanela.toLowerCase()}, quem mais perde é o {TURNO_LABEL[piorTurno.turno]}: {piorTurno.solas} solas, {piorTurno.pares} {piorTurno.pares === 1 ? "par" : "pares"}.
+          {turnos.filter((item) => item.solas === 0).length > 0
+            ? ` ${turnos
+                .filter((item) => item.solas === 0)
+                .map((item) => TURNO_LABEL[item.turno])
+                .join(" e ")} ainda sem lançamento.`
+            : ""}
+        </p>
+      ) : null}
+
+      {janela !== "dia" ? (
+        <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+          <h3 className="text-base font-semibold">Solas por dia e por turno</h3>
+          <p className="text-xs text-muted">Roxo é o 1º, azul o 2º, verde o 3º.</p>
+          <LinhasTurno dias={diasJanela.map((dia) => dia.slice(8))} series={serie} />
+        </section>
+      ) : null}
 
       <div className="grid gap-4 xl:grid-cols-2">
         <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
-          <h3 className="text-base font-semibold">Perdas no período</h3>
-          <p className="text-xs text-muted">Parte de cada problema no total de solas.</p>
-          <div className="mt-3">
-            <Rosca fatias={porProblema.map((item) => ({ nome: item.name, valor: item.solas }))} />
-          </div>
+          <h3 className="text-base font-semibold">O que cada turno mais aponta</h3>
+          <p className="text-xs text-muted">{tituloJanela}. Nome completo da perda.</p>
+          {porProblema.length === 0 ? (
+            <p className="py-8 text-sm text-muted">Sem apontamento neste período.</p>
+          ) : (
+            <div className="mt-3 overflow-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="text-[11px] uppercase tracking-wide text-muted">
+                  <tr>
+                    {["Perda", "1º", "2º", "3º", "Total"].map((coluna) => (
+                      <th key={coluna} className="px-2 py-2 font-semibold">{coluna}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {porProblema.map((item) => (
+                    <tr key={item.name} className="border-t border-[#eef2f8]">
+                      <td className="px-2 py-2 leading-snug">{item.name}</td>
+                      <td className="px-2 py-2 tabular-nums">{item["1"] || "—"}</td>
+                      <td className="px-2 py-2 tabular-nums">{item["2"] || "—"}</td>
+                      <td className="px-2 py-2 tabular-nums">{item["3"] || "—"}</td>
+                      <td className="px-2 py-2 font-semibold tabular-nums">{item.total}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
         <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
-          <h3 className="text-base font-semibold">Máquinas no período</h3>
-          <Barras
-            itens={porMaquina.map((item) => ({ nome: item.machine, valor: item.solas }))}
-            maximo={maxMaquina}
-          />
+          <h3 className="text-base font-semibold">Máquina por turno</h3>
+          <p className="text-xs text-muted">Onde o volume está, separado por turno.</p>
+          {porMaquina.length === 0 ? (
+            <p className="py-8 text-sm text-muted">Sem apontamento neste período.</p>
+          ) : (
+            <div className="mt-3 overflow-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="text-[11px] uppercase tracking-wide text-muted">
+                  <tr>
+                    {["Máquina", "1º", "2º", "3º", "Total"].map((coluna) => (
+                      <th key={coluna} className="px-2 py-2 font-semibold">{coluna}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {porMaquina.map((item) => (
+                    <tr key={item.machine} className="border-t border-[#eef2f8]">
+                      <td className="px-2 py-2 font-semibold">{item.machine}</td>
+                      <td className="px-2 py-2 tabular-nums">{item["1"] || "—"}</td>
+                      <td className="px-2 py-2 tabular-nums">{item["2"] || "—"}</td>
+                      <td className="px-2 py-2 tabular-nums">{item["3"] || "—"}</td>
+                      <td className="px-2 py-2 font-semibold tabular-nums">{item.total}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-3">
-        <RankingNumeros titulo="5 piores números do dia" detalhe={formatDateBR(state.date)} entries={doDia} />
-        <RankingNumeros titulo="5 piores da semana" detalhe="7 dias até a data" entries={daSemana} />
-        <RankingNumeros titulo="5 piores do mês" detalhe="31 dias até a data" entries={entradas} />
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+          <h3 className="text-base font-semibold">Parte de cada turno</h3>
+          <div className="mt-2">
+            <Rosca
+              fatias={turnos
+                .filter((item) => item.solas > 0)
+                .map((item) => ({ nome: TURNO_LABEL[item.turno], valor: item.solas }))}
+            />
+          </div>
+        </section>
+        <RankingNumeros
+          titulo="5 piores números do período"
+          detalhe={`${tituloJanela} · ${total} solas · ${totalPares} pares`}
+          entries={periodo}
+        />
       </div>
     </div>
   );
@@ -2801,49 +2927,45 @@ function Barras({
   );
 }
 
-function LinhaDias({ pontos }: { pontos: { rotulo: string; valor: number; ativo: boolean }[] }) {
+function LinhasTurno({
+  dias,
+  series,
+}: {
+  dias: string[];
+  series: { nome: string; cor: string; valores: number[] }[];
+}) {
   const largura = 720;
-  const altura = 210;
+  const altura = 220;
   const esquerda = 32;
   const direita = 8;
   const topo = 16;
   const base = 26;
-  const maximo = Math.max(1, ...pontos.map((ponto) => ponto.valor));
+  const maximo = Math.max(1, ...series.flatMap((serie) => serie.valores));
   const mioloL = largura - esquerda - direita;
   const mioloA = altura - topo - base;
-  const marcas = pontos.map((ponto, index) => {
-    const x = esquerda + (pontos.length <= 1 ? mioloL / 2 : (index / (pontos.length - 1)) * mioloL);
-    const y = topo + mioloA - (ponto.valor / maximo) * mioloA;
-    return { ...ponto, x, y };
-  });
-  const linha = marcas.map((ponto, index) => `${index === 0 ? "M" : "L"}${ponto.x.toFixed(1)},${ponto.y.toFixed(1)}`).join(" ");
-  const ultimo = marcas[marcas.length - 1];
-  const primeiro = marcas[0];
-  const area = ultimo && primeiro ? `${linha} L${ultimo.x},${topo + mioloA} L${primeiro.x},${topo + mioloA} Z` : "";
+  const xDe = (index: number) => esquerda + (dias.length <= 1 ? mioloL / 2 : (index / (dias.length - 1)) * mioloL);
+  const yDe = (valor: number) => topo + mioloA - (valor / maximo) * mioloA;
   return (
-    <svg viewBox={`0 0 ${largura} ${altura}`} className="mt-2 h-56 w-full" role="img" aria-label="Solas por dia">
+    <svg viewBox={`0 0 ${largura} ${altura}`} className="mt-2 h-56 w-full" role="img" aria-label="Solas por turno">
       {[0, 0.5, 1].map((passo) => {
         const y = topo + mioloA - passo * mioloA;
         return <line key={passo} x1={esquerda} x2={largura - direita} y1={y} y2={y} stroke="#e6edf5" />;
       })}
-      <path d={area} fill="url(#solas-area)" />
-      <path d={linha} fill="none" stroke="#2f6fe0" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
-      {marcas.filter((ponto) => ponto.ativo).map((ponto) => (
-        <circle key={ponto.rotulo} cx={ponto.x} cy={ponto.y} r="4.5" fill="#2457b8" />
-      ))}
-      {marcas.map((ponto, index) =>
-        index % 5 === 0 ? (
-          <text key={ponto.rotulo} x={ponto.x} y={altura - 6} textAnchor="middle" className="fill-[#64748b] text-[11px]">
-            {ponto.rotulo}
+      {series.map((serie) => {
+        const linha = serie.valores
+          .map((valor, index) => `${index === 0 ? "M" : "L"}${xDe(index).toFixed(1)},${yDe(valor).toFixed(1)}`)
+          .join(" ");
+        return (
+          <path key={serie.nome} d={linha} fill="none" stroke={serie.cor} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
+        );
+      })}
+      {dias.map((dia, index) =>
+        index % Math.ceil(dias.length / 6) === 0 ? (
+          <text key={dia + index} x={xDe(index)} y={altura - 6} textAnchor="middle" className="fill-[#64748b] text-[11px]">
+            {dia}
           </text>
         ) : null,
       )}
-      <defs>
-        <linearGradient id="solas-area" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#2f6fe0" stopOpacity="0.28" />
-          <stop offset="100%" stopColor="#2f6fe0" stopOpacity="0" />
-        </linearGradient>
-      </defs>
     </svg>
   );
 }
@@ -3065,6 +3187,17 @@ function FichaSheet({
 function pares(solas: number): number {
   if (solas <= 0) return 0;
   return Math.ceil(solas / 2);
+}
+
+function paresDasEntradas(entries: Entry[]): number {
+  const grupos = new Map<string, number>();
+  for (const entry of entries) {
+    const chave = `${entry.date}|${entry.turno}|${entry.machine}|${entry.station}|${entry.side}|${entry.problem}|${entry.outroId}`;
+    grupos.set(chave, (grupos.get(chave) ?? 0) + 1);
+  }
+  let total = 0;
+  for (const solas of grupos.values()) total += pares(solas);
+  return total;
 }
 
 function TopProblems({ lines }: { lines: FichaLine[] }) {
