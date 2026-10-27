@@ -138,10 +138,10 @@ export const pushApontamentos = createServerFn({ method: "POST" })
       if (!row && salvo.date !== todayISO()) continue;
       await sql`delete from apontamentos_removidos where id = ${entry.id}`;
       await sql`
-        insert into apontamentos (id, date, turno, machine, station, side, problem, at, numero, referencia, autor)
+        insert into apontamentos (id, date, turno, machine, station, side, problem, at, numero, referencia, autor, outro)
         values (
           ${salvo.id}, ${salvo.date}, ${salvo.turno}, ${salvo.machine}, ${salvo.station}, ${salvo.side},
-          ${salvo.problem}, ${salvo.at}, ${salvo.matrizNumero}, ${salvo.matrizRel}, ${salvo.autor}
+          ${salvo.problem}, ${salvo.at}, ${salvo.matrizNumero}, ${salvo.matrizRel}, ${salvo.autor}, ${salvo.outroId}
         )
         on conflict (id) do update set
           date = excluded.date,
@@ -153,7 +153,8 @@ export const pushApontamentos = createServerFn({ method: "POST" })
           at = excluded.at,
           numero = excluded.numero,
           referencia = excluded.referencia,
-          autor = excluded.autor
+          autor = excluded.autor,
+          outro = excluded.outro
       `;
     }
     if (data.date) {
@@ -208,8 +209,9 @@ export const pullApontamentos = createServerFn({ method: "POST" })
       numero: string;
       referencia: string;
       autor: string;
+      outro: string;
     }>`
-      select id, date, turno, machine, station, side, problem, at, numero, referencia, autor
+      select id, date, turno, machine, station, side, problem, at, numero, referencia, autor, outro
       from apontamentos
       where date = ${data.date}
     `;
@@ -229,6 +231,7 @@ export const pullApontamentos = createServerFn({ method: "POST" })
         matrizNumero: row.numero,
         matrizRel: row.referencia,
         autor: row.autor,
+        outroId: row.outro,
       });
       return entry ? [entry] : [];
     });
@@ -269,8 +272,9 @@ export const pullHistorico = createServerFn({ method: "POST" })
       numero: string;
       referencia: string;
       autor: string;
+      outro: string;
     }>`
-      select id, date, turno, machine, station, side, problem, at, numero, referencia, autor
+      select id, date, turno, machine, station, side, problem, at, numero, referencia, autor, outro
       from apontamentos
       where date >= ${inicio} and date <= ${data.ate}
     `;
@@ -288,6 +292,7 @@ export const pullHistorico = createServerFn({ method: "POST" })
           matrizNumero: row.numero,
           matrizRel: row.referencia,
           autor: row.autor,
+          outroId: row.outro,
         });
         return entry ? [entry] : [];
       }),
