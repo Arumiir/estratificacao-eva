@@ -93,12 +93,13 @@ function cleanEntries(value: unknown): Entry[] {
 }
 
 export const pushApontamentos = createServerFn({ method: "POST" })
-  .validator((data: { upserts?: unknown; removed?: unknown; grades?: unknown; date?: unknown; outros?: unknown }) => ({
+  .validator((data: { upserts?: unknown; removed?: unknown; grades?: unknown; date?: unknown; outros?: unknown; revives?: unknown }) => ({
     upserts: cleanEntries(data?.upserts),
     removed: cleanRemoved(data?.removed),
     grades: readGrades(data?.grades),
     date: typeof data?.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(data.date) ? data.date : "",
     outros: readOutros(data?.outros),
+    revives: Array.isArray(data?.revives) ? data.revives.filter((id): id is string => typeof id === "string").slice(0, 2000) : [],
   }))
   .handler(async ({ data }) => {
     if (usesBlob()) {
@@ -125,8 +126,16 @@ export const pushApontamentos = createServerFn({ method: "POST" })
       `;
     }
     const removedIds = new Set(data.removed.map((item) => item.id));
+    const reviveIds = new Set(data.revives);
+    for (const id of reviveIds) {
+      await sql`delete from apontamentos_removidos where id = ${id}`;
+    }
     for (const entry of data.upserts) {
       if (removedIds.has(entry.id)) continue;
+      if (!reviveIds.has(entry.id)) {
+        const tomb = await sql<{ id: string }>`select id from apontamentos_removidos where id = ${entry.id}`;
+        if (tomb[0]) continue;
+      }
       const existing = await sql<{ date: string; turno: string; at: number }>`
         select date, turno, at from apontamentos where id = ${entry.id}
       `;

@@ -167,6 +167,10 @@ function usePerdas() {
   const lastEntries = useRef<State["entries"] | null>(null);
   const lastOutros = useRef("");
   const held = useRef<Set<string>>(new Set());
+  const pendingRemoved = useRef<Map<string, Entry>>(new Map());
+  const revives = useRef<Set<string>>(new Set());
+  const booted = useRef(false);
+  const [ligado, setLigado] = useState(false);
   const dirtyGrades = useRef<Set<string>>(new Set());
   const gradesGen = useRef(0);
   const excelSent = useRef<Set<string>>(loadExcelSent());
@@ -251,9 +255,15 @@ function usePerdas() {
     }
     const previous = lastEntries.current;
     lastEntries.current = state.entries;
-    const upserts = state.entries.filter((entry) => !known.has(entry.id));
-    const removed = (previous ?? []).filter((entry) => !state.entries.some((item) => item.id === entry.id));
-    for (const entry of removed) held.current.add(entry.id);
+    const upserts = state.entries.filter((entry) => !known.has(entry.id) && !held.current.has(entry.id));
+    const removedNow = (previous ?? []).filter((entry) => !state.entries.some((item) => item.id === entry.id));
+    for (const entry of removedNow) {
+      held.current.add(entry.id);
+      pendingRemoved.current.set(entry.id, entry);
+      revives.current.delete(entry.id);
+    }
+    const removed = [...pendingRemoved.current.values()];
+    const reviveIds = [...revives.current];
     const grades: Record<string, StationConfig> = {};
     for (const key of dirtyGrades.current) {
       const config = state.stations[key];
@@ -268,27 +278,35 @@ function usePerdas() {
     if (skipExcelBacklog.current) skipExcelBacklog.current = false;
     else {
       for (const entry of upserts) enqueueExcel(entry, 1);
-      for (const entry of removed) queueRemoval(entry);
+      for (const entry of removedNow) queueRemoval(entry);
     }
+    if (!booted.current && removed.length === 0 && reviveIds.length === 0) return;
     const sentGrades = Object.keys(grades);
     const gen = gradesGen.current;
-    void pushApontamentos({ data: { upserts, removed, grades, date: state.date, outros } })
+    const sentRevives = reviveIds;
+    void pushApontamentos({ data: { upserts: booted.current ? upserts : [], removed, grades: booted.current ? grades : {}, date: state.date, outros: booted.current ? outros : [], revives: sentRevives } })
       .then((result) => {
         setCloud(result.cloud);
-        for (const entry of upserts) known.add(entry.id);
-        for (const item of removed) known.delete(item.id);
-        lastOutros.current = JSON.stringify(outros);
+        if (booted.current) {
+          for (const entry of upserts) known.add(entry.id);
+          lastOutros.current = JSON.stringify(outros);
+        }
+        for (const id of sentRevives) revives.current.delete(id);
         if (gradesGen.current !== gen) return;
         for (const key of sentGrades) dirtyGrades.current.delete(key);
       })
       .catch(() => setCloud(false));
-  }, [state]);
+  }, [state, ligado]);
 
   function takeRemote(
     current: State,
     remote: { entries: Entry[]; removed: string[]; grades?: Record<string, StationConfig>; outros?: OutroMatriz[] },
   ) {
-    for (const id of remote.removed) held.current.delete(id);
+    for (const id of remote.removed) {
+      held.current.delete(id);
+      pendingRemoved.current.delete(id);
+      revives.current.delete(id);
+    }
     const stations = { ...current.stations };
     let stationsChanged = false;
     for (const [key, config] of Object.entries(remote.grades ?? {})) {
@@ -336,6 +354,10 @@ function usePerdas() {
     const remote = await pullApontamentos({ data: { date: current.date } });
     if (gradesGen.current !== gen) return true;
     setCloud(remote.cloud);
+    if (!booted.current) {
+      booted.current = true;
+      setLigado(true);
+    }
     const next = takeRemote(current, remote);
     if (next === current) return true;
     ref.current = next;
@@ -350,14 +372,17 @@ function usePerdas() {
       const current = ref.current;
       const known = synced.current;
       if (current && known) {
-        const upserts = current.entries.filter((entry) => !known.has(entry.id));
+        const upserts = current.entries.filter((entry) => !known.has(entry.id) && !held.current.has(entry.id));
+        const removed = [...pendingRemoved.current.values()];
+        const reviveIds = [...revives.current];
         const outros = current.outros.filter((item) => item.date === current.date);
         const outrosMudou = JSON.stringify(outros) !== lastOutros.current;
-        if (upserts.length > 0 || outrosMudou) {
-          void pushApontamentos({ data: { upserts, removed: [], date: current.date, outros } })
+        if (booted.current && (upserts.length > 0 || removed.length > 0 || reviveIds.length > 0 || outrosMudou)) {
+          void pushApontamentos({ data: { upserts, removed, revives: reviveIds, date: current.date, outros } })
             .then((result) => {
               setCloud(result.cloud);
               for (const entry of upserts) known.add(entry.id);
+              for (const id of reviveIds) revives.current.delete(id);
               lastOutros.current = JSON.stringify(outros);
             })
             .catch(() => setCloud(false));
@@ -377,6 +402,10 @@ function usePerdas() {
       .then((remote) => {
         if (cancel || !ref.current || ref.current.date !== state.date || gradesGen.current !== gen) return;
         setCloud(remote.cloud);
+        if (!booted.current) {
+          booted.current = true;
+          setLigado(true);
+        }
         const next = takeRemote(ref.current, remote);
         if (next === ref.current) return;
         ref.current = next;
@@ -402,10 +431,22 @@ function usePerdas() {
   }
 
   function releaseHold(ids: string[]) {
-    for (const id of ids) held.current.delete(id);
+    for (const id of ids) {
+      held.current.delete(id);
+      pendingRemoved.current.delete(id);
+      revives.current.add(id);
+    }
   }
 
-  return { state, commit, read: () => ref.current, refresh, cloud, resendExcel, releaseHold, markGrades };
+  function holdRemovals(entries: Entry[]) {
+    for (const entry of entries) {
+      held.current.add(entry.id);
+      pendingRemoved.current.set(entry.id, entry);
+      revives.current.delete(entry.id);
+    }
+  }
+
+  return { state, commit, read: () => ref.current, refresh, cloud, resendExcel, releaseHold, markGrades, holdRemovals };
 }
 
 function screenKey(screen: Screen): string {
@@ -448,7 +489,7 @@ function machineFrom(screen: Screen): MachineId | null {
 }
 
 export function EstratificacaoApp() {
-  const { state, commit, read, cloud, releaseHold, markGrades } = usePerdas();
+  const { state, commit, read, cloud, releaseHold, markGrades, holdRemovals } = usePerdas();
   const [sessao, setSessao] = useState<Sessao | null>(null);
   const [sessaoReady, setSessaoReady] = useState(false);
   const [stack, setStack] = useState<Screen[]>([{ kind: "papel" }]);
@@ -637,6 +678,7 @@ export function EstratificacaoApp() {
       flash(avisoFechado(entry));
       return;
     }
+    holdRemovals([entry]);
     commit((s) => ({ ...s, entries: s.entries.filter((item) => item.id !== id) }));
     flash(label, () => restore(entry));
   }
@@ -753,6 +795,7 @@ export function EstratificacaoApp() {
       return;
     }
     const drop = new Set(ligados.map((entry) => entry.id));
+    holdRemovals(ligados);
     commit((s) => ({
       ...s,
       entries: s.entries.filter((entry) => !drop.has(entry.id)),
@@ -814,7 +857,7 @@ export function EstratificacaoApp() {
     return autor === mine || autor === "";
   }
 
-  function removeLast(machine: MachineId, station: number, side: Side, problem: string, outroId = "") {
+  function removeCount(machine: MachineId, station: number, side: Side, problem: string, outroId: string, quantidade: number) {
     const current = read();
     if (!current) return;
     const pool = current.entries.filter(
@@ -825,13 +868,16 @@ export function EstratificacaoApp() {
         sameAuthor(entry) &&
         (outroId ? entry.outroId === outroId : !entry.outroId && entry.station === station && entry.side === side),
     );
-    const match = [...pool].reverse().find((entry) => podeAlterarApontamento(entry));
-    if (!match) {
+    const matches = [...pool].reverse().filter((entry) => podeAlterarApontamento(entry)).slice(0, quantidade);
+    if (matches.length === 0) {
       const fechado = [...pool].reverse().find((entry) => !podeAlterarApontamento(entry));
       if (fechado) flash(avisoFechado(fechado));
       return;
     }
-    removeEntry(match.id, "Um lançamento tirado");
+    removeMany(
+      matches.map((entry) => entry.id),
+      matches.length === 1 ? "1 sola excluída" : `${matches.length} solas excluídas`,
+    );
   }
 
   function removeMany(ids: string[], label: string) {
@@ -843,6 +889,7 @@ export function EstratificacaoApp() {
       flash(fechado ? avisoFechado(fechado) : "Dia fechado. Só o dia de hoje pode ser alterado.");
       return;
     }
+    holdRemovals(gone);
     const drop = new Set(gone.map((entry) => entry.id));
     commit((s) => ({ ...s, entries: s.entries.filter((entry) => !drop.has(entry.id)) }));
     flash(label, () => {
@@ -1086,8 +1133,8 @@ export function EstratificacaoApp() {
               onAdd={(problem) =>
                 addProblem(screen.machine, screen.station, screen.side, problem, screen.outroId ?? "")
               }
-              onRemove={(problem) =>
-                removeLast(screen.machine, screen.station, screen.side, problem, screen.outroId ?? "")
+              onRemove={(problem, quantidade) =>
+                removeCount(screen.machine, screen.station, screen.side, problem, screen.outroId ?? "", quantidade)
               }
               outroId={screen.outroId ?? ""}
             />
@@ -1742,10 +1789,10 @@ function ProblemsScreen({
   offDay: boolean;
   autor: string;
   onAdd: (problem: string) => void;
-  onRemove: (problem: string) => void;
+  onRemove: (problem: string, quantidade: number) => void;
   outroId?: string;
 }) {
-  const [ask, setAsk] = useState<string | null>(null);
+  const [tirar, setTirar] = useState<Record<string, number>>({});
   const outro = state.outros.find((item) => item.id === outroId);
   const config = state.stations[stationKey(machine, station)];
   const matrix = outro
@@ -1777,14 +1824,20 @@ function ProblemsScreen({
       <div className="mt-4 grid gap-2 lg:grid-cols-2">
         {PROBLEMS.map((problem) => {
           const count = rows.filter((entry) => entry.problem === problem.id).length;
+          const pendente = Math.min(tirar[problem.id] ?? 0, count);
           return (
             <div key={problem.id} className="rounded-tile border border-line bg-surface p-2">
               <div className="flex items-center gap-2">
               <button
                 type="button"
-                disabled={count === 0}
-                aria-label={`Tirar um lançamento de ${problem.name}`}
-                onClick={() => setAsk(problem.id)}
+                disabled={count === 0 || pendente >= count}
+                aria-label={`Marcar exclusão de ${problem.name}`}
+                onClick={() =>
+                  setTirar((atual) => ({
+                    ...atual,
+                    [problem.id]: Math.min(count, (atual[problem.id] ?? 0) + 1),
+                  }))
+                }
                 className="grid size-14 shrink-0 place-items-center rounded-tile bg-surface-2 touch-manipulation disabled:opacity-30"
               >
                 <Minus className="size-6" />
@@ -1810,12 +1863,20 @@ function ProblemsScreen({
                 <Plus className="size-7" />
               </button>
               </div>
-              {ask === problem.id ? (
+              {pendente > 0 ? (
                 <div className="mt-2 flex items-center gap-2 rounded-tile bg-surface-2 px-3 py-2">
-                  <span className="min-w-0 flex-1 text-sm font-semibold">Tirar 1 de {problem.name}?</span>
+                  <span className="min-w-0 flex-1 text-sm font-semibold">
+                    Excluir {pendente} {pendente === 1 ? "sola" : "solas"}?
+                  </span>
                   <button
                     type="button"
-                    onClick={() => setAsk(null)}
+                    onClick={() =>
+                      setTirar((atual) => {
+                        const next = { ...atual };
+                        delete next[problem.id];
+                        return next;
+                      })
+                    }
                     className="shrink-0 rounded-tile px-3 py-2 text-sm font-semibold text-muted"
                   >
                     Não
@@ -1823,8 +1884,13 @@ function ProblemsScreen({
                   <button
                     type="button"
                     onClick={() => {
-                      setAsk(null);
-                      onRemove(problem.id);
+                      const n = pendente;
+                      setTirar((atual) => {
+                        const next = { ...atual };
+                        delete next[problem.id];
+                        return next;
+                      });
+                      onRemove(problem.id, n);
                     }}
                     className="shrink-0 rounded-tile bg-[#9b3a34] px-3 py-2 text-sm font-semibold text-white"
                   >
