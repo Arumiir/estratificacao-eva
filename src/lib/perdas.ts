@@ -53,6 +53,8 @@ export type OutroMatriz = {
   date: string;
   turno: Turno;
   machine: MachineId;
+  station: number;
+  ambos: boolean;
   side: Side;
   numero: string;
   referencia: string;
@@ -402,12 +404,16 @@ export function readOutros(value: unknown): OutroMatriz[] {
     const numero = typeof item.numero === "string" ? item.numero.trim() : "";
     const referencia = typeof item.referencia === "string" ? item.referencia.trim() : "";
     if (!numero && !referencia) return [];
+    const station = typeof item.station === "number" && item.station >= 1 && item.station <= 8 ? item.station : 0;
+    const ambos = item.ambos === true;
     return [
       {
         id: item.id,
         date,
         turno,
         machine,
+        station,
+        ambos,
         side: item.side,
         numero,
         referencia,
@@ -556,21 +562,26 @@ export function fichaLines(state: State, machine: MachineId): FichaLine[] {
   });
   const deOutros = state.outros
     .filter((item) => item.machine === machine && item.date === state.date && item.turno === state.turno)
-    .map((item) => {
-      const doItem = shiftEntries(state, machine).filter((entry) => entry.outroId === item.id);
-      const counts = PROBLEMS.map(
-        (problem) => doItem.filter((entry) => entry.problem === problem.id).length,
-      );
-      return {
-        machine,
-        station: 0,
-        side: item.side,
-        numero: item.numero,
-        referencia: item.referencia,
-        shared: false,
-        counts,
-        outroId: item.id,
-      };
+    .flatMap((item) => {
+      const lados = item.ambos ? SIDES : [item.side];
+      return lados.map((side) => {
+        const doItem = shiftEntries(state, machine).filter(
+          (entry) => entry.outroId === item.id && entry.side === side,
+        );
+        const counts = PROBLEMS.map(
+          (problem) => doItem.filter((entry) => entry.problem === problem.id).length,
+        );
+        return {
+          machine,
+          station: item.station,
+          side,
+          numero: item.numero,
+          referencia: item.referencia,
+          shared: item.ambos,
+          counts,
+          outroId: item.id,
+        };
+      });
     });
   return [...daGrade, ...deOutros];
 }

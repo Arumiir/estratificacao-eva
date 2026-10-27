@@ -225,9 +225,9 @@ function drawFicha(
     ctx.fillStyle = "#243028";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    if (index % 2 === 0 || line.station === 0) {
+    if (index % 2 === 0 || line.outroId) {
       ctx.font = "700 28px 'Barlow Condensed', sans-serif";
-      ctx.fillText(line.station === 0 ? "OUT" : pad2(line.station), tableX + estW / 2, y + rowH / 2);
+      ctx.fillText(line.station >= 1 ? pad2(line.station) : "Troca", tableX + estW / 2, y + rowH / 2);
     }
     ctx.font = "600 20px 'Source Sans 3', sans-serif";
     ctx.fillText(SIDE_SHORT[line.side], tableX + estW + ladoW / 2, y);
