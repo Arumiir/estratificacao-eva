@@ -699,7 +699,7 @@ export function EstratificacaoApp() {
     postoDia.current = "";
     saveSessao(next);
     setSessao(next);
-    if (next.papel === "preparador") {
+    if (next.papel === "preparador" || next.papel === "lider") {
       commit((current) => ({ ...current, turno: next.turno ?? "1" }));
     }
     const home: Screen =
@@ -1457,6 +1457,7 @@ function PapelScreen({
 }) {
   const [nome, setNome] = useState("");
   const [senha, setSenha] = useState("");
+  const [turno, setTurno] = useState<Turno>("1");
   const [mostraSenha, setMostraSenha] = useState(false);
   const [busy, setBusy] = useState(false);
   const [erro, setErro] = useState("");
@@ -1474,7 +1475,7 @@ function PapelScreen({
         setErro("Nome ou senha errados.");
         return;
       }
-      onPick({ papel: result.papel, nome: result.nome, turno: result.turno ?? (result.papel === "preparador" ? "1" : null) });
+      onPick({ papel: result.papel, nome: result.nome, turno });
     } catch {
       onFail("Sem rede para entrar. Tente de novo.");
       setErro("Sem rede para entrar.");
@@ -1491,7 +1492,23 @@ function PapelScreen({
       }}
       className="mx-auto w-full max-w-md rounded-tile border border-line bg-surface p-5 lg:mt-10 lg:p-8"
     >
-      <p className="text-base text-muted">Entre com o seu nome e a sua senha.</p>
+      <p className="text-base text-muted">Escolha o turno e entre com o seu nome e a sua senha.</p>
+      <p className="mb-2 mt-4 text-sm font-semibold text-muted">Turno</p>
+      <div className="grid grid-cols-3 gap-2">
+        {(["1", "2", "3"] as const).map((item) => (
+          <button
+            key={item}
+            type="button"
+            onClick={() => setTurno(item)}
+            className={cx(
+              "rounded-tile px-2 py-3 text-sm font-semibold",
+              turno === item ? "bg-accent text-accent-ink" : "bg-surface-2 text-fg",
+            )}
+          >
+            {TURNO_LABEL[item]}
+          </button>
+        ))}
+      </div>
       <label className="mt-4 block">
         <span className="mb-1 block text-sm font-semibold text-muted">Nome</span>
         <input
