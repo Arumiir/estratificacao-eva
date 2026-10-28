@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Component, useEffect, useRef, useState, type ReactNode } from "react";
 import { InstallPrompt } from "@/components/install-prompt";
 import { UpdateNotice } from "@/components/update-notice";
 import {
@@ -2600,7 +2600,9 @@ function SheetScreen({
       ) : null}
       {papel === "lider" && aba === "comparativo" ? (
         <div className="lg:hidden">
-          <PainelHistorico state={state} today={today} onDate={onDate} onFechamento={onFechamento} />
+          <PainelSeguro>
+            <PainelHistorico state={state} today={today} onDate={onDate} onFechamento={onFechamento} />
+          </PainelSeguro>
         </div>
       ) : (
       <div className="lg:hidden">
@@ -2720,7 +2722,9 @@ function SheetScreen({
             onDelete={onDelete}
           />
         ) : (
-          <PainelHistorico state={state} today={today} onDate={onDate} onFechamento={onFechamento} />
+          <PainelSeguro>
+            <PainelHistorico state={state} today={today} onDate={onDate} onFechamento={onFechamento} />
+          </PainelSeguro>
         )}
       </div>
       {escolherFoto ? (
@@ -2887,6 +2891,35 @@ function FiltrosRecorte({
   );
 }
 
+class PainelSeguro extends Component<{ children: ReactNode }, { erro: string }> {
+  state = { erro: "" };
+
+  static getDerivedStateFromError(error: unknown) {
+    return { erro: error instanceof Error ? error.message : "Falha ao abrir o painel." };
+  }
+
+  render() {
+    if (!this.state.erro) return this.props.children;
+    return (
+      <div className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+        <p className="font-semibold">O comparativo não abriu.</p>
+        <p className="mt-1 text-sm text-muted">{this.state.erro}</p>
+        <button
+          type="button"
+          onClick={() => this.setState({ erro: "" })}
+          className="mt-3 rounded-full bg-[#2457b8] px-4 py-2 text-sm font-semibold text-white"
+        >
+          Tentar de novo
+        </button>
+      </div>
+    );
+  }
+}
+
+function textoCampo(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
 function PainelHistorico({
   state,
   today,
@@ -2913,7 +2946,7 @@ function PainelHistorico({
     setErro(false);
     pullHistorico({ data: { ate: state.date, dias: 31 } })
       .then((resultado) => {
-        if (ativo) setRemoto(resultado.entries);
+        if (ativo) setRemoto(Array.isArray(resultado?.entries) ? resultado.entries : []);
       })
       .catch(() => {
         if (ativo) setErro(true);
@@ -2929,14 +2962,14 @@ function PainelHistorico({
     ...new Set(
       base
         .filter((entry) => diasJanela.includes(entry.date) && (estacao === null || entry.station === estacao))
-        .map((entry) => entry.matrizNumero.trim() || "sem nº"),
+        .map((entry) => textoCampo(entry.matrizNumero).trim() || "sem nº"),
     ),
   ].sort((a, b) => a.localeCompare(b, "pt-BR"));
   const numeroAtivo = numero && numerosJanela.includes(numero) ? numero : null;
   function passaRecorte(entry: Entry) {
     if (maquina && entry.machine !== maquina) return false;
     if (estacao !== null && entry.station !== estacao) return false;
-    if (numeroAtivo !== null && (entry.matrizNumero.trim() || "sem nº") !== numeroAtivo) return false;
+    if (numeroAtivo !== null && (textoCampo(entry.matrizNumero).trim() || "sem nº") !== numeroAtivo) return false;
     return true;
   }
   const periodo = base.filter((entry) => diasJanela.includes(entry.date) && passaRecorte(entry));
@@ -2971,17 +3004,17 @@ function PainelHistorico({
     (entry) =>
       diasJanela.includes(entry.date) &&
       (!maquina || entry.machine === maquina) &&
-      (numeroAtivo === null || (entry.matrizNumero.trim() || "sem nº") === numeroAtivo),
+      (numeroAtivo === null || (textoCampo(entry.matrizNumero).trim() || "sem nº") === numeroAtivo),
   );
   const porEstacao = STATIONS.map((station) => ({
     nome: pad2(station),
     valor: paresDasEntradas(janelaEstacao.filter((entry) => entry.station === station)),
     ativo: estacao === null ? undefined : estacao === station,
   }));
-  const porNumero = [...new Set(periodo.map((entry) => entry.matrizNumero.trim() || "sem nº"))]
+  const porNumero = [...new Set(periodo.map((entry) => textoCampo(entry.matrizNumero).trim() || "sem nº"))]
     .map((nome) => ({
       nome,
-      valor: paresDasEntradas(periodo.filter((entry) => (entry.matrizNumero.trim() || "sem nº") === nome)),
+      valor: paresDasEntradas(periodo.filter((entry) => (textoCampo(entry.matrizNumero).trim() || "sem nº") === nome)),
     }))
     .filter((item) => item.valor > 0)
     .sort((a, b) => b.valor - a.valor || a.nome.localeCompare(b.nome, "pt-BR"))
@@ -3360,7 +3393,8 @@ function RankingNumeros({
 }
 
 function juntarHistorico(remoto: Entry[], local: Entry[], datas: Set<string>): Entry[] {
-  const mapa = new Map(remoto.filter((entry) => datas.has(entry.date)).map((entry) => [entry.id, entry]));
+  const lista = Array.isArray(remoto) ? remoto : [];
+  const mapa = new Map(lista.filter((entry) => entry && datas.has(entry.date)).map((entry) => [entry.id, entry]));
   for (const entry of local) {
     if (datas.has(entry.date) && !mapa.has(entry.id)) mapa.set(entry.id, entry);
   }
@@ -3370,8 +3404,8 @@ function juntarHistorico(remoto: Entry[], local: Entry[], datas: Set<string>): E
 function rankNumeros(entries: Entry[]) {
   const grupos = new Map<string, { numero: string; referencia: string; machines: Map<string, number>; stations: Map<number, number>; solas: number }>();
   for (const entry of entries) {
-    const numero = entry.matrizNumero.trim();
-    const referencia = entry.matrizRel.trim();
+    const numero = textoCampo(entry.matrizNumero).trim();
+    const referencia = textoCampo(entry.matrizRel).trim();
     const chave = `${numero}||${referencia}`;
     const atual = grupos.get(chave) ?? {
       numero,
