@@ -496,10 +496,7 @@ function usePerdas() {
 }
 
 function destinoDaMaquina(current: State, machine: MachineId): Screen {
-  const cores = coresDaMaquina(current, machine);
-  const cor = cores[cores.length - 1];
-  if (!cor) return { kind: "cor", machine };
-  return { kind: "stations", machine, corId: cor.id };
+  return machineHasMatrices(current, machine) ? { kind: "stations", machine } : { kind: "ask", machine };
 }
 
 function screenKey(screen: Screen): string {
@@ -1190,32 +1187,6 @@ export function EstratificacaoApp() {
             />
           ) : null}
 
-          {papel === "preparador" && screen.kind === "cor" ? (
-            <CorScreen
-              machine={screen.machine}
-              onSave={(nome) => {
-                const current = read();
-                if (!current) return;
-                const grades: Record<string, StationConfig> = {};
-                for (const station of STATIONS) {
-                  const config = current.stations[stationKey(screen.machine, station)];
-                  if (config) grades[String(station)] = config;
-                }
-                criarCor(screen.machine, nome, [...STATIONS], grades);
-              }}
-            />
-          ) : null}
-
-          {papel === "preparador" && screen.kind === "troca-cor" ? (
-            <TrocaCorScreen
-              state={state}
-              machine={screen.machine}
-              corId={screen.corId}
-              offDay={offDay}
-              onSave={(nome, stations, grades) => criarCor(screen.machine, nome, stations, grades)}
-            />
-          ) : null}
-
           {papel === "preparador" && screen.kind === "ask" ? (
             <AskScreen
               machine={screen.machine}
@@ -1229,8 +1200,7 @@ export function EstratificacaoApp() {
             <MatrixGradeScreen
               state={state}
               machine={screen.machine}
-              grades={screen.corId ? state.cores.find((item) => item.id === screen.corId)?.grades : undefined}
-              onSave={(configs) => saveGrade(screen.machine, configs, screen.corId ?? "")}
+              onSave={(configs) => saveGrade(screen.machine, configs)}
             />
           ) : null}
 
@@ -1238,20 +1208,10 @@ export function EstratificacaoApp() {
             <StationsScreen
               state={state}
               machine={screen.machine}
-              corId={screen.corId ?? ""}
               offDay={offDay}
-              onOpen={(station) =>
-                push({ kind: "side", machine: screen.machine, station, corId: screen.corId })
-              }
-              onMatrices={() => push({ kind: "matrices", machine: screen.machine, corId: screen.corId })}
+              onOpen={(station) => push({ kind: "side", machine: screen.machine, station })}
+              onMatrices={() => push({ kind: "matrices", machine: screen.machine })}
               onOutros={() => push({ kind: "outros", machine: screen.machine })}
-              onTrocaCor={() =>
-                screen.corId
-                  ? push({ kind: "troca-cor", machine: screen.machine, corId: screen.corId })
-                  : push({ kind: "cor", machine: screen.machine })
-              }
-              onCor={(corId) => replaceTop({ kind: "stations", machine: screen.machine, corId })}
-              onRenomear={(nome) => renomearCor(screen.corId ?? "", nome)}
               onOpenOutro={(outro) =>
                 outro.ambos
                   ? push({
@@ -1259,7 +1219,6 @@ export function EstratificacaoApp() {
                       machine: screen.machine,
                       station: outro.station,
                       outroId: outro.id,
-                      corId: screen.corId,
                     })
                   : push({
                       kind: "problems",
@@ -1267,7 +1226,6 @@ export function EstratificacaoApp() {
                       station: outro.station,
                       side: outro.side,
                       outroId: outro.id,
-                      corId: screen.corId,
                     })
               }
               onDeleteOutro={removeOutro}
@@ -1292,7 +1250,6 @@ export function EstratificacaoApp() {
               station={screen.station}
               offDay={offDay}
               outroId={screen.outroId}
-              corId={screen.outroId ? "" : screen.corId}
               onChoose={(side) =>
                 push({
                   kind: "problems",
@@ -1300,7 +1257,6 @@ export function EstratificacaoApp() {
                   station: screen.station,
                   side,
                   outroId: screen.outroId,
-                  corId: screen.outroId ? undefined : screen.corId,
                 })
               }
             />
@@ -1315,21 +1271,12 @@ export function EstratificacaoApp() {
               offDay={offDay}
               autor={papel === "preparador" ? nome : ""}
               onAdd={(problem) =>
-                addProblem(screen.machine, screen.station, screen.side, problem, screen.outroId ?? "", screen.corId ?? "")
+                addProblem(screen.machine, screen.station, screen.side, problem, screen.outroId ?? "")
               }
               onRemove={(problem, quantidade) =>
-                removeCount(
-                  screen.machine,
-                  screen.station,
-                  screen.side,
-                  problem,
-                  screen.outroId ?? "",
-                  quantidade,
-                  screen.corId ?? "",
-                )
+                removeCount(screen.machine, screen.station, screen.side, problem, screen.outroId ?? "", quantidade)
               }
               outroId={screen.outroId ?? ""}
-              corId={screen.outroId ? "" : (screen.corId ?? "")}
             />
           ) : null}
 
@@ -1794,39 +1741,25 @@ function TrocaCorScreen({
 function StationsScreen({
   state,
   machine,
-  corId,
   offDay,
   onOpen,
   onMatrices,
   onOutros,
-  onTrocaCor,
-  onCor,
-  onRenomear,
   onOpenOutro,
   onDeleteOutro,
   onTrocar,
 }: {
   state: State;
   machine: MachineId;
-  corId: string;
   offDay: boolean;
   onOpen: (station: number) => void;
   onMatrices: () => void;
   onOutros: () => void;
-  onTrocaCor: () => void;
-  onCor: (corId: string) => void;
-  onRenomear: (nome: string) => void;
   onOpenOutro: (outro: OutroMatriz) => void;
   onDeleteOutro: (id: string) => void;
   onTrocar: () => void;
 }) {
   const [pedindo, setPedindo] = useState("");
-  const [editandoCor, setEditandoCor] = useState(false);
-  const [nomeCor, setNomeCor] = useState("");
-  const cores = coresDaMaquina(state, machine);
-  const cor = cores.find((item) => item.id === corId) ?? cores[0];
-  const primeira = cores[0];
-  const estacoes = cor ? cor.stations : [...STATIONS];
   const outros = state.outros.filter(
     (item) => outroVivo(item) && item.machine === machine && item.date === state.date && item.turno === state.turno,
   );
@@ -1844,66 +1777,7 @@ function StationsScreen({
         </span>
         <span className="text-sm font-semibold text-accent">Trocar</span>
       </button>
-      {cores.length > 0 ? (
-        <div className="mt-3 flex gap-2 overflow-x-auto">
-          {cores.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => onCor(item.id)}
-              className={cx(
-                "shrink-0 rounded-full px-4 py-2 text-sm font-semibold",
-                item.id === cor?.id ? "bg-accent text-accent-ink" : "bg-surface-2 text-fg",
-              )}
-            >
-              {item.nome}
-            </button>
-          ))}
-        </div>
-      ) : null}
-      {cor ? (
-        editandoCor ? (
-          <div className="mt-3 grid gap-2">
-            <Field label="Nome da cor" value={nomeCor} placeholder={cor.nome} onChange={setNomeCor} />
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setEditandoCor(false)}
-                className="rounded-tile border border-line bg-surface py-3 text-sm font-semibold"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                disabled={offDay}
-                onClick={() => {
-                  onRenomear(nomeCor);
-                  setEditandoCor(false);
-                }}
-                className="rounded-tile bg-accent py-3 text-sm font-semibold text-accent-ink disabled:opacity-50"
-              >
-                Salvar cor
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => {
-              setNomeCor(cor.nome);
-              setEditandoCor(true);
-            }}
-            className="mt-2 flex w-full items-center justify-between rounded-tile border border-line bg-surface px-4 py-3 text-left"
-          >
-            <span>
-              <span className="block text-sm text-muted">Cor desta aba</span>
-              <span className="text-base font-semibold">{cor.nome}</span>
-            </span>
-            <span className="text-sm font-semibold text-accent">Mudar</span>
-          </button>
-        )
-      ) : null}
-      <div className="mt-2 grid gap-2 sm:grid-cols-3">
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
         <button
           type="button"
           onClick={onMatrices}
@@ -1918,22 +1792,12 @@ function StationsScreen({
         >
           Troca de matriz
         </button>
-        <button
-          type="button"
-          onClick={onTrocaCor}
-          className="rounded-tile border border-line bg-surface px-4 py-3 text-left text-base font-semibold text-accent"
-        >
-          Troca de cor
-        </button>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
-        {estacoes.map((station) => {
-          const config = cor?.grades[String(station)] ?? state.stations[stationKey(machine, station)];
+        {STATIONS.map((station) => {
+          const config = state.stations[stationKey(machine, station)];
           const count = shiftEntries(state, machine).filter(
-            (entry) =>
-              !entry.outroId &&
-              entry.station === station &&
-              (cor ? entry.corId === cor.id || (!entry.corId && cor.id === primeira?.id) : true),
+            (entry) => !entry.outroId && entry.station === station,
           ).length;
           return (
             <button
@@ -2916,7 +2780,6 @@ function PainelHistorico({
   const [janela, setJanela] = useState<"dia" | "semana" | "mes">("dia");
   const [estacao, setEstacao] = useState<number | null>(null);
   const [numero, setNumero] = useState<string | null>(null);
-  const [corFiltro, setCorFiltro] = useState<string | null>(null);
   const datas = diasAte(state.date, 31);
   const semana = new Set(diasAte(state.date, 7));
   const mes = new Set(datas);
@@ -2947,18 +2810,9 @@ function PainelHistorico({
     ),
   ].sort((a, b) => a.localeCompare(b, "pt-BR"));
   const numeroAtivo = numero && numerosJanela.includes(numero) ? numero : null;
-  const coresJanela = [
-    ...new Set(
-      base
-        .filter((entry) => diasJanela.includes(entry.date) && entry.corNome.trim())
-        .map((entry) => entry.corNome.trim()),
-    ),
-  ].sort((a, b) => a.localeCompare(b, "pt-BR"));
-  const corAtiva = corFiltro && coresJanela.includes(corFiltro) ? corFiltro : null;
   function passaRecorte(entry: Entry) {
     if (estacao !== null && entry.station !== estacao) return false;
     if (numeroAtivo !== null && (entry.matrizNumero.trim() || "sem nº") !== numeroAtivo) return false;
-    if (corAtiva !== null && entry.corNome.trim() !== corAtiva) return false;
     return true;
   }
   const periodo = base.filter((entry) => diasJanela.includes(entry.date) && passaRecorte(entry));
@@ -3031,17 +2885,6 @@ function PainelHistorico({
   const porRef = [...refs.entries()]
     .map(([nome, valor]) => ({ nome, valor }))
     .sort((a, b) => b.valor - a.valor || a.nome.localeCompare(b.nome, "pt-BR"));
-  const porCor = coresJanela.map((nome) => ({
-    nome,
-    valor: base.filter(
-      (entry) =>
-        diasJanela.includes(entry.date) &&
-        entry.corNome.trim() === nome &&
-        (estacao === null || entry.station === estacao) &&
-        (numeroAtivo === null || (entry.matrizNumero.trim() || "sem nº") === numeroAtivo),
-    ).length,
-    ativo: corAtiva === null ? undefined : corAtiva === nome,
-  }));
 
   return (
     <div className="grid gap-4">
@@ -3095,11 +2938,8 @@ function PainelHistorico({
         estacao={estacao}
         numero={numeroAtivo}
         numeros={numerosJanela}
-        cor={corAtiva}
-        cores={coresJanela}
         onEstacao={setEstacao}
         onNumero={setNumero}
-        onCor={setCorFiltro}
       />
 
       <div className="grid gap-3 sm:grid-cols-3">
@@ -3183,17 +3023,6 @@ function PainelHistorico({
             onPick={(nome) => setNumero((atual) => (atual === nome ? null : nome))}
           />
         </section>
-        {porCor.length > 0 ? (
-        <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
-          <h3 className="text-base font-semibold">Cor</h3>
-          <p className="text-xs text-muted">Toque para ver qual cor perde mais, inclusive na mesma máquina.</p>
-          <Barras
-            itens={porCor}
-            maximo={Math.max(1, ...porCor.map((item) => item.valor))}
-            onPick={(nome) => setCorFiltro((atual) => (atual === nome ? null : nome))}
-          />
-        </section>
-        ) : null}
         <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
           <h3 className="text-base font-semibold">Lado</h3>
           <Barras itens={porLado} maximo={Math.max(1, ...porLado.map((item) => item.valor))} />
@@ -3337,7 +3166,6 @@ function PainelMesa({
   const [foco, setFoco] = useState<MachineId | null>(null);
   const [estacao, setEstacao] = useState<number | null>(null);
   const [numero, setNumero] = useState<string | null>(null);
-  const [corFiltro, setCorFiltro] = useState<string | null>(null);
   const [pedirExclusao, setPedirExclusao] = useState(false);
   const recorte = foco && shown.includes(foco) ? shown.filter((machine) => machine === foco) : shown;
   const baseLinhas = linhasDaMesa(state, recorte);
@@ -3349,14 +3177,9 @@ function PainelMesa({
     ),
   ].sort((a, b) => a.localeCompare(b, "pt-BR"));
   const numeroAtivo = numero && numerosMesa.includes(numero) ? numero : null;
-  const coresMesa = [...new Set(baseLinhas.map((linha) => linha.cor).filter(Boolean))].sort((a, b) =>
-    a.localeCompare(b, "pt-BR"),
-  );
-  const corAtiva = corFiltro && coresMesa.includes(corFiltro) ? corFiltro : null;
   const linhas = baseLinhas.filter((linha) => {
     if (estacao !== null && linha.station !== estacao) return false;
     if (numeroAtivo !== null && (linha.numero || "sem nº") !== numeroAtivo) return false;
-    if (corAtiva !== null && linha.cor !== corAtiva) return false;
     return true;
   });
   const solas = linhas.reduce((sum, linha) => sum + linha.solas, 0);
@@ -3408,32 +3231,6 @@ function PainelMesa({
   const editaveis = foco
     ? shiftEntries(state, foco).filter((entry) => podeAlterarApontamento(entry))
     : [];
-  const porCor = coresMesa.map((nome) => ({
-    nome,
-    valor: baseLinhas
-      .filter(
-        (linha) =>
-          linha.cor === nome &&
-          (estacao === null || linha.station === estacao) &&
-          (numeroAtivo === null || (linha.numero || "sem nº") === numeroAtivo),
-      )
-      .reduce((sum, linha) => sum + linha.solas, 0),
-    ativo: corAtiva === null ? undefined : corAtiva === nome,
-  }));
-  const porCorMaquina = [
-    ...baseLinhas
-      .reduce((mapa, linha) => {
-        if (!linha.cor) return mapa;
-        if (estacao !== null && linha.station !== estacao) return mapa;
-        if (numeroAtivo !== null && (linha.numero || "sem nº") !== numeroAtivo) return mapa;
-        const chave = `${linha.machine} · ${linha.cor}`;
-        mapa.set(chave, (mapa.get(chave) ?? 0) + linha.solas);
-        return mapa;
-      }, new Map<string, number>())
-      .entries(),
-  ]
-    .map(([nome, valor]) => ({ nome, valor }))
-    .sort((a, b) => b.valor - a.valor);
 
   return (
     <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
@@ -3461,7 +3258,6 @@ function PainelMesa({
               {foco ? ` · ${foco}` : " · turno inteiro"}
               {estacao ? ` · Estação ${pad2(estacao)}` : ""}
               {numeroAtivo ? ` · Nº ${numeroAtivo}` : ""}
-              {corAtiva ? ` · ${corAtiva}` : ""}
               {autores.length > 0 ? ` · ${autores.join(" · ")}` : ""}
             </p>
           </div>
@@ -3541,23 +3337,6 @@ function PainelMesa({
               onPick={(nome) => setNumero((atual) => (atual === nome ? null : nome))}
             />
           </section>
-          {porCor.length > 0 ? (
-          <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
-            <h3 className="text-base font-semibold">Cor</h3>
-            <p className="text-xs text-muted">Na mesma máquina, a cor que mais perde.</p>
-            <Barras
-              itens={porCor}
-              maximo={Math.max(1, ...porCor.map((item) => item.valor))}
-              onPick={(nome) => setCorFiltro((atual) => (atual === nome ? null : nome))}
-            />
-            {porCorMaquina.length > 1 ? (
-              <div className="mt-4">
-                <p className="text-xs text-muted">A mesma máquina, cor contra cor.</p>
-                <Barras largo itens={porCorMaquina} maximo={Math.max(1, ...porCorMaquina.map((item) => item.valor))} />
-              </div>
-            ) : null}
-          </section>
-          ) : null}
           <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
             <h3 className="text-base font-semibold">Lado</h3>
             <Barras itens={porLado} maximo={Math.max(1, ...porLado.map((item) => item.valor))} />
@@ -3618,7 +3397,7 @@ function PainelMesa({
             <table className="w-full border-collapse text-left text-sm">
               <thead className="sticky top-0 bg-[#f6f8fc] text-[11px] uppercase tracking-wide text-muted">
                 <tr>
-                  {["Máquina", "Estação", "Lado", "Cor", "Nº", "Ref.", "Perda", "Solas", "Pares"].map((coluna) => (
+                  {["Máquina", "Estação", "Lado", "Nº", "Ref.", "Perda", "Solas", "Pares"].map((coluna) => (
                     <th key={coluna} className="whitespace-nowrap px-3 py-2 font-semibold">
                       {coluna}
                     </th>
@@ -3628,7 +3407,7 @@ function PainelMesa({
               <tbody>
                 {linhas.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-3 py-8 text-center text-muted">
+                    <td colSpan={8} className="px-3 py-8 text-center text-muted">
                       Nenhum apontamento neste recorte.
                     </td>
                   </tr>
@@ -3640,7 +3419,6 @@ function PainelMesa({
                         {linha.outroId ? `Troca ${linha.station >= 1 ? pad2(linha.station) : ""}`.trim() : pad2(linha.station)}
                       </td>
                       <td className="px-3 py-1.5">{SIDE_SHORT[linha.side]}</td>
-                      <td className="px-3 py-1.5">{linha.cor || "—"}</td>
                       <td className="px-3 py-1.5">{linha.numero || "—"}</td>
                       <td className="px-3 py-1.5">{linha.referencia || "—"}</td>
                       <td className="px-3 py-1.5">{linha.perda}</td>
@@ -3718,11 +3496,8 @@ function PainelMesa({
           estacao={estacao}
           numero={numeroAtivo}
           numeros={numerosMesa}
-          cor={corAtiva}
-          cores={coresMesa}
           onEstacao={setEstacao}
           onNumero={setNumero}
-          onCor={setCorFiltro}
         />
         {papel === "lider" ? <MatrizariaConsulta state={state} ocultar={shown} /> : null}
       </aside>

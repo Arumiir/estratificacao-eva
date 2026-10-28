@@ -634,40 +634,8 @@ export function nomesNaFicha(state: State, machine: MachineId): string {
 }
 
 export function fichaLines(state: State, machine: MachineId): FichaLine[] {
-  const cores = coresDaMaquina(state, machine);
   const entries = shiftEntries(state, machine).filter((entry) => !entry.outroId);
-  const daGrade =
-    cores.length > 0
-      ? cores.flatMap((cor, corIndex) =>
-          cor.stations.flatMap((station) => {
-            const config = cor.grades[String(station)] ?? state.stations[stationKey(machine, station)];
-            const shared = Boolean(config?.ambos);
-            return SIDES.map((side) => {
-              const slot = activeMatrix(config, side);
-              const doLado = entries.filter(
-                (entry) =>
-                  entry.station === station &&
-                  entry.side === side &&
-                  (entry.corId === cor.id || (!entry.corId && corIndex === 0)),
-              );
-              const counts = PROBLEMS.map(
-                (problem) => doLado.filter((entry) => entry.problem === problem.id).length,
-              );
-              return {
-                machine,
-                station,
-                side,
-                numero: slot?.numero.trim() ?? "",
-                referencia: slot?.referencia.trim() ?? "",
-                shared,
-                counts,
-                outroId: "",
-                cor: cor.nome,
-              };
-            });
-          }),
-        )
-      : STATIONS.flatMap((station) => {
+  const daGrade = STATIONS.flatMap((station) => {
           const config = state.stations[stationKey(machine, station)];
           const shared = Boolean(config?.ambos);
           return SIDES.map((side) => {
