@@ -21,7 +21,10 @@ import {
   SIDES,
   STATIONS,
   activeMatrix,
+  aplicarMatriz,
   apontamentoBloqueado,
+  coresDaMaquina,
+  corViva,
   describeMatrix,
   emptyConfig,
   fichaLines,
@@ -31,6 +34,7 @@ import {
   machineHasFicha,
   machineHasMatrices,
   mergeOutros,
+  mergeCores,
   outroVivo,
   mergeSharedEntries,
   nomesNaFicha,
@@ -45,10 +49,10 @@ import {
   turnoPeloRelogio,
   TURNO_LABEL,
   type Turno,
-  withMatrix,
   diasAte,
   gradeHasNumbers,
   type Entry,
+  type Cor,
   type FichaLine,
   type MachineId,
   type OutroMatriz,
@@ -56,7 +60,7 @@ import {
   type State,
   type StationConfig,
 } from "@/lib/perdas";
-import { downloadBlob, renderFichaPng, renderFichasPdf } from "@/lib/ficha-image";
+import { downloadBlob, renderFichasDaMaquina, renderFichasPdf } from "@/lib/ficha-image";
 import { enviarPlanilha, pullApontamentos, pullHistorico, pushApontamentos } from "@/lib/apontamentos.functions";
 import { entrar } from "@/lib/login.functions";
 
@@ -126,11 +130,13 @@ type Screen =
   | { kind: "turnos" }
   | { kind: "machines" }
   | { kind: "ask"; machine: MachineId }
-  | { kind: "matrices"; machine: MachineId }
-  | { kind: "stations"; machine: MachineId }
+  | { kind: "cor"; machine: MachineId }
+  | { kind: "troca-cor"; machine: MachineId; corId: string }
+  | { kind: "matrices"; machine: MachineId; corId?: string }
+  | { kind: "stations"; machine: MachineId; corId?: string }
   | { kind: "outros"; machine: MachineId }
-  | { kind: "side"; machine: MachineId; station: number; outroId?: string }
-  | { kind: "problems"; machine: MachineId; station: number; side: Side; outroId?: string }
+  | { kind: "side"; machine: MachineId; station: number; outroId?: string; corId?: string }
+  | { kind: "problems"; machine: MachineId; station: number; side: Side; outroId?: string; corId?: string }
   | { kind: "sheet"; machine: MachineId | null };
 
 type Banner = {
@@ -195,6 +201,7 @@ function usePerdas() {
   const synced = useRef<Set<string> | null>(null);
   const lastEntries = useRef<State["entries"] | null>(null);
   const lastOutros = useRef("");
+  const lastCores = useRef("");
   const held = useRef<Set<string>>(new Set());
   const pendingRemoved = useRef<Map<string, Entry>>(new Map());
   const revives = useRef<Set<string>>(new Set());
@@ -270,7 +277,7 @@ function usePerdas() {
     if (!synced.current) synced.current = new Set();
     const known = synced.current;
     const stamped = state.entries.map((entry) =>
-      podeAlterarApontamento(entry) ? withMatrix(entry, state.stations) : entry,
+      podeAlterarApontamento(entry) ? aplicarMatriz(entry, state) : entry,
     );
     if (stamped.some((entry, index) => entry !== state.entries[index])) {
       for (const entry of stamped) {
@@ -299,8 +306,10 @@ function usePerdas() {
       if (config && gradeHasNumbers(config)) grades[key] = config;
     }
     const outros = state.outros.filter((item) => item.date === state.date);
+    const cores = state.cores.filter((item) => item.date === state.date);
     const outrosMudou = JSON.stringify(outros) !== lastOutros.current;
-    if (upserts.length === 0 && removed.length === 0 && Object.keys(grades).length === 0 && !outrosMudou) {
+    const coresMudou = JSON.stringify(cores) !== lastCores.current;
+    if (upserts.length === 0 && removed.length === 0 && Object.keys(grades).length === 0 && !outrosMudou && !coresMudou) {
       skipExcelBacklog.current = false;
       return;
     }
@@ -313,12 +322,13 @@ function usePerdas() {
     const sentGrades = Object.keys(grades);
     const gen = gradesGen.current;
     const sentRevives = reviveIds;
-    void pushApontamentos({ data: { upserts: booted.current ? upserts : [], removed, grades: booted.current ? grades : {}, date: state.date, outros: booted.current ? outros : [], revives: sentRevives } })
+    void pushApontamentos({ data: { upserts: booted.current ? upserts : [], removed, grades: booted.current ? grades : {}, date: state.date, outros: booted.current ? outros : [], cores: booted.current ? cores : [], revives: sentRevives } })
       .then((result) => {
         setCloud(result.cloud);
         if (booted.current) {
           for (const entry of upserts) known.add(entry.id);
           lastOutros.current = JSON.stringify(outros);
+          lastCores.current = JSON.stringify(cores);
         }
         for (const id of sentRevives) revives.current.delete(id);
         if (gradesGen.current !== gen) return;
@@ -329,7 +339,7 @@ function usePerdas() {
 
   function takeRemote(
     current: State,
-    remote: { entries: Entry[]; removed: string[]; grades?: Record<string, StationConfig>; outros?: OutroMatriz[] },
+    remote: { entries: Entry[]; removed: string[]; grades?: Record<string, StationConfig>; outros?: OutroMatriz[]; cores?: Cor[] },
   ) {
     for (const id of remote.removed) {
       held.current.delete(id);
@@ -352,7 +362,7 @@ function usePerdas() {
       (entry) => !held.current.has(entry.id),
     );
     const entries = merged.map((entry) =>
-      podeAlterarApontamento(entry) ? withMatrix(entry, stations) : entry,
+      podeAlterarApontamento(entry) ? aplicarMatriz(entry, { ...current, stations }) : entry,
     );
     if (!synced.current) synced.current = new Set();
     for (let index = 0; index < entries.length; index += 1) {
@@ -368,12 +378,16 @@ function usePerdas() {
         (entry, index) =>
           entry.id === current.entries[index]?.id &&
           entry.matrizNumero === current.entries[index]?.matrizNumero &&
-          entry.matrizRel === current.entries[index]?.matrizRel,
+          entry.matrizRel === current.entries[index]?.matrizRel &&
+          entry.corId === current.entries[index]?.corId &&
+          entry.corNome === current.entries[index]?.corNome,
       );
     const outros = mergeOutros(current.outros, remote.outros ?? []);
+    const cores = mergeCores(current.cores, remote.cores ?? []);
     const outrosIguais = JSON.stringify(outros) === JSON.stringify(current.outros);
-    if (!stationsChanged && sameEntries && outrosIguais) return current;
-    return { ...current, stations, entries, outros };
+    const coresIguais = JSON.stringify(cores) === JSON.stringify(current.cores);
+    if (!stationsChanged && sameEntries && outrosIguais && coresIguais) return current;
+    return { ...current, stations, entries, outros, cores };
   }
 
   async function refresh() {
@@ -405,14 +419,17 @@ function usePerdas() {
         const removed = [...pendingRemoved.current.values()];
         const reviveIds = [...revives.current];
         const outros = current.outros.filter((item) => item.date === current.date);
+        const cores = current.cores.filter((item) => item.date === current.date);
         const outrosMudou = JSON.stringify(outros) !== lastOutros.current;
-        if (booted.current && (upserts.length > 0 || removed.length > 0 || reviveIds.length > 0 || outrosMudou)) {
-          void pushApontamentos({ data: { upserts, removed, revives: reviveIds, date: current.date, outros } })
+        const coresMudou = JSON.stringify(cores) !== lastCores.current;
+        if (booted.current && (upserts.length > 0 || removed.length > 0 || reviveIds.length > 0 || outrosMudou || coresMudou)) {
+          void pushApontamentos({ data: { upserts, removed, revives: reviveIds, date: current.date, outros, cores } })
             .then((result) => {
               setCloud(result.cloud);
               for (const entry of upserts) known.add(entry.id);
               for (const id of reviveIds) revives.current.delete(id);
               lastOutros.current = JSON.stringify(outros);
+              lastCores.current = JSON.stringify(cores);
             })
             .catch(() => setCloud(false));
         }
@@ -478,6 +495,13 @@ function usePerdas() {
   return { state, commit, read: () => ref.current, refresh, cloud, resendExcel, releaseHold, markGrades, holdRemovals };
 }
 
+function destinoDaMaquina(current: State, machine: MachineId): Screen {
+  const cores = coresDaMaquina(current, machine);
+  const cor = cores[cores.length - 1];
+  if (!cor) return { kind: "cor", machine };
+  return { kind: "stations", machine, corId: cor.id };
+}
+
 function screenKey(screen: Screen): string {
   switch (screen.kind) {
     case "papel":
@@ -488,16 +512,20 @@ function screenKey(screen: Screen): string {
       return "machines";
     case "ask":
       return `ask-${screen.machine}`;
+    case "cor":
+      return `cor-${screen.machine}`;
+    case "troca-cor":
+      return `troca-cor-${screen.machine}-${screen.corId}`;
     case "matrices":
-      return `matrices-${screen.machine}`;
+      return `matrices-${screen.machine}-${screen.corId ?? ""}`;
     case "stations":
-      return `stations-${screen.machine}`;
+      return `stations-${screen.machine}-${screen.corId ?? ""}`;
     case "outros":
       return `outros-${screen.machine}`;
     case "side":
       return `side-${screen.machine}-${screen.station}-${screen.outroId ?? ""}`;
     case "problems":
-      return `problems-${screen.machine}-${screen.outroId || screen.station}-${screen.side}`;
+      return `problems-${screen.machine}-${screen.outroId || screen.station}-${screen.side}-${screen.corId ?? ""}`;
     case "sheet":
       return `sheet-${screen.machine ?? "all"}`;
   }
@@ -610,11 +638,7 @@ export function EstratificacaoApp() {
     if (postoDia.current === chave) return;
     postoDia.current = chave;
     const machine = loadPosto(sessao.nome, hoje, turno);
-    const home: Screen = machine
-      ? machineHasMatrices(state, machine)
-        ? { kind: "stations", machine }
-        : { kind: "ask", machine }
-      : { kind: "machines" };
+    const home: Screen = machine ? destinoDaMaquina(state, machine) : { kind: "machines" };
     homeRef.current = home;
     stackRef.current = [home];
     depthRef.current = 1;
@@ -756,26 +780,68 @@ export function EstratificacaoApp() {
     if (sessao?.papel === "preparador") {
       savePosto({ nome: sessao.nome, date: today, turno: sessao.turno ?? current.turno, machine });
     }
-    const dest: Screen = machineHasMatrices(current, machine)
-      ? { kind: "stations", machine }
-      : { kind: "ask", machine };
+    const dest = destinoDaMaquina(current, machine);
     if (sessao?.papel === "preparador") homeRef.current = dest;
     adoptStack([dest]);
   }
 
-  function saveGrade(machine: MachineId, configs: StationConfig[]) {
+  function saveGrade(machine: MachineId, configs: StationConfig[], corId = "") {
     const salvoEm = Date.now();
     markGrades(STATIONS.map((station) => stationKey(machine, station)));
     commit((current) => {
       const stations = { ...current.stations };
+      const grades: Record<string, StationConfig> = {};
       STATIONS.forEach((station, index) => {
         const config = configs[index];
-        if (config) stations[stationKey(machine, station)] = { ...config, salvoEm };
+        if (!config) return;
+        const salvo = { ...config, salvoEm };
+        grades[String(station)] = salvo;
+        if (!corId) stations[stationKey(machine, station)] = salvo;
       });
-      return { ...current, stations };
+      if (!corId) return { ...current, stations };
+      const primeira = coresDaMaquina(current, machine)[0];
+      if (primeira?.id === corId) {
+        for (const [station, config] of Object.entries(grades)) {
+          stations[stationKey(machine, Number(station))] = config;
+        }
+      }
+      return {
+        ...current,
+        stations,
+        cores: current.cores.map((item) =>
+          item.id === corId ? { ...item, grades: { ...item.grades, ...grades }, salvoEm } : item,
+        ),
+      };
     });
     flash("Grade de matrizaria salva");
-    const dest: Screen = { kind: "stations", machine };
+    const dest: Screen = { kind: "stations", machine, corId: corId || undefined };
+    if (sessao?.papel === "preparador") homeRef.current = dest;
+    adoptStack([dest]);
+  }
+
+  function criarCor(machine: MachineId, nome: string, stations: number[], grades: Record<string, StationConfig>) {
+    const limpo = nome.trim().slice(0, 40);
+    if (!limpo) {
+      flash("Informe o nome da cor.");
+      return;
+    }
+    if (stations.length === 0) {
+      flash("Escolha ao menos uma estação.");
+      return;
+    }
+    const cor: Cor = {
+      id: crypto.randomUUID(),
+      date: todayISO(),
+      turno: sessao?.turno ?? read()?.turno ?? "1",
+      machine,
+      nome: limpo,
+      stations,
+      grades,
+      salvoEm: Date.now(),
+    };
+    commit((current) => ({ ...current, cores: [...current.cores, cor] }));
+    flash(`Cor ${limpo} aberta`);
+    const dest: Screen = { kind: "stations", machine, corId: cor.id };
     if (sessao?.papel === "preparador") homeRef.current = dest;
     adoptStack([dest]);
   }
@@ -851,7 +917,7 @@ export function EstratificacaoApp() {
     flash(ligados.length > 0 ? "Troca e perdas excluídas" : "Troca excluída");
   }
 
-  function addProblem(machine: MachineId, station: number, side: Side, problem: string, outroId = "") {
+  function addProblem(machine: MachineId, station: number, side: Side, problem: string, outroId = "", corId = "") {
     const current = read();
     if (!current) return;
     if (current.date !== todayISO()) {
@@ -864,9 +930,13 @@ export function EstratificacaoApp() {
     let snapshot = { numero: "", referencia: "" };
     commit((stateNow) => {
       const outro = outroId ? stateNow.outros.find((item) => item.id === outroId) : undefined;
+      const cor = corId ? stateNow.cores.find((item) => item.id === corId) : undefined;
       const slot = outro
         ? { numero: outro.numero, referencia: outro.referencia }
-        : activeMatrix(stateNow.stations[stationKey(machine, station)], side);
+        : activeMatrix(
+            cor?.grades[String(station)] ?? stateNow.stations[stationKey(machine, station)],
+            side,
+          );
       snapshot = {
         numero: slot?.numero.trim() ?? "",
         referencia: slot?.referencia.trim() ?? "",
@@ -884,6 +954,8 @@ export function EstratificacaoApp() {
         matrizRel: snapshot.referencia,
         autor: nome,
         outroId,
+        corId: outro ? "" : (cor?.id ?? ""),
+        corNome: outro ? "" : (cor?.nome ?? ""),
       };
       return { ...stateNow, turno, date: todayISO(), entries: [...stateNow.entries, entry] };
     });
@@ -902,16 +974,22 @@ export function EstratificacaoApp() {
     return autor === mine || autor === "";
   }
 
-  function removeCount(machine: MachineId, station: number, side: Side, problem: string, outroId: string, quantidade: number) {
+  function removeCount(machine: MachineId, station: number, side: Side, problem: string, outroId: string, quantidade: number, corId = "") {
     const current = read();
     if (!current) return;
+    const primeira = coresDaMaquina(current, machine)[0]?.id ?? "";
     const pool = current.entries.filter(
       (entry) =>
         inShift(entry, current) &&
         entry.machine === machine &&
         entry.problem === problem &&
         sameAuthor(entry) &&
-        (outroId ? entry.outroId === outroId : !entry.outroId && entry.station === station && entry.side === side),
+        (outroId
+          ? entry.outroId === outroId
+          : !entry.outroId &&
+            entry.station === station &&
+            entry.side === side &&
+            (!corId || entry.corId === corId || (entry.corId === "" && corId === primeira))),
     );
     const matches = [...pool].reverse().filter((entry) => podeAlterarApontamento(entry)).slice(0, quantidade);
     if (matches.length === 0) {
@@ -1089,6 +1167,32 @@ export function EstratificacaoApp() {
             />
           ) : null}
 
+          {papel === "preparador" && screen.kind === "cor" ? (
+            <CorScreen
+              machine={screen.machine}
+              onSave={(nome) => {
+                const current = read();
+                if (!current) return;
+                const grades: Record<string, StationConfig> = {};
+                for (const station of STATIONS) {
+                  const config = current.stations[stationKey(screen.machine, station)];
+                  if (config) grades[String(station)] = config;
+                }
+                criarCor(screen.machine, nome, [...STATIONS], grades);
+              }}
+            />
+          ) : null}
+
+          {papel === "preparador" && screen.kind === "troca-cor" ? (
+            <TrocaCorScreen
+              state={state}
+              machine={screen.machine}
+              corId={screen.corId}
+              offDay={offDay}
+              onSave={(nome, stations, grades) => criarCor(screen.machine, nome, stations, grades)}
+            />
+          ) : null}
+
           {papel === "preparador" && screen.kind === "ask" ? (
             <AskScreen
               machine={screen.machine}
@@ -1102,7 +1206,8 @@ export function EstratificacaoApp() {
             <MatrixGradeScreen
               state={state}
               machine={screen.machine}
-              onSave={(configs) => saveGrade(screen.machine, configs)}
+              grades={screen.corId ? state.cores.find((item) => item.id === screen.corId)?.grades : undefined}
+              onSave={(configs) => saveGrade(screen.machine, configs, screen.corId ?? "")}
             />
           ) : null}
 
@@ -1110,10 +1215,19 @@ export function EstratificacaoApp() {
             <StationsScreen
               state={state}
               machine={screen.machine}
+              corId={screen.corId ?? ""}
               offDay={offDay}
-              onOpen={(station) => push({ kind: "side", machine: screen.machine, station })}
-              onMatrices={() => push({ kind: "matrices", machine: screen.machine })}
+              onOpen={(station) =>
+                push({ kind: "side", machine: screen.machine, station, corId: screen.corId })
+              }
+              onMatrices={() => push({ kind: "matrices", machine: screen.machine, corId: screen.corId })}
               onOutros={() => push({ kind: "outros", machine: screen.machine })}
+              onTrocaCor={() =>
+                screen.corId
+                  ? push({ kind: "troca-cor", machine: screen.machine, corId: screen.corId })
+                  : push({ kind: "cor", machine: screen.machine })
+              }
+              onCor={(corId) => replaceTop({ kind: "stations", machine: screen.machine, corId })}
               onOpenOutro={(outro) =>
                 outro.ambos
                   ? push({
@@ -1121,6 +1235,7 @@ export function EstratificacaoApp() {
                       machine: screen.machine,
                       station: outro.station,
                       outroId: outro.id,
+                      corId: screen.corId,
                     })
                   : push({
                       kind: "problems",
@@ -1128,6 +1243,7 @@ export function EstratificacaoApp() {
                       station: outro.station,
                       side: outro.side,
                       outroId: outro.id,
+                      corId: screen.corId,
                     })
               }
               onDeleteOutro={removeOutro}
@@ -1152,6 +1268,7 @@ export function EstratificacaoApp() {
               station={screen.station}
               offDay={offDay}
               outroId={screen.outroId}
+              corId={screen.outroId ? "" : screen.corId}
               onChoose={(side) =>
                 push({
                   kind: "problems",
@@ -1159,6 +1276,7 @@ export function EstratificacaoApp() {
                   station: screen.station,
                   side,
                   outroId: screen.outroId,
+                  corId: screen.outroId ? undefined : screen.corId,
                 })
               }
             />
@@ -1173,12 +1291,21 @@ export function EstratificacaoApp() {
               offDay={offDay}
               autor={papel === "preparador" ? nome : ""}
               onAdd={(problem) =>
-                addProblem(screen.machine, screen.station, screen.side, problem, screen.outroId ?? "")
+                addProblem(screen.machine, screen.station, screen.side, problem, screen.outroId ?? "", screen.corId ?? "")
               }
               onRemove={(problem, quantidade) =>
-                removeCount(screen.machine, screen.station, screen.side, problem, screen.outroId ?? "", quantidade)
+                removeCount(
+                  screen.machine,
+                  screen.station,
+                  screen.side,
+                  problem,
+                  screen.outroId ?? "",
+                  quantidade,
+                  screen.corId ?? "",
+                )
               }
               outroId={screen.outroId ?? ""}
+              corId={screen.outroId ? "" : (screen.corId ?? "")}
             />
           ) : null}
 
@@ -1233,6 +1360,10 @@ function headerFor(screen: Screen): { context: string } {
       return { context: "" };
     case "ask":
       return { context: `Máquina ${screen.machine}` };
+    case "cor":
+      return { context: `Máquina ${screen.machine} · cor` };
+    case "troca-cor":
+      return { context: `Máquina ${screen.machine} · troca de cor` };
     case "matrices":
       return { context: `Máquina ${screen.machine} · matrizes` };
     case "stations":
@@ -1483,28 +1614,174 @@ function MachinesScreen({
   );
 }
 
+function CorScreen({ machine, onSave }: { machine: MachineId; onSave: (nome: string) => void }) {
+  const [nome, setNome] = useState("");
+  return (
+    <div>
+      <p className="text-base text-muted">Máquina {machine}. Vale para o dia e para o seu turno.</p>
+      <h2 className="mt-2 font-display text-4xl leading-none">Qual a cor?</h2>
+      <div className="mt-4">
+        <Field label="Cor" value={nome} placeholder="Preto" onChange={setNome} />
+      </div>
+      <button
+        type="button"
+        onClick={() => onSave(nome)}
+        className="mt-4 w-full rounded-tile bg-accent py-4 font-display text-3xl leading-none text-accent-ink"
+      >
+        Começar
+      </button>
+    </div>
+  );
+}
+
+function TrocaCorScreen({
+  state,
+  machine,
+  corId,
+  offDay,
+  onSave,
+}: {
+  state: State;
+  machine: MachineId;
+  corId: string;
+  offDay: boolean;
+  onSave: (nome: string, stations: number[], grades: Record<string, StationConfig>) => void;
+}) {
+  const origem = state.cores.find((item) => item.id === corId);
+  const [nome, setNome] = useState("");
+  const [escolhidas, setEscolhidas] = useState<number[]>([]);
+  const [grades, setGrades] = useState<Record<string, StationConfig>>({});
+
+  function alternar(station: number) {
+    setEscolhidas((atual) => {
+      if (atual.includes(station)) {
+        setGrades((base) => {
+          const next = { ...base };
+          delete next[String(station)];
+          return next;
+        });
+        return atual.filter((item) => item !== station);
+      }
+      const config = origem?.grades[String(station)] ?? state.stations[stationKey(machine, station)] ?? emptyConfig();
+      setGrades((base) => ({ ...base, [String(station)]: config }));
+      return [...atual, station].sort((a, b) => a - b);
+    });
+  }
+
+  function patch(station: number, config: StationConfig) {
+    setGrades((base) => ({ ...base, [String(station)]: config }));
+  }
+
+  return (
+    <div>
+      <p className="text-base text-muted">
+        A cor {origem?.nome || "atual"} continua com o que já foi apontado. As estações marcadas abrem zeradas nesta cor nova.
+      </p>
+      <h2 className="mt-2 font-display text-4xl leading-none">Troca de cor</h2>
+      <div className="mt-4">
+        <Field label="Nome da cor" value={nome} placeholder="Azul" onChange={setNome} />
+      </div>
+      <p className="mb-2 mt-4 text-sm font-semibold text-muted">Estações que mudaram</p>
+      <div className="grid grid-cols-4 gap-2">
+        {STATIONS.map((station) => {
+          const ligada = escolhidas.includes(station);
+          return (
+            <button
+              key={station}
+              type="button"
+              onClick={() => alternar(station)}
+              className={cx(
+                "rounded-tile py-3 font-display text-2xl leading-none",
+                ligada ? "bg-accent text-accent-ink" : "border border-line bg-surface",
+              )}
+            >
+              {pad2(station)}
+            </button>
+          );
+        })}
+      </div>
+      {escolhidas.map((station) => {
+        const config = grades[String(station)] ?? emptyConfig();
+        return (
+          <div key={station} className="mt-4 rounded-tile border border-line bg-surface p-3">
+            <p className="text-sm font-semibold">Estação {pad2(station)}</p>
+            <p className="mb-2 text-xs text-muted">O número pode continuar ou mudar.</p>
+            {config.ambos ? (
+              <NumberPair
+                numero={config.numero}
+                referencia={config.referencia}
+                onNumero={(numero) => patch(station, { ...config, numero })}
+                onReferencia={(referencia) => patch(station, { ...config, referencia })}
+              />
+            ) : (
+              <div className="grid gap-3">
+                <div>
+                  <p className="mb-1 text-xs font-semibold text-muted">Esquerda</p>
+                  <NumberPair
+                    numero={config.esq.numero}
+                    referencia={config.esq.referencia}
+                    onNumero={(numero) => patch(station, { ...config, esq: { ...config.esq, numero } })}
+                    onReferencia={(referencia) => patch(station, { ...config, esq: { ...config.esq, referencia } })}
+                  />
+                </div>
+                <div>
+                  <p className="mb-1 text-xs font-semibold text-muted">Direita</p>
+                  <NumberPair
+                    numero={config.dir.numero}
+                    referencia={config.dir.referencia}
+                    onNumero={(numero) => patch(station, { ...config, dir: { ...config.dir, numero } })}
+                    onReferencia={(referencia) => patch(station, { ...config, dir: { ...config.dir, referencia } })}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+      <button
+        type="button"
+        disabled={offDay}
+        onClick={() => onSave(nome, escolhidas, grades)}
+        className="mt-4 w-full rounded-tile bg-accent py-4 font-display text-3xl leading-none text-accent-ink disabled:opacity-50"
+      >
+        Abrir cor
+      </button>
+    </div>
+  );
+}
+
 function StationsScreen({
   state,
   machine,
+  corId,
   offDay,
   onOpen,
   onMatrices,
   onOutros,
+  onTrocaCor,
+  onCor,
   onOpenOutro,
   onDeleteOutro,
   onTrocar,
 }: {
   state: State;
   machine: MachineId;
+  corId: string;
   offDay: boolean;
   onOpen: (station: number) => void;
   onMatrices: () => void;
   onOutros: () => void;
+  onTrocaCor: () => void;
+  onCor: (corId: string) => void;
   onOpenOutro: (outro: OutroMatriz) => void;
   onDeleteOutro: (id: string) => void;
   onTrocar: () => void;
 }) {
   const [pedindo, setPedindo] = useState("");
+  const cores = coresDaMaquina(state, machine);
+  const cor = cores.find((item) => item.id === corId) ?? cores[0];
+  const primeira = cores[0];
+  const estacoes = cor ? cor.stations : [...STATIONS];
   const outros = state.outros.filter(
     (item) => outroVivo(item) && item.machine === machine && item.date === state.date && item.turno === state.turno,
   );
@@ -1522,7 +1799,24 @@ function StationsScreen({
         </span>
         <span className="text-sm font-semibold text-accent">Trocar</span>
       </button>
-      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+      {cores.length > 0 ? (
+        <div className="mt-3 flex gap-2 overflow-x-auto">
+          {cores.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => onCor(item.id)}
+              className={cx(
+                "shrink-0 rounded-full px-4 py-2 text-sm font-semibold",
+                item.id === cor?.id ? "bg-accent text-accent-ink" : "bg-surface-2 text-fg",
+              )}
+            >
+              {item.nome}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <div className="mt-2 grid gap-2 sm:grid-cols-3">
         <button
           type="button"
           onClick={onMatrices}
@@ -1537,12 +1831,22 @@ function StationsScreen({
         >
           Troca de matriz
         </button>
+        <button
+          type="button"
+          onClick={onTrocaCor}
+          className="rounded-tile border border-line bg-surface px-4 py-3 text-left text-base font-semibold text-accent"
+        >
+          Troca de cor
+        </button>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
-        {STATIONS.map((station) => {
-          const config = state.stations[stationKey(machine, station)];
+        {estacoes.map((station) => {
+          const config = cor?.grades[String(station)] ?? state.stations[stationKey(machine, station)];
           const count = shiftEntries(state, machine).filter(
-            (entry) => !entry.outroId && entry.station === station,
+            (entry) =>
+              !entry.outroId &&
+              entry.station === station &&
+              (cor ? entry.corId === cor.id || (!entry.corId && cor.id === primeira?.id) : true),
           ).length;
           return (
             <button
@@ -1735,6 +2039,7 @@ function SideScreen({
   offDay,
   onChoose,
   outroId = "",
+  corId = "",
 }: {
   state: State;
   machine: MachineId;
@@ -1742,11 +2047,18 @@ function SideScreen({
   offDay: boolean;
   onChoose: (side: Side) => void;
   outroId?: string;
+  corId?: string;
 }) {
   const outro = state.outros.find((item) => item.id === outroId);
-  const config = state.stations[stationKey(machine, station)];
+  const cor = state.cores.find((item) => item.id === corId);
+  const config = cor?.grades[String(station)] ?? state.stations[stationKey(machine, station)];
+  const primeira = coresDaMaquina(state, machine)[0];
   const rows = shiftEntries(state, machine).filter((entry) =>
-    outroId ? entry.outroId === outroId : !entry.outroId && entry.station === station,
+    outroId
+      ? entry.outroId === outroId
+      : !entry.outroId &&
+        entry.station === station &&
+        (!corId || entry.corId === corId || (!entry.corId && corId === primeira?.id)),
   );
   const troca = outro ? [outro.numero, outro.referencia].filter(Boolean).join(" · ") : "";
   return (
@@ -1791,6 +2103,7 @@ function ProblemsScreen({
   onAdd,
   onRemove,
   outroId = "",
+  corId = "",
 }: {
   state: State;
   machine: MachineId;
@@ -1801,10 +2114,13 @@ function ProblemsScreen({
   onAdd: (problem: string) => void;
   onRemove: (problem: string, quantidade: number) => void;
   outroId?: string;
+  corId?: string;
 }) {
   const [tirar, setTirar] = useState<Record<string, number>>({});
   const outro = state.outros.find((item) => item.id === outroId);
-  const config = state.stations[stationKey(machine, station)];
+  const cor = state.cores.find((item) => item.id === corId);
+  const config = cor?.grades[String(station)] ?? state.stations[stationKey(machine, station)];
+  const primeira = coresDaMaquina(state, machine)[0];
   const matrix = outro
     ? [outro.numero, outro.referencia].filter(Boolean).join(" · ")
     : describeMatrix(config, side);
@@ -1813,6 +2129,8 @@ function ProblemsScreen({
     if (outroId) {
       if (entry.outroId !== outroId || entry.side !== side) return false;
     } else if (entry.outroId || entry.station !== station || entry.side !== side) {
+      return false;
+    } else if (corId && entry.corId !== corId && (entry.corId !== "" || corId !== primeira?.id)) {
       return false;
     }
     if (!mine) return true;
@@ -1955,14 +2273,16 @@ function AskScreen({
 function MatrixGradeScreen({
   state,
   machine,
+  grades,
   onSave,
 }: {
   state: State;
   machine: MachineId;
+  grades?: Record<string, StationConfig>;
   onSave: (configs: StationConfig[]) => void;
 }) {
   const [drafts, setDrafts] = useState<StationConfig[]>(() =>
-    STATIONS.map((station) => state.stations[stationKey(machine, station)] ?? emptyConfig()),
+    STATIONS.map((station) => grades?.[String(station)] ?? state.stations[stationKey(machine, station)] ?? emptyConfig()),
   );
 
   function patch(index: number, next: StationConfig) {
@@ -2170,10 +2490,13 @@ function SheetScreen({
     try {
       const files: File[] = [];
       for (const item of alvo) {
-        const blob = await renderFichaPng(view, item);
-        files.push(
-          new File([blob], `${fileBase}-maquina-${item}.png`, { type: "image/png" }),
-        );
+        const grupos = await renderFichasDaMaquina(view, item);
+        for (const grupo of grupos) {
+          const sufixo = grupo.nome ? `-${grupo.nome.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "")}` : "";
+          files.push(
+            new File([grupo.blob], `${fileBase}-maquina-${item}${sufixo}.png`, { type: "image/png" }),
+          );
+        }
       }
       if (navigator.canShare?.({ files })) {
         try {
@@ -2384,14 +2707,20 @@ function FiltrosRecorte({
   estacao,
   numero,
   numeros,
+  cor = null,
+  cores = [],
   onEstacao,
   onNumero,
+  onCor,
 }: {
   estacao: number | null;
   numero: string | null;
   numeros: string[];
+  cor?: string | null;
+  cores?: string[];
   onEstacao: (station: number | null) => void;
   onNumero: (numero: string | null) => void;
+  onCor?: (cor: string | null) => void;
 }) {
   return (
     <div className="grid gap-3 rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
@@ -2452,6 +2781,36 @@ function FiltrosRecorte({
         </div>
         {numeros.length === 0 ? <p className="mt-2 text-sm text-muted">Nenhum número neste recorte.</p> : null}
       </div>
+      {cores.length > 0 && onCor ? (
+        <div>
+          <p className="text-xs font-semibold text-muted">Cor</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              onClick={() => onCor(null)}
+              className={cx(
+                "rounded-xl px-3 py-2 text-sm font-semibold",
+                cor === null ? "bg-[#2457b8] text-white" : "bg-[#f3f6fb] text-fg",
+              )}
+            >
+              Todas
+            </button>
+            {cores.map((item) => (
+              <button
+                key={item}
+                type="button"
+                onClick={() => onCor(cor === item ? null : item)}
+                className={cx(
+                  "rounded-xl px-3 py-2 text-sm font-semibold",
+                  cor === item ? "bg-[#2457b8] text-white" : "bg-[#f3f6fb] text-fg",
+                )}
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -2470,6 +2829,7 @@ function PainelHistorico({
   const [janela, setJanela] = useState<"dia" | "semana" | "mes">("dia");
   const [estacao, setEstacao] = useState<number | null>(null);
   const [numero, setNumero] = useState<string | null>(null);
+  const [corFiltro, setCorFiltro] = useState<string | null>(null);
   const datas = diasAte(state.date, 31);
   const semana = new Set(diasAte(state.date, 7));
   const mes = new Set(datas);
@@ -2500,9 +2860,18 @@ function PainelHistorico({
     ),
   ].sort((a, b) => a.localeCompare(b, "pt-BR"));
   const numeroAtivo = numero && numerosJanela.includes(numero) ? numero : null;
+  const coresJanela = [
+    ...new Set(
+      base
+        .filter((entry) => diasJanela.includes(entry.date) && entry.corNome.trim())
+        .map((entry) => entry.corNome.trim()),
+    ),
+  ].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const corAtiva = corFiltro && coresJanela.includes(corFiltro) ? corFiltro : null;
   function passaRecorte(entry: Entry) {
     if (estacao !== null && entry.station !== estacao) return false;
     if (numeroAtivo !== null && (entry.matrizNumero.trim() || "sem nº") !== numeroAtivo) return false;
+    if (corAtiva !== null && entry.corNome.trim() !== corAtiva) return false;
     return true;
   }
   const periodo = base.filter((entry) => diasJanela.includes(entry.date) && passaRecorte(entry));
@@ -2575,6 +2944,17 @@ function PainelHistorico({
   const porRef = [...refs.entries()]
     .map(([nome, valor]) => ({ nome, valor }))
     .sort((a, b) => b.valor - a.valor || a.nome.localeCompare(b.nome, "pt-BR"));
+  const porCor = coresJanela.map((nome) => ({
+    nome,
+    valor: base.filter(
+      (entry) =>
+        diasJanela.includes(entry.date) &&
+        entry.corNome.trim() === nome &&
+        (estacao === null || entry.station === estacao) &&
+        (numeroAtivo === null || (entry.matrizNumero.trim() || "sem nº") === numeroAtivo),
+    ).length,
+    ativo: corAtiva === null ? undefined : corAtiva === nome,
+  }));
 
   return (
     <div className="grid gap-4">
@@ -2628,8 +3008,11 @@ function PainelHistorico({
         estacao={estacao}
         numero={numeroAtivo}
         numeros={numerosJanela}
+        cor={corAtiva}
+        cores={coresJanela}
         onEstacao={setEstacao}
         onNumero={setNumero}
+        onCor={setCorFiltro}
       />
 
       <div className="grid gap-3 sm:grid-cols-3">
@@ -2713,6 +3096,17 @@ function PainelHistorico({
             onPick={(nome) => setNumero((atual) => (atual === nome ? null : nome))}
           />
         </section>
+        {porCor.length > 0 ? (
+        <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+          <h3 className="text-base font-semibold">Cor</h3>
+          <p className="text-xs text-muted">Toque para ver qual cor perde mais, inclusive na mesma máquina.</p>
+          <Barras
+            itens={porCor}
+            maximo={Math.max(1, ...porCor.map((item) => item.valor))}
+            onPick={(nome) => setCorFiltro((atual) => (atual === nome ? null : nome))}
+          />
+        </section>
+        ) : null}
         <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
           <h3 className="text-base font-semibold">Lado</h3>
           <Barras itens={porLado} maximo={Math.max(1, ...porLado.map((item) => item.valor))} />
@@ -2856,6 +3250,7 @@ function PainelMesa({
   const [foco, setFoco] = useState<MachineId | null>(null);
   const [estacao, setEstacao] = useState<number | null>(null);
   const [numero, setNumero] = useState<string | null>(null);
+  const [corFiltro, setCorFiltro] = useState<string | null>(null);
   const [pedirExclusao, setPedirExclusao] = useState(false);
   const recorte = foco && shown.includes(foco) ? shown.filter((machine) => machine === foco) : shown;
   const baseLinhas = linhasDaMesa(state, recorte);
@@ -2867,9 +3262,14 @@ function PainelMesa({
     ),
   ].sort((a, b) => a.localeCompare(b, "pt-BR"));
   const numeroAtivo = numero && numerosMesa.includes(numero) ? numero : null;
+  const coresMesa = [...new Set(baseLinhas.map((linha) => linha.cor).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, "pt-BR"),
+  );
+  const corAtiva = corFiltro && coresMesa.includes(corFiltro) ? corFiltro : null;
   const linhas = baseLinhas.filter((linha) => {
     if (estacao !== null && linha.station !== estacao) return false;
     if (numeroAtivo !== null && (linha.numero || "sem nº") !== numeroAtivo) return false;
+    if (corAtiva !== null && linha.cor !== corAtiva) return false;
     return true;
   });
   const solas = linhas.reduce((sum, linha) => sum + linha.solas, 0);
@@ -2921,6 +3321,32 @@ function PainelMesa({
   const editaveis = foco
     ? shiftEntries(state, foco).filter((entry) => podeAlterarApontamento(entry))
     : [];
+  const porCor = coresMesa.map((nome) => ({
+    nome,
+    valor: baseLinhas
+      .filter(
+        (linha) =>
+          linha.cor === nome &&
+          (estacao === null || linha.station === estacao) &&
+          (numeroAtivo === null || (linha.numero || "sem nº") === numeroAtivo),
+      )
+      .reduce((sum, linha) => sum + linha.solas, 0),
+    ativo: corAtiva === null ? undefined : corAtiva === nome,
+  }));
+  const porCorMaquina = [
+    ...baseLinhas
+      .reduce((mapa, linha) => {
+        if (!linha.cor) return mapa;
+        if (estacao !== null && linha.station !== estacao) return mapa;
+        if (numeroAtivo !== null && (linha.numero || "sem nº") !== numeroAtivo) return mapa;
+        const chave = `${linha.machine} · ${linha.cor}`;
+        mapa.set(chave, (mapa.get(chave) ?? 0) + linha.solas);
+        return mapa;
+      }, new Map<string, number>())
+      .entries(),
+  ]
+    .map(([nome, valor]) => ({ nome, valor }))
+    .sort((a, b) => b.valor - a.valor);
 
   return (
     <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
@@ -2948,6 +3374,7 @@ function PainelMesa({
               {foco ? ` · ${foco}` : " · turno inteiro"}
               {estacao ? ` · Estação ${pad2(estacao)}` : ""}
               {numeroAtivo ? ` · Nº ${numeroAtivo}` : ""}
+              {corAtiva ? ` · ${corAtiva}` : ""}
               {autores.length > 0 ? ` · ${autores.join(" · ")}` : ""}
             </p>
           </div>
@@ -3027,6 +3454,23 @@ function PainelMesa({
               onPick={(nome) => setNumero((atual) => (atual === nome ? null : nome))}
             />
           </section>
+          {porCor.length > 0 ? (
+          <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+            <h3 className="text-base font-semibold">Cor</h3>
+            <p className="text-xs text-muted">Na mesma máquina, a cor que mais perde.</p>
+            <Barras
+              itens={porCor}
+              maximo={Math.max(1, ...porCor.map((item) => item.valor))}
+              onPick={(nome) => setCorFiltro((atual) => (atual === nome ? null : nome))}
+            />
+            {porCorMaquina.length > 1 ? (
+              <div className="mt-4">
+                <p className="text-xs text-muted">A mesma máquina, cor contra cor.</p>
+                <Barras largo itens={porCorMaquina} maximo={Math.max(1, ...porCorMaquina.map((item) => item.valor))} />
+              </div>
+            ) : null}
+          </section>
+          ) : null}
           <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
             <h3 className="text-base font-semibold">Lado</h3>
             <Barras itens={porLado} maximo={Math.max(1, ...porLado.map((item) => item.valor))} />
@@ -3087,7 +3531,7 @@ function PainelMesa({
             <table className="w-full border-collapse text-left text-sm">
               <thead className="sticky top-0 bg-[#f6f8fc] text-[11px] uppercase tracking-wide text-muted">
                 <tr>
-                  {["Máquina", "Estação", "Lado", "Nº", "Ref.", "Perda", "Solas", "Pares"].map((coluna) => (
+                  {["Máquina", "Estação", "Lado", "Cor", "Nº", "Ref.", "Perda", "Solas", "Pares"].map((coluna) => (
                     <th key={coluna} className="whitespace-nowrap px-3 py-2 font-semibold">
                       {coluna}
                     </th>
@@ -3097,7 +3541,7 @@ function PainelMesa({
               <tbody>
                 {linhas.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-3 py-8 text-center text-muted">
+                    <td colSpan={9} className="px-3 py-8 text-center text-muted">
                       Nenhum apontamento neste recorte.
                     </td>
                   </tr>
@@ -3109,6 +3553,7 @@ function PainelMesa({
                         {linha.outroId ? `Troca ${linha.station >= 1 ? pad2(linha.station) : ""}`.trim() : pad2(linha.station)}
                       </td>
                       <td className="px-3 py-1.5">{SIDE_SHORT[linha.side]}</td>
+                      <td className="px-3 py-1.5">{linha.cor || "—"}</td>
                       <td className="px-3 py-1.5">{linha.numero || "—"}</td>
                       <td className="px-3 py-1.5">{linha.referencia || "—"}</td>
                       <td className="px-3 py-1.5">{linha.perda}</td>
@@ -3186,8 +3631,11 @@ function PainelMesa({
           estacao={estacao}
           numero={numeroAtivo}
           numeros={numerosMesa}
+          cor={corAtiva}
+          cores={coresMesa}
           onEstacao={setEstacao}
           onNumero={setNumero}
+          onCor={setCorFiltro}
         />
         {papel === "lider" ? <MatrizariaConsulta state={state} ocultar={shown} /> : null}
       </aside>
@@ -3395,6 +3843,7 @@ function linhasDaMesa(state: State, machines: MachineId[]) {
             numero: line.numero,
             referencia: line.referencia,
             perda: problem.name,
+            cor: line.cor,
             solas,
             pares: pares(solas),
           },

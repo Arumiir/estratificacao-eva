@@ -46,6 +46,8 @@ export type Entry = {
   matrizRel: string;
   autor: string;
   outroId: string;
+  corId: string;
+  corNome: string;
 };
 
 export type OutroMatriz = {
@@ -62,9 +64,22 @@ export type OutroMatriz = {
   excluido?: boolean;
 };
 
+export type Cor = {
+  id: string;
+  date: string;
+  turno: Turno;
+  machine: MachineId;
+  nome: string;
+  stations: number[];
+  grades: Record<string, StationConfig>;
+  salvoEm: number;
+  excluido?: boolean;
+};
+
 export type State = {
   stations: Record<string, StationConfig>;
   outros: OutroMatriz[];
+  cores: Cor[];
   entries: Entry[];
   date: string;
   turno: Turno;
@@ -272,7 +287,7 @@ export function readGrades(value: unknown): Record<string, StationConfig> {
 }
 
 export function withMatrix(entry: Entry, stations: Record<string, StationConfig>): Entry {
-  if (entry.outroId) return entry;
+  if (entry.outroId || entry.corId) return entry;
   const slot = activeMatrix(stations[stationKey(entry.machine, entry.station)], entry.side);
   if (!slot) return entry;
   const numero = slot.numero.trim();
@@ -292,6 +307,7 @@ export function emptyState(now = new Date()): State {
   return {
     stations: {},
     outros: [],
+    cores: [],
     entries: [],
     date: todayISO(now),
     turno: "1",
@@ -386,6 +402,8 @@ function readEntry(v: unknown): Entry | null {
     matrizRel: typeof v.matrizRel === "string" ? v.matrizRel : "",
     autor: typeof v.autor === "string" ? v.autor.slice(0, 32) : "",
     outroId: typeof v.outroId === "string" ? v.outroId : "",
+    corId: typeof v.corId === "string" ? v.corId : "",
+    corNome: typeof v.corNome === "string" ? v.corNome.slice(0, 40) : "",
   };
 }
 
@@ -419,6 +437,85 @@ export function readOutros(value: unknown): OutroMatriz[] {
       },
     ];
   });
+}
+
+export function corViva(item: Cor) {
+  return item.excluido !== true;
+}
+
+export function readCores(value: unknown): Cor[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!isRecord(item) || typeof item.id !== "string") return [];
+    const machine = parseMachine(item.machine);
+    const turno = parseTurno(item.turno);
+    const date = typeof item.date === "string" ? item.date : "";
+    const nome = typeof item.nome === "string" ? item.nome.trim().slice(0, 40) : "";
+    if (!machine || !turno || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !nome) return [];
+    const stations = Array.isArray(item.stations)
+      ? [...new Set(item.stations.filter((station) => typeof station === "number" && station >= 1 && station <= 8))]
+      : [];
+    if (stations.length === 0) return [];
+    const grades: Record<string, StationConfig> = {};
+    if (isRecord(item.grades)) {
+      for (const [key, raw] of Object.entries(item.grades)) {
+        const station = Number(key);
+        const config = readConfig(raw);
+        if (station >= 1 && station <= 8 && config) grades[String(station)] = config;
+      }
+    }
+    return [
+      {
+        id: item.id,
+        date,
+        turno,
+        machine,
+        nome,
+        stations,
+        grades,
+        salvoEm: typeof item.salvoEm === "number" && Number.isFinite(item.salvoEm) ? item.salvoEm : 0,
+        ...(item.excluido === true ? { excluido: true as const } : {}),
+      },
+    ];
+  });
+}
+
+export function mergeCores(local: Cor[], remote: Cor[]): Cor[] {
+  const map = new Map(local.map((item) => [item.id, item]));
+  for (const item of remote) {
+    const prev = map.get(item.id);
+    if (!prev || item.salvoEm >= prev.salvoEm) map.set(item.id, item);
+  }
+  return [...map.values()];
+}
+
+export function coresDaMaquina(state: State, machine: MachineId): Cor[] {
+  return state.cores.filter(
+    (item) => corViva(item) && item.machine === machine && item.date === state.date && item.turno === state.turno,
+  );
+}
+
+export function gradeDaCor(state: State, corId: string, station: number): StationConfig | undefined {
+  const cor = state.cores.find((item) => item.id === corId);
+  return cor?.grades[String(station)] ?? state.stations[stationKey(cor?.machine ?? "SIE01", station)];
+}
+
+function aplicarSlot(entry: Entry, slot: { numero: string; referencia: string } | null | undefined, corNome?: string): Entry {
+  const numero = slot?.numero.trim() ?? entry.matrizNumero;
+  const referencia = slot?.referencia.trim() ?? entry.matrizRel;
+  const nome = corNome ?? entry.corNome;
+  if (entry.matrizNumero === numero && entry.matrizRel === referencia && entry.corNome === nome) return entry;
+  return { ...entry, matrizNumero: numero, matrizRel: referencia, corNome: nome };
+}
+
+export function aplicarMatriz(entry: Entry, state: State): Entry {
+  if (entry.outroId) return entry;
+  if (entry.corId) {
+    const cor = state.cores.find((item) => item.id === entry.corId);
+    const slot = activeMatrix(cor?.grades[String(entry.station)], entry.side);
+    return aplicarSlot(entry, slot, cor?.nome || entry.corNome);
+  }
+  return withMatrix(entry, state.stations);
 }
 
 export function outroVivo(item: OutroMatriz) {
@@ -458,6 +555,7 @@ export function loadState(): State {
     return {
       stations,
       outros: readOutros(data.outros),
+      cores: readCores(data.cores),
       entries,
       date: base.date,
       turno: parseTurno(data.turno) ?? base.turno,
@@ -523,6 +621,7 @@ export type FichaLine = {
   shared: boolean;
   counts: number[];
   outroId: string;
+  cor: string;
 };
 
 export function nomesNaFicha(state: State, machine: MachineId): string {
@@ -535,33 +634,60 @@ export function nomesNaFicha(state: State, machine: MachineId): string {
 }
 
 export function fichaLines(state: State, machine: MachineId): FichaLine[] {
+  const cores = coresDaMaquina(state, machine);
   const entries = shiftEntries(state, machine).filter((entry) => !entry.outroId);
-  const daGrade = STATIONS.flatMap((station) => {
-    const config = state.stations[stationKey(machine, station)];
-    const shared = Boolean(config?.ambos);
-    return SIDES.map((side) => {
-      const slot = activeMatrix(config, side);
-      let numero = slot?.numero.trim() ?? "";
-      let referencia = slot?.referencia.trim() ?? "";
-      if (!numero && !referencia) {
-        const latest = entries
-          .filter((entry) => entry.station === station && entry.side === side)
-          .sort((a, b) => b.at - a.at)[0];
-        if (latest) {
-          numero = latest.matrizNumero.trim();
-          referencia = latest.matrizRel.trim();
-        }
-      }
-      const counts = PROBLEMS.map(
-        (problem) =>
-          entries.filter(
-            (entry) =>
-              entry.station === station && entry.side === side && entry.problem === problem.id,
-          ).length,
-      );
-      return { machine, station, side, numero, referencia, shared, counts, outroId: "" };
-    });
-  });
+  const daGrade =
+    cores.length > 0
+      ? cores.flatMap((cor, corIndex) =>
+          cor.stations.flatMap((station) => {
+            const config = cor.grades[String(station)] ?? state.stations[stationKey(machine, station)];
+            const shared = Boolean(config?.ambos);
+            return SIDES.map((side) => {
+              const slot = activeMatrix(config, side);
+              const doLado = entries.filter(
+                (entry) =>
+                  entry.station === station &&
+                  entry.side === side &&
+                  (entry.corId === cor.id || (!entry.corId && corIndex === 0)),
+              );
+              const counts = PROBLEMS.map(
+                (problem) => doLado.filter((entry) => entry.problem === problem.id).length,
+              );
+              return {
+                machine,
+                station,
+                side,
+                numero: slot?.numero.trim() ?? "",
+                referencia: slot?.referencia.trim() ?? "",
+                shared,
+                counts,
+                outroId: "",
+                cor: cor.nome,
+              };
+            });
+          }),
+        )
+      : STATIONS.flatMap((station) => {
+          const config = state.stations[stationKey(machine, station)];
+          const shared = Boolean(config?.ambos);
+          return SIDES.map((side) => {
+            const slot = activeMatrix(config, side);
+            let numero = slot?.numero.trim() ?? "";
+            let referencia = slot?.referencia.trim() ?? "";
+            const doLado = entries.filter((entry) => entry.station === station && entry.side === side);
+            if (!numero && !referencia) {
+              const latest = [...doLado].sort((a, b) => b.at - a.at)[0];
+              if (latest) {
+                numero = latest.matrizNumero.trim();
+                referencia = latest.matrizRel.trim();
+              }
+            }
+            const counts = PROBLEMS.map(
+              (problem) => doLado.filter((entry) => entry.problem === problem.id).length,
+            );
+            return { machine, station, side, numero, referencia, shared, counts, outroId: "", cor: "" };
+          });
+        });
   const deOutros = state.outros
     .filter((item) => outroVivo(item) && item.machine === machine && item.date === state.date && item.turno === state.turno)
     .flatMap((item) => {
@@ -582,6 +708,7 @@ export function fichaLines(state: State, machine: MachineId): FichaLine[] {
           shared: item.ambos,
           counts,
           outroId: item.id,
+          cor: "",
         };
       });
     });

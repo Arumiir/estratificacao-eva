@@ -17,21 +17,44 @@ const H = 1180;
 /** Mesmo quadro, mais pixels. 3× deixa o zoom nítido; 2× se o celular recusar o canvas. */
 const SCALES = [3, 2];
 
-export async function renderFichaPng(state: State, machine: MachineId): Promise<Blob> {
+export async function renderFichasDaMaquina(
+  state: State,
+  machine: MachineId,
+): Promise<{ nome: string; blob: Blob }[]> {
   await document.fonts.load("700 64px 'Barlow Condensed'");
   await document.fonts.load("600 20px 'Source Sans 3'");
   await document.fonts.ready;
-  const surface = createSurface();
-  if (!surface) throw new Error("Não foi possível gerar a ficha.");
-  drawFicha(surface.ctx, state, machine, fichaLines(state, machine));
-  return canvasToBlob(surface.canvas);
+  const grupos = gruposFicha(fichaLines(state, machine));
+  const arquivos: { nome: string; blob: Blob }[] = [];
+  for (const grupo of grupos) {
+    const surface = createSurface();
+    if (!surface) throw new Error("Não foi possível gerar a ficha.");
+    drawFicha(surface.ctx, state, machine, grupo.lines, grupo.nome);
+    arquivos.push({ nome: grupo.nome, blob: await canvasToBlob(surface.canvas) });
+  }
+  return arquivos;
+}
+
+function gruposFicha(lines: FichaLine[]) {
+  const nomes = [...new Set(lines.map((line) => line.cor).filter(Boolean))];
+  if (nomes.length === 0) return [{ nome: "", lines }];
+  return nomes.map((nome, index) => ({
+    nome,
+    lines: lines.filter((line) => line.cor === nome || (index === 0 && !line.cor && line.outroId)),
+  }));
+}
+
+export async function renderFichaPng(state: State, machine: MachineId): Promise<Blob> {
+  const grupos = await renderFichasDaMaquina(state, machine);
+  return grupos[0]?.blob ?? new Blob();
 }
 
 export async function renderFichasPdf(state: State, machines: MachineId[]): Promise<Blob> {
   const pdf = await PDFDocument.create();
   for (const machine of machines) {
-    const png = await renderFichaPng(state, machine);
-    const image = await pdf.embedPng(new Uint8Array(await png.arrayBuffer()));
+    const grupos = await renderFichasDaMaquina(state, machine);
+    for (const grupo of grupos) {
+      const image = await pdf.embedPng(new Uint8Array(await grupo.blob.arrayBuffer()));
     const page = pdf.addPage([841.89, 595.28]);
     const margin = 16;
     const maxW = page.getWidth() - margin * 2;
@@ -45,6 +68,7 @@ export async function renderFichasPdf(state: State, machines: MachineId[]): Prom
       width,
       height,
     });
+    }
   }
   const bytes = await pdf.save();
   const copy = new Uint8Array(bytes.byteLength);
@@ -97,6 +121,7 @@ function drawFicha(
   state: State,
   machine: MachineId,
   lines: FichaLine[],
+  corNome = "",
 ) {
   const margin = 36;
   ctx.fillStyle = "#e7f2e4";
@@ -127,6 +152,10 @@ function drawFicha(
   ctx.fillText("MÁQUINA", W - margin - 24, headerY + 36);
   ctx.font = "700 46px 'Barlow Condensed', sans-serif";
   ctx.fillText(machine, W - margin - 24, headerY + 78);
+  if (corNome) {
+    ctx.font = "600 22px 'Source Sans 3', sans-serif";
+    ctx.fillText(corNome, W - margin - 24, headerY + 108);
+  }
 
   const tableX = margin;
   const tableY = headerY + headerH + 18;
