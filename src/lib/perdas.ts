@@ -76,10 +76,23 @@ export type Cor = {
   excluido?: boolean;
 };
 
+export type Fechamento = {
+  id: string;
+  date: string;
+  turno: Turno;
+  machine: MachineId;
+  horasBaixadas: string;
+  producao: number;
+  saldo: string;
+  setup: string;
+  salvoEm: number;
+};
+
 export type State = {
   stations: Record<string, StationConfig>;
   outros: OutroMatriz[];
   cores: Cor[];
+  fechamentos: Fechamento[];
   entries: Entry[];
   date: string;
   turno: Turno;
@@ -308,6 +321,7 @@ export function emptyState(now = new Date()): State {
     stations: {},
     outros: [],
     cores: [],
+    fechamentos: [],
     entries: [],
     date: todayISO(now),
     turno: "1",
@@ -489,6 +503,51 @@ export function mergeCores(local: Cor[], remote: Cor[]): Cor[] {
   return [...map.values()];
 }
 
+function horaCurta(value: unknown) {
+  if (typeof value !== "string") return "";
+  const match = value.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return "";
+  const hora = Number(match[1]);
+  const minuto = Number(match[2]);
+  if (hora > 23 || minuto > 59) return "";
+  return `${String(hora).padStart(2, "0")}:${String(minuto).padStart(2, "0")}`;
+}
+
+export function readFechamentos(value: unknown): Fechamento[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!isRecord(item)) return [];
+    const machine = parseMachine(item.machine);
+    const turno = parseTurno(item.turno);
+    const date = typeof item.date === "string" ? item.date : "";
+    if (!machine || !turno || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return [];
+    const producao = typeof item.producao === "number" && Number.isFinite(item.producao) ? Math.max(0, Math.round(item.producao)) : 0;
+    const setup = typeof item.setup === "string" ? item.setup.trim().slice(0, 80) : "";
+    return [
+      {
+        id: `${date}|${turno}|${machine}`,
+        date,
+        turno,
+        machine,
+        horasBaixadas: horaCurta(item.horasBaixadas),
+        producao,
+        saldo: horaCurta(item.saldo),
+        setup,
+        salvoEm: typeof item.salvoEm === "number" && Number.isFinite(item.salvoEm) ? item.salvoEm : 0,
+      },
+    ];
+  });
+}
+
+export function mergeFechamentos(local: Fechamento[], remote: Fechamento[]): Fechamento[] {
+  const map = new Map(local.map((item) => [item.id, item]));
+  for (const item of remote) {
+    const prev = map.get(item.id);
+    if (!prev || item.salvoEm >= prev.salvoEm) map.set(item.id, item);
+  }
+  return [...map.values()];
+}
+
 export function coresDaMaquina(state: State, machine: MachineId): Cor[] {
   return state.cores.filter(
     (item) => corViva(item) && item.machine === machine && item.date === state.date && item.turno === state.turno,
@@ -556,6 +615,7 @@ export function loadState(): State {
       stations,
       outros: readOutros(data.outros),
       cores: readCores(data.cores),
+      fechamentos: readFechamentos(data.fechamentos),
       entries,
       date: base.date,
       turno: parseTurno(data.turno) ?? base.turno,
