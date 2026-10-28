@@ -141,9 +141,10 @@ export const pushApontamentos = createServerFn({ method: "POST" })
       `;
       const row = existing[0];
       if (row && (apontamentoBloqueado({ date: row.date, turno: row.turno, at: Number(row.at) }) || !podeAlterarApontamento({ date: row.date, turno: row.turno, at: Number(row.at) }))) continue;
+      const turnoInformado = entry.turno === "1" || entry.turno === "2" || entry.turno === "3" ? entry.turno : turnoPeloRelogio(entry.at);
       const salvo = row
         ? entry
-        : { ...entry, date: todayISO(new Date(entry.at)), turno: turnoPeloRelogio(entry.at) };
+        : { ...entry, date: todayISO(new Date(entry.at)), turno: turnoInformado };
       if (!row && salvo.date !== todayISO()) continue;
       await sql`delete from apontamentos_removidos where id = ${entry.id}`;
       await sql`

@@ -42,7 +42,7 @@ export function applyDayChanges(
       const quando = todayISO(new Date(entry.at));
       if (quando !== hoje) continue;
       next.date = quando;
-      next.turno = turnoPeloRelogio(entry.at);
+      next.turno = entry.turno === "1" || entry.turno === "2" || entry.turno === "3" ? entry.turno : turnoPeloRelogio(entry.at);
     }
     gone.delete(entry.id);
     map.set(entry.id, next);

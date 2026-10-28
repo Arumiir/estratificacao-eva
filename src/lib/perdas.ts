@@ -130,7 +130,7 @@ export function podeAlterarApontamento(
   if (apontamentoBloqueado(entry)) return false;
   const agora = partesFortaleza(now);
   if (entry.date !== agora.date) return false;
-  return entry.turno === turnoPeloRelogio(now);
+  return true;
 }
 
 export function todayISO(now = new Date()): string {

@@ -2,7 +2,8 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { createServerFn } from "@tanstack/react-start";
 
 type Papel = "preparador" | "lider";
-type Conta = { nome: string; senha: string; papel: Papel };
+type TurnoConta = "1" | "2" | "3";
+type Conta = { nome: string; senha: string; papel: Papel; turno: TurnoConta | null };
 
 const PATH = "contas/lista.json";
 
@@ -36,16 +37,16 @@ function cleanSenha(value: unknown) {
 }
 
 function seed(): Conta[] {
-  const lista: [string, string, Papel][] = [
-    ["1111", "0000", "lider"],
-    ["Guilherme", "guilherme123", "preparador"],
-    ["Wesley", "wesley123", "preparador"],
-    ["Yan", "yan123", "preparador"],
-    ["Francisvaldo", "francisvaldo123", "preparador"],
-    ["Felipe", "felipe123", "preparador"],
-    ["Caua", "caua123", "preparador"],
+  const lista: [string, string, Papel, TurnoConta | null][] = [
+    ["1111", "0000", "lider", null],
+    ["Guilherme", "guilherme123", "preparador", "1"],
+    ["Wesley", "wesley123", "preparador", "1"],
+    ["Yan", "yan123", "preparador", "1"],
+    ["Francisvaldo", "francisvaldo123", "preparador", "1"],
+    ["Felipe", "felipe123", "preparador", "1"],
+    ["Caua", "caua123", "preparador", "1"],
   ];
-  return lista.map(([nome, senha, papel]) => ({ nome, senha: hashSenha(senha), papel }));
+  return lista.map(([nome, senha, papel, turno]) => ({ nome, senha: hashSenha(senha), papel, turno }));
 }
 
 function comSeed(contas: Conta[]) {
@@ -55,7 +56,7 @@ function comSeed(contas: Conta[]) {
   if (map.delete("0000")) changed = true;
   for (const conta of seed()) {
     const atual = map.get(chave(conta.nome));
-    if (!atual || atual.senha !== conta.senha || atual.papel !== conta.papel || atual.nome !== conta.nome) {
+    if (!atual || atual.senha !== conta.senha || atual.papel !== conta.papel || atual.nome !== conta.nome || atual.turno !== conta.turno) {
       map.set(chave(conta.nome), conta);
       changed = true;
     }
@@ -65,11 +66,12 @@ function comSeed(contas: Conta[]) {
 
 function readConta(value: unknown): Conta | null {
   if (!value || typeof value !== "object") return null;
-  const row = value as { nome?: unknown; senha?: unknown; papel?: unknown };
+  const row = value as { nome?: unknown; senha?: unknown; papel?: unknown; turno?: unknown };
   const nome = cleanNome(row.nome);
   if (nome.length < 2 || typeof row.senha !== "string" || row.senha.length < 32) return null;
   if (row.papel !== "preparador" && row.papel !== "lider") return null;
-  return { nome, senha: row.senha, papel: row.papel };
+  const turno = row.turno === "1" || row.turno === "2" || row.turno === "3" ? row.turno : row.papel === "preparador" ? "1" : null;
+  return { nome, senha: row.senha, papel: row.papel, turno };
 }
 
 async function readContas(): Promise<{ contas: Conta[]; etag: string | null }> {
@@ -118,12 +120,12 @@ export const entrar = createServerFn({ method: "POST" })
     nome: cleanNome(data?.nome),
     senha: cleanSenha(data?.senha),
   }))
-  .handler(async ({ data }): Promise<{ ok: false } | { ok: true; papel: Papel; nome: string }> => {
+  .handler(async ({ data }): Promise<{ ok: false } | { ok: true; papel: Papel; nome: string; turno: TurnoConta | null }> => {
     if (data.nome.length < 2 || data.senha.length < 4) return { ok: false };
     const { contas } = await readContas();
     const conta = contas.find((item) => chave(item.nome) === chave(data.nome));
     if (!conta || !hashOk(data.senha, conta.senha)) return { ok: false };
-    return { ok: true, papel: conta.papel, nome: conta.nome };
+    return { ok: true, papel: conta.papel, nome: conta.nome, turno: conta.turno };
   });
 
 export const listarPreparadores = createServerFn({ method: "POST" })
@@ -154,7 +156,7 @@ export const criarPreparador = createServerFn({ method: "POST" })
       }
       const next = [
         ...current.contas,
-        { nome: data.nome, senha: hashSenha(data.senha), papel: "preparador" as const },
+        { nome: data.nome, senha: hashSenha(data.senha), papel: "preparador" as const, turno: "1" as const },
       ];
       try {
         await writeContas(next, current.etag);

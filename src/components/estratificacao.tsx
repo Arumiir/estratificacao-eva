@@ -44,6 +44,7 @@ import {
   todayISO,
   turnoPeloRelogio,
   TURNO_LABEL,
+  type Turno,
   withMatrix,
   diasAte,
   gradeHasNumbers,
@@ -55,16 +56,20 @@ import {
   type Side,
   type State,
   type StationConfig,
-  type Turno,
 } from "@/lib/perdas";
 import { downloadBlob, renderFichaPng, renderFichasPdf } from "@/lib/ficha-image";
 import { enviarPlanilha, pullApontamentos, pullHistorico, pushApontamentos } from "@/lib/apontamentos.functions";
 import { entrar } from "@/lib/login.functions";
 
 type Papel = "preparador" | "lider";
-type Sessao = { papel: Papel; nome: string };
+type Sessao = { papel: Papel; nome: string; turno: Turno | null };
 
 const SESSAO_KEY = "estratificacao-sessao-v2";
+
+function turnoDaSessao(value: unknown, papel: Papel): Turno | null {
+  if (value === "1" || value === "2" || value === "3") return value;
+  return papel === "preparador" ? "1" : null;
+}
 
 function loadSessao(): Sessao | null {
   try {
@@ -72,11 +77,11 @@ function loadSessao(): Sessao | null {
     if (!raw) return null;
     const data: unknown = JSON.parse(raw);
     if (!data || typeof data !== "object") return null;
-    const row = data as { papel?: unknown; nome?: unknown };
+    const row = data as { papel?: unknown; nome?: unknown; turno?: unknown };
     if (row.papel !== "preparador" && row.papel !== "lider") return null;
     if (typeof row.nome !== "string" || row.nome.trim().length < 2) return null;
     if (row.nome.trim() === "0000") return null;
-    return { papel: row.papel, nome: row.nome.trim() };
+    return { papel: row.papel, nome: row.nome.trim(), turno: turnoDaSessao(row.turno, row.papel) };
   } catch {
     return null;
   }
@@ -560,7 +565,7 @@ export function EstratificacaoApp() {
   useEffect(() => {
     if (sessao?.papel !== "preparador") return;
     function snapTurno() {
-      const turno = turnoPeloRelogio();
+      const turno = sessao?.turno ?? "1";
       commit((current) => (current.turno === turno ? current : { ...current, turno }));
     }
     snapTurno();
@@ -573,7 +578,7 @@ export function EstratificacaoApp() {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("pageshow", snapTurno);
     };
-  }, [sessao?.papel]);
+  }, [sessao?.papel, sessao?.turno]);
 
   useEffect(() => {
     scroller.current?.scrollTo(0, 0);
@@ -627,7 +632,7 @@ export function EstratificacaoApp() {
     saveSessao(next);
     setSessao(next);
     if (next.papel === "preparador") {
-      commit((current) => ({ ...current, turno: turnoPeloRelogio() }));
+      commit((current) => ({ ...current, turno: next.turno ?? "1" }));
     }
     const home: Screen =
       next.papel === "lider" ? { kind: "sheet", machine: null } : { kind: "machines" };
@@ -760,7 +765,7 @@ export function EstratificacaoApp() {
     const item: OutroMatriz = {
       id: crypto.randomUUID(),
       date: todayISO(),
-      turno: turnoPeloRelogio(),
+      turno: sessao?.turno ?? "1",
       machine,
       station,
       ambos,
@@ -815,7 +820,7 @@ export function EstratificacaoApp() {
     }
     const id = crypto.randomUUID();
     const at = Date.now();
-    const turno = turnoPeloRelogio(at);
+    const turno = sessao?.papel === "preparador" ? (sessao.turno ?? "1") : turnoPeloRelogio(at);
     let snapshot = { numero: "", referencia: "" };
     commit((stateNow) => {
       const outro = outroId ? stateNow.outros.find((item) => item.id === outroId) : undefined;
@@ -1277,7 +1282,7 @@ function PapelScreen({
         setErro("Nome ou senha errados.");
         return;
       }
-      onPick({ papel: result.papel, nome: result.nome });
+      onPick({ papel: result.papel, nome: result.nome, turno: result.turno ?? (result.papel === "preparador" ? "1" : null) });
     } catch {
       onFail("Sem rede para entrar. Tente de novo.");
       setErro("Sem rede para entrar.");
@@ -1815,10 +1820,6 @@ function ProblemsScreen({
       <ContextLine state={state} offDay={offDay} />
       {offDay ? (
         <p className="mt-2 text-sm font-semibold text-accent">Dia fechado. Só o dia de hoje pode ser alterado.</p>
-      ) : state.turno !== turnoPeloRelogio() ? (
-        <p className="mt-2 text-sm font-semibold text-accent">
-          Neste horário o lançamento entra no {TURNO_LABEL[turnoPeloRelogio()]}.
-        </p>
       ) : null}
       {matrix ? <p className="mt-2 text-base font-semibold">{matrix}</p> : null}
       <div className="mt-4 grid gap-2 lg:grid-cols-2">
