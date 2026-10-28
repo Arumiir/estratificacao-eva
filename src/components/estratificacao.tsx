@@ -846,6 +846,29 @@ export function EstratificacaoApp() {
     adoptStack([dest]);
   }
 
+  function renomearCor(corId: string, nome: string) {
+    const limpo = nome.trim().slice(0, 40);
+    if (!limpo) {
+      flash("Informe o nome da cor.");
+      return;
+    }
+    const current = read();
+    const cor = current?.cores.find((item) => item.id === corId && corViva(item));
+    if (!cor) return;
+    if (current?.date !== todayISO() || cor.date !== todayISO()) {
+      flash("Dia fechado. Só o dia de hoje pode ser alterado.");
+      return;
+    }
+    if (cor.nome === limpo) return;
+    commit((stateNow) => ({
+      ...stateNow,
+      cores: stateNow.cores.map((item) =>
+        item.id === corId ? { ...item, nome: limpo, salvoEm: Date.now() } : item,
+      ),
+    }));
+    flash(`Cor alterada para ${limpo}`);
+  }
+
   function addOutro(
     machine: MachineId,
     station: number,
@@ -1228,6 +1251,7 @@ export function EstratificacaoApp() {
                   : push({ kind: "cor", machine: screen.machine })
               }
               onCor={(corId) => replaceTop({ kind: "stations", machine: screen.machine, corId })}
+              onRenomear={(nome) => renomearCor(screen.corId ?? "", nome)}
               onOpenOutro={(outro) =>
                 outro.ambos
                   ? push({
@@ -1760,6 +1784,7 @@ function StationsScreen({
   onOutros,
   onTrocaCor,
   onCor,
+  onRenomear,
   onOpenOutro,
   onDeleteOutro,
   onTrocar,
@@ -1773,11 +1798,14 @@ function StationsScreen({
   onOutros: () => void;
   onTrocaCor: () => void;
   onCor: (corId: string) => void;
+  onRenomear: (nome: string) => void;
   onOpenOutro: (outro: OutroMatriz) => void;
   onDeleteOutro: (id: string) => void;
   onTrocar: () => void;
 }) {
   const [pedindo, setPedindo] = useState("");
+  const [editandoCor, setEditandoCor] = useState(false);
+  const [nomeCor, setNomeCor] = useState("");
   const cores = coresDaMaquina(state, machine);
   const cor = cores.find((item) => item.id === corId) ?? cores[0];
   const primeira = cores[0];
@@ -1815,6 +1843,48 @@ function StationsScreen({
             </button>
           ))}
         </div>
+      ) : null}
+      {cor ? (
+        editandoCor ? (
+          <div className="mt-3 grid gap-2">
+            <Field label="Nome da cor" value={nomeCor} placeholder={cor.nome} onChange={setNomeCor} />
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setEditandoCor(false)}
+                className="rounded-tile border border-line bg-surface py-3 text-sm font-semibold"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={offDay}
+                onClick={() => {
+                  onRenomear(nomeCor);
+                  setEditandoCor(false);
+                }}
+                className="rounded-tile bg-accent py-3 text-sm font-semibold text-accent-ink disabled:opacity-50"
+              >
+                Salvar cor
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setNomeCor(cor.nome);
+              setEditandoCor(true);
+            }}
+            className="mt-2 flex w-full items-center justify-between rounded-tile border border-line bg-surface px-4 py-3 text-left"
+          >
+            <span>
+              <span className="block text-sm text-muted">Cor desta aba</span>
+              <span className="text-base font-semibold">{cor.nome}</span>
+            </span>
+            <span className="text-sm font-semibold text-accent">Mudar</span>
+          </button>
+        )
       ) : null}
       <div className="mt-2 grid gap-2 sm:grid-cols-3">
         <button
