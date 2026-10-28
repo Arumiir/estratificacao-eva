@@ -2609,8 +2609,8 @@ function SheetScreen({
           <Kpi tom="roxo" titulo="Máquinas" valor={String(shown.length)} detalhe="com apontamento" />
           <Kpi
             tom="azul"
-            titulo="Solas"
-            valor={String(shown.reduce((sum, machine) => sum + shiftEntries(view, machine).length, 0))}
+            titulo="Pares"
+            valor={String(paresDasEntradas(shown.flatMap((machine) => shiftEntries(view, machine))))}
             detalhe={TURNO_LABEL[state.turno]}
           />
         </div>
@@ -2948,33 +2948,26 @@ function PainelHistorico({
     const lista = periodo.filter((entry) => entry.turno === turno);
     return { turno, lista, solas: lista.length, pares: paresDasEntradas(lista) };
   });
-  const total = periodo.length;
   const totalPares = turnos.reduce((soma, item) => soma + item.pares, 0);
-  const maior = Math.max(0, ...turnos.map((item) => item.solas));
-  const piorTurno = [...turnos].sort((a, b) => b.solas - a.solas)[0];
-  const porProblema = PROBLEMS.map((problem) => {
-    const colunas = { "1": 0, "2": 0, "3": 0 } as Record<"1" | "2" | "3", number>;
-    for (const entry of periodo) {
-      if (entry.problem === problem.id) colunas[entry.turno] += 1;
-    }
-    return { name: problem.name, ...colunas, total: colunas["1"] + colunas["2"] + colunas["3"] };
-  })
+  const maior = Math.max(0, ...turnos.map((item) => item.pares));
+  const piorTurno = [...turnos].sort((a, b) => b.pares - a.pares)[0];
+  const porProblema = PROBLEMS.map((problem) => ({
+    name: problem.name,
+    total: paresDasEntradas(periodo.filter((entry) => entry.problem === problem.id)),
+  }))
     .filter((item) => item.total > 0)
     .sort((a, b) => b.total - a.total);
-  const porMaquina = MACHINES.map((machine) => {
-    const colunas = { "1": 0, "2": 0, "3": 0 } as Record<"1" | "2" | "3", number>;
-    for (const entry of periodo) {
-      if (entry.machine === machine) colunas[entry.turno] += 1;
-    }
-    return { machine, ...colunas, total: colunas["1"] + colunas["2"] + colunas["3"] };
-  })
+  const porMaquina = MACHINES.map((machine) => ({
+    machine,
+    total: paresDasEntradas(periodo.filter((entry) => entry.machine === machine)),
+  }))
     .filter((item) => item.total > 0)
     .sort((a, b) => b.total - a.total);
   const serie = (["1", "2", "3"] as const).map((turno) => ({
     nome: TURNO_LABEL[turno],
     cor: turno === "1" ? "#6a4cff" : turno === "2" ? "#2457d6" : "#129a78",
-    valores: diasJanela.map(
-      (dia) => base.filter((entry) => entry.date === dia && entry.turno === turno && passaRecorte(entry)).length,
+    valores: diasJanela.map((dia) =>
+      paresDasEntradas(base.filter((entry) => entry.date === dia && entry.turno === turno && passaRecorte(entry))),
     ),
   }));
   const tituloJanela = janela === "dia" ? "24 horas" : janela === "semana" ? "Semana" : "Mês";
@@ -2991,7 +2984,7 @@ function PainelHistorico({
   );
   const porEstacao = STATIONS.map((station) => ({
     nome: pad2(station),
-    valor: janelaEstacao.filter((entry) => entry.station === station).length,
+    valor: paresDasEntradas(janelaEstacao.filter((entry) => entry.station === station)),
     ativo: estacao === null ? undefined : estacao === station,
   }));
   const porNumeroGraf = numerosJanela.map((item) => ({
@@ -3110,25 +3103,25 @@ function PainelHistorico({
             key={item.turno}
             tom={item.turno === "1" ? "roxo" : item.turno === "2" ? "azul" : "verde"}
             titulo={TURNO_LABEL[item.turno]}
-            valor={String(item.solas)}
+            valor={String(item.pares)}
             detalhe={
-              item.solas === 0
+              item.pares === 0
                 ? "sem apontamento neste período"
-                : `${item.pares} ${item.pares === 1 ? "par" : "pares"} · ${total > 0 ? Math.round((item.solas / total) * 100) : 0}% do período${maior > 0 && item.solas === maior ? " · perde mais" : ""}`
+                : `${totalPares > 0 ? Math.round((item.pares / totalPares) * 100) : 0}% do período${maior > 0 && item.pares === maior ? " · perde mais" : ""}`
             }
           />
         ))}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <Kpi tom="ciano" titulo="24 horas" valor={String(doDia.length)} detalhe={`${paresDasEntradas(doDia)} pares · ${formatDateBR(state.date)} · os 3 turnos`} />
-        <Kpi tom="azul" titulo="Semana" valor={String(daSemana.length)} detalhe={`${paresDasEntradas(daSemana)} pares · 7 dias · os 3 turnos`} />
-        <Kpi tom="verde" titulo="Mês" valor={String(doMes.length)} detalhe={`${paresDasEntradas(doMes)} pares · 31 dias · os 3 turnos`} />
+        <Kpi tom="ciano" titulo="24 horas" valor={String(paresDasEntradas(doDia))} detalhe={`${formatDateBR(state.date)} · os 3 turnos`} />
+        <Kpi tom="azul" titulo="Semana" valor={String(paresDasEntradas(daSemana))} detalhe="7 dias · os 3 turnos" />
+        <Kpi tom="verde" titulo="Mês" valor={String(paresDasEntradas(doMes))} detalhe="31 dias · os 3 turnos" />
       </div>
 
       {piorTurno && piorTurno.solas > 0 ? (
         <p className="rounded-2xl bg-white px-4 py-3 text-sm text-fg shadow-[0_8px_24px_rgba(47,84,150,0.06)]">
-          Em {tituloJanela.toLowerCase()}, quem mais perde é o {TURNO_LABEL[piorTurno.turno]}: {piorTurno.solas} solas, {piorTurno.pares} {piorTurno.pares === 1 ? "par" : "pares"}.
+          Em {tituloJanela.toLowerCase()}, quem mais perde é o {TURNO_LABEL[piorTurno.turno]}: {piorTurno.pares} {piorTurno.pares === 1 ? "par" : "pares"}.
           {turnos.filter((item) => item.solas === 0).length > 0
             ? ` ${turnos
                 .filter((item) => item.solas === 0)
@@ -3330,7 +3323,7 @@ function RankingNumeros({
   return (
     <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
       <h3 className="text-sm font-semibold">{titulo}</h3>
-      <p className="text-xs text-muted">{detalhe} · {entries.length} solas</p>
+      <p className="text-xs text-muted">{detalhe} · {lista.reduce((soma, item) => soma + item.pares, 0)} pares</p>
       {lista.length === 0 ? (
         <p className="mt-3 text-sm text-muted">Sem número apontado.</p>
       ) : (
@@ -3348,7 +3341,7 @@ function RankingNumeros({
                   {item.estacoes ? ` · Est. ${item.estacoes}` : ""}
                 </p>
                 <p className="text-xs font-semibold tabular-nums">
-                  {item.solas} solas · {item.pares} {item.pares === 1 ? "par" : "pares"} · {item.percentual}%
+                  {item.pares} {item.pares === 1 ? "par" : "pares"} · {item.percentual}%
                 </p>
               </div>
             </li>
@@ -3457,16 +3450,15 @@ function PainelMesa({
     if (numeroAtivo !== null && (linha.numero || "sem nº") !== numeroAtivo) return false;
     return true;
   });
-  const solas = linhas.reduce((sum, linha) => sum + linha.solas, 0);
   const totalPares = linhas.reduce((sum, linha) => sum + linha.pares, 0);
   const porMaquina = shown.map((machine) => ({
     machine,
-    solas: linhas.filter((linha) => linha.machine === machine).reduce((sum, linha) => sum + linha.solas, 0),
+    solas: linhas.filter((linha) => linha.machine === machine).reduce((sum, linha) => sum + linha.pares, 0),
   }));
   const maxMaquina = Math.max(1, ...porMaquina.map((item) => item.solas));
   const porProblema = PROBLEMS.map((problem) => ({
     name: problem.name,
-    solas: linhas.filter((linha) => linha.perda === problem.name).reduce((sum, linha) => sum + linha.solas, 0),
+    solas: linhas.filter((linha) => linha.perda === problem.name).reduce((sum, linha) => sum + linha.pares, 0),
   }))
     .filter((item) => item.solas > 0)
     .sort((a, b) => b.solas - a.solas);
@@ -3559,15 +3551,14 @@ function PainelMesa({
         {foco ? <ResumoMaquina state={state} machine={foco} onSave={onFechamento} /> : null}
 
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Kpi tom="roxo" titulo="Solas" valor={String(solas)} detalhe="apontadas no recorte" />
-          <Kpi tom="azul" titulo="Pares" valor={String(totalPares)} detalhe="1 sola fecha 1 par" />
+          <Kpi tom="roxo" titulo="Pares" valor={String(totalPares)} detalhe="1 sola fecha 1 par" />
           <Kpi tom="ciano" titulo="Máquinas" valor={String(recorte.length)} detalhe={foco ? "recorte ativo" : "com apontamento"} />
           <Kpi tom="verde" titulo="Maior perda" valor={pior ? String(pior.solas) : "—"} detalhe={pior?.name ?? "sem perda neste turno"} />
         </div>
 
         <div className="grid gap-4 xl:grid-cols-2">
           <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
-            <h3 className="text-base font-semibold">Solas por máquina</h3>
+            <h3 className="text-base font-semibold">Pares por máquina</h3>
             <p className="text-xs text-muted">Clique na barra para filtrar o relatório.</p>
             <Barras
               itens={porMaquina.map((item) => ({
@@ -3812,7 +3803,7 @@ function Rosca({ fatias }: { fatias: { nome: string; valor: number }[] }) {
         </g>
         <circle cx="80" cy="80" r="40" fill="white" />
         <text x="80" y="76" textAnchor="middle" className="fill-[#1d2a3a] text-[11px] font-semibold">
-          Solas
+          Pares
         </text>
         <text x="80" y="94" textAnchor="middle" className="fill-[#1d2a3a] text-[16px] font-semibold">
           {total}
@@ -4177,7 +4168,7 @@ function TopProblems({ lines }: { lines: FichaLine[] }) {
           <span className="w-5 shrink-0 font-display text-xl leading-none">{index + 1}</span>
           <span className="min-w-0 flex-1 text-sm font-semibold leading-snug">{item.name}</span>
           <span className="shrink-0 text-right text-xs font-semibold leading-snug">
-            {item.solas} {item.solas === 1 ? "sola" : "solas"}
+            {item.pares} {item.pares === 1 ? "par" : "pares"}
           </span>
         </li>
       ))}
@@ -4274,7 +4265,7 @@ function ApontamentosLista({ lines }: { lines: FichaLine[] }) {
                   <li key={item.id} className="border-b border-line py-2 text-sm font-semibold leading-snug last:border-b-0">
                     {item.name}
                     <span className="mt-0.5 block text-xs font-semibold text-muted">
-                      {item.solas} {item.solas === 1 ? "sola" : "solas"}
+                      {item.pares} {item.pares === 1 ? "par" : "pares"}
                     </span>
                   </li>
                 ))}
