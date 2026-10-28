@@ -62,7 +62,7 @@ import {
 } from "@/lib/perdas";
 import { downloadBlob, renderFichasDaMaquina, renderFichasPdf } from "@/lib/ficha-image";
 import { enviarPlanilha, pullApontamentos, pullHistorico, pushApontamentos } from "@/lib/apontamentos.functions";
-import { entrar } from "@/lib/login.functions";
+import { entrar, criarPreparador } from "@/lib/login.functions";
 
 type Papel = "preparador" | "lider";
 type Sessao = { papel: Papel; nome: string; turno: Turno | null };
@@ -1404,10 +1404,10 @@ function PapelScreen({
 }) {
   const [nome, setNome] = useState("");
   const [senha, setSenha] = useState("");
-  const [turno, setTurno] = useState<Turno>("1");
   const [mostraSenha, setMostraSenha] = useState(false);
   const [busy, setBusy] = useState(false);
   const [erro, setErro] = useState("");
+  const [cadastro, setCadastro] = useState(false);
 
   async function submit() {
     if (nome.trim().length < 2 || senha.length < 4) {
@@ -1422,13 +1422,29 @@ function PapelScreen({
         setErro("Nome ou senha errados.");
         return;
       }
-      onPick({ papel: result.papel, nome: result.nome, turno });
+      onPick({
+        papel: result.papel,
+        nome: result.nome,
+        turno: result.turno ?? (result.papel === "preparador" ? "1" : null),
+      });
     } catch {
       onFail("Sem rede para entrar. Tente de novo.");
       setErro("Sem rede para entrar.");
     } finally {
       setBusy(false);
     }
+  }
+
+  if (cadastro) {
+    return (
+      <CadastroScreen
+        onVoltar={() => {
+          setCadastro(false);
+          setErro("");
+        }}
+        onFail={onFail}
+      />
+    );
   }
 
   return (
@@ -1439,23 +1455,7 @@ function PapelScreen({
       }}
       className="mx-auto w-full max-w-md rounded-tile border border-line bg-surface p-5 lg:mt-10 lg:p-8"
     >
-      <p className="text-base text-muted">Escolha o turno e entre com o seu nome e a sua senha.</p>
-      <p className="mb-2 mt-4 text-sm font-semibold text-muted">Turno</p>
-      <div className="grid grid-cols-3 gap-2">
-        {(["1", "2", "3"] as const).map((item) => (
-          <button
-            key={item}
-            type="button"
-            onClick={() => setTurno(item)}
-            className={cx(
-              "rounded-tile px-2 py-3 text-sm font-semibold",
-              turno === item ? "bg-accent text-accent-ink" : "bg-surface-2 text-fg",
-            )}
-          >
-            {TURNO_LABEL[item]}
-          </button>
-        ))}
-      </div>
+      <p className="text-base text-muted">Entre com o seu nome e a sua senha.</p>
       <label className="mt-4 block">
         <span className="mb-1 block text-sm font-semibold text-muted">Nome</span>
         <input
@@ -1492,6 +1492,116 @@ function PapelScreen({
         className="mt-4 w-full rounded-tile bg-accent py-4 font-display text-3xl leading-none text-accent-ink disabled:opacity-60"
       >
         {busy ? "Entrando…" : "Entrar"}
+      </button>
+      <button
+        type="button"
+        onClick={() => setCadastro(true)}
+        className="mt-3 w-full rounded-tile border border-line bg-surface py-3 text-base font-semibold"
+      >
+        Cadastrar
+      </button>
+    </form>
+  );
+}
+
+function CadastroScreen({ onVoltar, onFail }: { onVoltar: () => void; onFail: (text: string) => void }) {
+  const [nome, setNome] = useState("");
+  const [senha, setSenha] = useState("");
+  const [turno, setTurno] = useState<Turno>("1");
+  const [mostraSenha, setMostraSenha] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [erro, setErro] = useState("");
+  const [pronto, setPronto] = useState("");
+
+  async function submit() {
+    if (nome.trim().length < 2 || senha.length < 4) {
+      setErro("Digite o nome, a senha e o turno.");
+      return;
+    }
+    setBusy(true);
+    setErro("");
+    try {
+      const result = await criarPreparador({ data: { nome, senha, turno } });
+      if (!result.ok) {
+        setErro(result.erro);
+        return;
+      }
+      setPronto(`${result.nome} cadastrado no ${TURNO_LABEL[turno]}.`);
+      setNome("");
+      setSenha("");
+    } catch {
+      onFail("Sem rede para cadastrar. Tente de novo.");
+      setErro("Sem rede para cadastrar.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        void submit();
+      }}
+      className="mx-auto w-full max-w-md rounded-tile border border-line bg-surface p-5 lg:mt-10 lg:p-8"
+    >
+      <p className="text-base text-muted">Novo preparador. O turno fica fixo nesse usuário.</p>
+      <p className="mb-2 mt-4 text-sm font-semibold text-muted">Turno</p>
+      <div className="grid grid-cols-3 gap-2">
+        {(["1", "2", "3"] as const).map((item) => (
+          <button
+            key={item}
+            type="button"
+            onClick={() => setTurno(item)}
+            className={cx(
+              "rounded-tile px-2 py-3 text-sm font-semibold",
+              turno === item ? "bg-accent text-accent-ink" : "bg-surface-2 text-fg",
+            )}
+          >
+            {TURNO_LABEL[item]}
+          </button>
+        ))}
+      </div>
+      <label className="mt-4 block">
+        <span className="mb-1 block text-sm font-semibold text-muted">Nome</span>
+        <input
+          value={nome}
+          autoComplete="off"
+          onChange={(event) => setNome(event.target.value)}
+          className="w-full rounded-tile border border-line bg-surface-2 px-3 py-3 text-base text-fg"
+        />
+      </label>
+      <label className="mt-3 block">
+        <span className="mb-1 block text-sm font-semibold text-muted">Senha</span>
+        <span className="relative block">
+          <input
+            type={mostraSenha ? "text" : "password"}
+            value={senha}
+            autoComplete="new-password"
+            onChange={(event) => setSenha(event.target.value)}
+            className="w-full rounded-tile border border-line bg-surface-2 px-3 py-3 pr-12 text-base text-fg"
+          />
+          <button
+            type="button"
+            onClick={() => setMostraSenha((value) => !value)}
+            aria-label={mostraSenha ? "Ocultar senha" : "Mostrar senha"}
+            className="absolute inset-y-0 right-0 grid w-12 place-items-center text-muted"
+          >
+            {mostraSenha ? <EyeOff className="size-5" /> : <Eye className="size-5" />}
+          </button>
+        </span>
+      </label>
+      {erro ? <p className="mt-2 text-sm font-semibold text-accent">{erro}</p> : null}
+      {pronto ? <p className="mt-2 text-sm font-semibold text-fg">{pronto}</p> : null}
+      <button
+        type="submit"
+        disabled={busy}
+        className="mt-4 w-full rounded-tile bg-accent py-4 font-display text-3xl leading-none text-accent-ink disabled:opacity-60"
+      >
+        {busy ? "Salvando…" : "Cadastrar"}
+      </button>
+      <button type="button" onClick={onVoltar} className="mt-3 w-full py-2 text-sm font-semibold text-muted">
+        Voltar para entrar
       </button>
     </form>
   );
@@ -2345,53 +2455,6 @@ function NumberPair({
   );
 }
 
-function SeletorMaquinas({
-  shown,
-  value,
-  onChange,
-}: {
-  shown: MachineId[];
-  value: MachineId[];
-  onChange: (machines: MachineId[]) => void;
-}) {
-  const todas = shown.length > 0 && shown.every((machine) => value.includes(machine));
-  return (
-    <div className="rounded-tile border border-line bg-surface p-3">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm font-semibold">Máquinas na foto e no PDF</p>
-        <button
-          type="button"
-          onClick={() => onChange(todas ? [] : shown)}
-          className="text-sm font-semibold text-accent"
-        >
-          {todas ? "Limpar" : "Todas"}
-        </button>
-      </div>
-      <div className="mt-2 flex flex-wrap gap-2">
-        {shown.map((machine) => {
-          const ligada = value.includes(machine);
-          return (
-            <button
-              key={machine}
-              type="button"
-              aria-pressed={ligada}
-              onClick={() =>
-                onChange(ligada ? value.filter((item) => item !== machine) : [...value, machine])
-              }
-              className={cx(
-                "rounded-full px-3 py-2 text-sm font-semibold",
-                ligada ? "bg-accent text-accent-ink" : "bg-surface-2 text-muted",
-              )}
-            >
-              {machine}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 function SheetScreen({
   state,
   today,
@@ -2424,69 +2487,48 @@ function SheetScreen({
       ? { ...state, entries: state.entries.filter((entry) => entry.autor === nome) }
       : state;
   const shown = MACHINES.filter((machine) => shiftEntries(view, machine).length > 0);
-  const [escolhidas, setEscolhidas] = useState<MachineId[]>(shown);
-  const escolhaChave = shown.join("|");
-  useEffect(() => {
-    setEscolhidas(shown);
-  }, [escolhaChave]);
   const fileBase = `perdas-${state.date}-turno-${state.turno}`;
-  const alvo = papel === "lider" ? shown.filter((machine) => escolhidas.includes(machine)) : shown;
 
-  async function sendPhoto() {
-    if (alvo.length === 0) {
-      onNotice(papel === "lider" ? "Escolha ao menos uma máquina." : "Nenhuma ficha neste turno.");
+  async function baixarImagens() {
+    if (shown.length === 0) {
+      onNotice("Nenhuma ficha neste turno.");
       return;
     }
     setBusy("foto");
     try {
-      const files: File[] = [];
-      for (const item of alvo) {
+      const files: { name: string; blob: Blob }[] = [];
+      for (const item of shown) {
         const grupos = await renderFichasDaMaquina(view, item);
         for (const grupo of grupos) {
           const sufixo = grupo.nome ? `-${grupo.nome.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "")}` : "";
-          files.push(
-            new File([grupo.blob], `${fileBase}-maquina-${item}${sufixo}.png`, { type: "image/png" }),
-          );
+          files.push({ name: `${fileBase}-maquina-${item}${sufixo}.png`, blob: grupo.blob });
         }
       }
-      if (navigator.canShare?.({ files })) {
-        try {
-          await navigator.share({
-            files,
-            title: "Estratificação das perdas - EVA",
-            text: `${formatDateBR(state.date)} · ${TURNO_LABEL[state.turno]}${nome ? ` · ${nome}` : ""}`,
-          });
-          return;
-        } catch (error) {
-          if (error instanceof DOMException && error.name === "AbortError") return;
-        }
-      }
-      if (files.length === 1) {
-        const file = files[0];
-        if (file) downloadBlob(file.name, file);
-        onNotice("Foto baixada. Envie ao gestor.");
+      if (files.length === 0) {
+        onNotice("Nenhuma ficha neste turno.");
         return;
       }
-      const pdf = await renderFichasPdf(view, alvo);
-      downloadBlob(`${fileBase}.pdf`, pdf);
-      onNotice("O celular não abriu o compartilhamento. O PDF foi baixado.");
+      files.forEach((file, index) => {
+        window.setTimeout(() => downloadBlob(file.name, file.blob), index * 400);
+      });
+      onNotice(files.length === 1 ? "Imagem baixada." : `${files.length} imagens baixadas.`);
     } catch {
-      onNotice("Não foi possível gerar a foto.");
+      onNotice("Não foi possível gerar as imagens.");
     } finally {
       setBusy(null);
     }
   }
 
   async function downloadPdf() {
-    if (alvo.length === 0) {
-      onNotice(papel === "lider" ? "Escolha ao menos uma máquina." : "Nenhuma ficha neste turno.");
+    if (shown.length === 0) {
+      onNotice("Nenhuma ficha neste turno.");
       return;
     }
     setBusy("pdf");
     try {
-      const pdf = await renderFichasPdf(view, alvo);
+      const pdf = await renderFichasPdf(view, shown);
       downloadBlob(`${fileBase}.pdf`, pdf);
-      onNotice(alvo.length === 1 ? "PDF baixado." : "PDF baixado. Uma máquina por folha.");
+      onNotice(shown.length === 1 ? "PDF baixado." : "PDF baixado. Uma máquina por folha.");
     } catch {
       onNotice("Não foi possível gerar o PDF.");
     } finally {
@@ -2535,7 +2577,7 @@ function SheetScreen({
           />
         </div>
       ) : (
-        <p className="mb-3 text-sm text-muted">Só o seu turno. A foto e o PDF saem com o seu nome.</p>
+        <p className="mb-3 text-sm text-muted">Só o seu turno. A imagem e o PDF saem com o seu nome.</p>
       )}
       {papel === "preparador" && onTrocar ? (
         <button
@@ -2579,25 +2621,19 @@ function SheetScreen({
         )}
       </div>
 
-      {papel === "lider" && shown.length > 0 ? (
-        <div className="mt-4">
-          <SeletorMaquinas shown={shown} value={escolhidas} onChange={setEscolhidas} />
-        </div>
-      ) : null}
-
       <div className="mt-4 grid grid-cols-2 gap-2">
         <button
           type="button"
-          disabled={busy !== null || alvo.length === 0}
-          onClick={() => void sendPhoto()}
+          disabled={busy !== null || shown.length === 0}
+          onClick={() => void baixarImagens()}
           className="flex items-center justify-center gap-2 rounded-tile bg-surface-2 py-3 font-semibold disabled:opacity-60"
         >
           <ImageDown className="size-5" />
-          {busy === "foto" ? "Gerando…" : "Enviar foto"}
+          {busy === "foto" ? "Gerando…" : "Baixar imagens"}
         </button>
         <button
           type="button"
-          disabled={busy !== null || alvo.length === 0}
+          disabled={busy !== null || shown.length === 0}
           onClick={() => void downloadPdf()}
           className="flex items-center justify-center gap-2 rounded-tile bg-surface-2 py-3 font-semibold disabled:opacity-60"
         >
@@ -2640,9 +2676,7 @@ function SheetScreen({
             onTrocar={onTrocar}
             shown={shown}
             busy={busy}
-            escolhidas={escolhidas}
-            onEscolha={setEscolhidas}
-            onPhoto={() => void sendPhoto()}
+            onPhoto={() => void baixarImagens()}
             onPdf={() => void downloadPdf()}
             onDelete={onDelete}
           />
@@ -2778,6 +2812,7 @@ function PainelHistorico({
   const [remoto, setRemoto] = useState<Entry[] | null>(null);
   const [erro, setErro] = useState(false);
   const [janela, setJanela] = useState<"dia" | "semana" | "mes">("dia");
+  const [maquina, setMaquina] = useState<MachineId | null>(null);
   const [estacao, setEstacao] = useState<number | null>(null);
   const [numero, setNumero] = useState<string | null>(null);
   const datas = diasAte(state.date, 31);
@@ -2811,6 +2846,7 @@ function PainelHistorico({
   ].sort((a, b) => a.localeCompare(b, "pt-BR"));
   const numeroAtivo = numero && numerosJanela.includes(numero) ? numero : null;
   function passaRecorte(entry: Entry) {
+    if (maquina && entry.machine !== maquina) return false;
     if (estacao !== null && entry.station !== estacao) return false;
     if (numeroAtivo !== null && (entry.matrizNumero.trim() || "sem nº") !== numeroAtivo) return false;
     return true;
@@ -2890,13 +2926,15 @@ function PainelHistorico({
     <div className="grid gap-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-fg">Comparativo dos turnos</h2>
+          <h2 className="text-lg font-semibold text-fg">O que mais perde</h2>
           <p className="text-sm text-muted">
             {erro
               ? "Não leu a nuvem. Mostrando o que este computador já tem."
               : remoto === null
                 ? "Lendo os últimos 31 dias…"
-                : "1º, 2º e 3º no mesmo gráfico. O turno que ainda não apontou fica em zero."}
+                : maquina
+                  ? `${maquina} · número, produto e onde a perda está.`
+                  : "Ranking de número e produto. Toque numa máquina para ver só ela."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -2934,13 +2972,25 @@ function PainelHistorico({
         </div>
       </div>
 
-      <FiltrosRecorte
-        estacao={estacao}
-        numero={numeroAtivo}
-        numeros={numerosJanela}
-        onEstacao={setEstacao}
-        onNumero={setNumero}
-      />
+      <div className="flex gap-2 overflow-x-auto">
+        <button
+          type="button"
+          onClick={() => setMaquina(null)}
+          className={cx("shrink-0 rounded-full px-4 py-2 text-sm font-semibold", maquina === null ? "bg-[#2457b8] text-white" : "bg-white text-fg")}
+        >
+          Todas
+        </button>
+        {MACHINES.map((machine) => (
+          <button
+            key={machine}
+            type="button"
+            onClick={() => setMaquina((atual) => (atual === machine ? null : machine))}
+            className={cx("shrink-0 rounded-full px-4 py-2 text-sm font-semibold", maquina === machine ? "bg-[#2457b8] text-white" : "bg-white text-fg")}
+          >
+            {machine}
+          </button>
+        ))}
+      </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
         {turnos.map((item) => (
@@ -2976,80 +3026,43 @@ function PainelHistorico({
         </p>
       ) : null}
 
-      {janela !== "dia" ? (
-        <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
-          <h3 className="text-base font-semibold">Solas por dia e por turno</h3>
-          <p className="text-xs text-muted">Roxo é o 1º, azul o 2º, verde o 3º.</p>
-          <LinhasTurno dias={diasJanela.map((dia) => dia.slice(8))} series={serie} />
-        </section>
-      ) : null}
+      <RankingNumeros
+        titulo={maquina ? `Ranking da ${maquina}` : "Ranking geral"}
+        detalhe={`${tituloJanela} · número e produto que mais perderam`}
+        entries={periodo}
+      />
 
-      <div className="grid gap-4 xl:grid-cols-2">
+      {maquina ? (
+        <div className="grid gap-4 xl:grid-cols-2">
+          <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+            <h3 className="text-base font-semibold">Perdas na {maquina}</h3>
+            <p className="text-xs text-muted">O tipo que mais saiu nesta máquina.</p>
+            <Barras
+              largo
+              itens={porProblema.map((item) => ({ nome: item.name, valor: item.total }))}
+              maximo={Math.max(1, ...porProblema.map((item) => item.total))}
+            />
+          </section>
+          <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+            <h3 className="text-base font-semibold">Estação</h3>
+            <p className="text-xs text-muted">Onde a perda está, dentro da {maquina}.</p>
+            <Barras
+              itens={porEstacao.filter((item) => item.valor > 0)}
+              maximo={Math.max(1, ...porEstacao.map((item) => item.valor))}
+            />
+          </section>
+        </div>
+      ) : (
         <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
-          <h3 className="text-base font-semibold">Perdas por tipo</h3>
-          <p className="text-xs text-muted">{tituloJanela}. Solas, nome completo.</p>
-          <Barras
-            largo
-            itens={porProblema.map((item) => ({ nome: item.name, valor: item.total }))}
-            maximo={Math.max(1, ...porProblema.map((item) => item.total))}
-          />
-        </section>
-        <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
-          <h3 className="text-base font-semibold">Máquina</h3>
-          <p className="text-xs text-muted">Solas no recorte.</p>
+          <h3 className="text-base font-semibold">Máquinas</h3>
+          <p className="text-xs text-muted">Toque numa máquina para estratificar só ela.</p>
           <Barras
             itens={porMaquina.map((item) => ({ nome: item.machine, valor: item.total }))}
             maximo={Math.max(1, ...porMaquina.map((item) => item.total))}
+            onPick={(nome) => setMaquina(nome as MachineId)}
           />
         </section>
-        <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
-          <h3 className="text-base font-semibold">Estação</h3>
-          <p className="text-xs text-muted">Toque para filtrar o dashboard.</p>
-          <Barras
-            itens={porEstacao}
-            maximo={Math.max(1, ...porEstacao.map((item) => item.valor))}
-            onPick={(nome) => {
-              const station = Number(nome);
-              setEstacao((atual) => (atual === station ? null : station));
-            }}
-          />
-        </section>
-        <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
-          <h3 className="text-base font-semibold">Número</h3>
-          <p className="text-xs text-muted">Toque para ver só essa numeração.</p>
-          <Barras
-            itens={porNumeroGraf}
-            maximo={Math.max(1, ...porNumeroGraf.map((item) => item.valor))}
-            onPick={(nome) => setNumero((atual) => (atual === nome ? null : nome))}
-          />
-        </section>
-        <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
-          <h3 className="text-base font-semibold">Lado</h3>
-          <Barras itens={porLado} maximo={Math.max(1, ...porLado.map((item) => item.valor))} />
-        </section>
-        <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
-          <h3 className="text-base font-semibold">Referência</h3>
-          <Barras itens={porRef} maximo={Math.max(1, ...porRef.map((item) => item.valor))} />
-        </section>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
-          <h3 className="text-base font-semibold">Parte de cada turno</h3>
-          <div className="mt-2">
-            <Rosca
-              fatias={turnos
-                .filter((item) => item.solas > 0)
-                .map((item) => ({ nome: TURNO_LABEL[item.turno], valor: item.solas }))}
-            />
-          </div>
-        </section>
-        <RankingNumeros
-          titulo="5 piores números do período"
-          detalhe={`${tituloJanela} · ${total} solas · ${totalPares} pares`}
-          entries={periodo}
-        />
-      </div>
+      )}
     </div>
   );
 }
@@ -3078,9 +3091,9 @@ function RankingNumeros({
               <div className="min-w-0">
                 <p className="text-sm font-semibold leading-snug">
                   Nº {item.numero}
-                  {item.referencia ? ` · Ref. ${item.referencia}` : ""}
+                  {item.referencia ? ` · Produto ${item.referencia}` : " · sem produto"}
                 </p>
-                <p className="text-xs text-muted">{item.maquinas}</p>
+                <p className="text-xs text-muted">{item.maquinas || "sem máquina"}</p>
                 <p className="text-xs font-semibold tabular-nums">
                   {item.solas} solas · {item.pares} {item.pares === 1 ? "par" : "pares"} · {item.percentual}%
                 </p>
@@ -3127,7 +3140,7 @@ function rankNumeros(entries: Entry[]) {
       percentual: total > 0 ? Math.round((item.solas / total) * 100) : 0,
     }))
     .sort((a, b) => b.solas - a.solas || a.numero.localeCompare(b.numero, "pt-BR"))
-    .slice(0, 5);
+    .slice(0, 8);
 }
 
 function PainelMesa({
@@ -3141,8 +3154,6 @@ function PainelMesa({
   onTrocar,
   shown,
   busy,
-  escolhidas,
-  onEscolha,
   onPhoto,
   onPdf,
   onDelete,
@@ -3157,8 +3168,6 @@ function PainelMesa({
   onTrocar?: () => void;
   shown: MachineId[];
   busy: "foto" | "pdf" | null;
-  escolhidas: MachineId[];
-  onEscolha: (machines: MachineId[]) => void;
   onPhoto: () => void;
   onPdf: () => void;
   onDelete?: (entries: Entry[]) => void;
@@ -3264,15 +3273,15 @@ function PainelMesa({
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              disabled={busy !== null || (papel === "lider" ? escolhidas.length === 0 : shown.length === 0)}
+              disabled={busy !== null || shown.length === 0}
               onClick={onPhoto}
               className="rounded-full bg-white px-4 py-2 text-sm font-semibold shadow-[0_6px_16px_rgba(47,84,150,0.08)] disabled:opacity-50"
             >
-              {busy === "foto" ? "Gerando foto…" : "Enviar foto"}
+              {busy === "foto" ? "Gerando imagens…" : "Baixar imagens"}
             </button>
             <button
               type="button"
-              disabled={busy !== null || (papel === "lider" ? escolhidas.length === 0 : shown.length === 0)}
+              disabled={busy !== null || shown.length === 0}
               onClick={onPdf}
               className="rounded-full bg-white px-4 py-2 text-sm font-semibold shadow-[0_6px_16px_rgba(47,84,150,0.08)] disabled:opacity-50"
             >
@@ -3280,10 +3289,6 @@ function PainelMesa({
             </button>
           </div>
         </div>
-
-        {papel === "lider" && shown.length > 0 ? (
-          <SeletorMaquinas shown={shown} value={escolhidas} onChange={onEscolha} />
-        ) : null}
 
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Kpi tom="roxo" titulo="Solas" valor={String(solas)} detalhe="apontadas no recorte" />
@@ -3315,45 +3320,11 @@ function PainelMesa({
           </section>
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-2">
-          <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
-            <h3 className="text-base font-semibold">Estação</h3>
-            <p className="text-xs text-muted">Toque na barra para isolar a estação.</p>
-            <Barras
-              itens={porEstacao}
-              maximo={Math.max(1, ...porEstacao.map((item) => item.valor))}
-              onPick={(nome) => {
-                const station = Number(nome);
-                setEstacao((atual) => (atual === station ? null : station));
-              }}
-            />
-          </section>
-          <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
-            <h3 className="text-base font-semibold">Número</h3>
-            <p className="text-xs text-muted">Toque para ver só essa numeração.</p>
-            <Barras
-              itens={porNumeroGraf}
-              maximo={Math.max(1, ...porNumeroGraf.map((item) => item.valor))}
-              onPick={(nome) => setNumero((atual) => (atual === nome ? null : nome))}
-            />
-          </section>
-          <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
-            <h3 className="text-base font-semibold">Lado</h3>
-            <Barras itens={porLado} maximo={Math.max(1, ...porLado.map((item) => item.valor))} />
-          </section>
-          <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
-            <h3 className="text-base font-semibold">Referência</h3>
-            <Barras itens={porRef} maximo={Math.max(1, ...porRef.map((item) => item.valor))} />
-          </section>
-          <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)] xl:col-span-2">
-            <h3 className="text-base font-semibold">Tipo de perda</h3>
-            <Barras
-              largo
-              itens={porProblema.map((item) => ({ nome: item.name, valor: item.solas }))}
-              maximo={Math.max(1, ...porProblema.map((item) => item.solas))}
-            />
-          </section>
-        </div>
+        <RankingNumeros
+          titulo={foco ? `Ranking da ${foco}` : "Ranking do turno"}
+          detalhe="Número e produto que mais perderam neste turno"
+          entries={recorte.flatMap((machine) => shiftEntries(state, machine))}
+        />
 
         {foco ? (
           <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">

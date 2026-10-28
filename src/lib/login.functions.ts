@@ -138,14 +138,15 @@ export const listarPreparadores = createServerFn({ method: "POST" })
   });
 
 export const criarPreparador = createServerFn({ method: "POST" })
-  .validator((data: { nome?: unknown; senha?: unknown }) => ({
+  .validator((data: { nome?: unknown; senha?: unknown; turno?: unknown }) => ({
     nome: cleanNome(data?.nome),
     senha: cleanSenha(data?.senha),
+    turno: (data?.turno === "2" || data?.turno === "3" ? data.turno : "1") as "1" | "2" | "3",
   }))
   .handler(async ({ data }): Promise<{ ok: true; nome: string } | { ok: false; erro: string }> => {
     if (data.nome.length < 2) return { ok: false, erro: "Digite o nome." };
     if (data.senha.length < 4) return { ok: false, erro: "A senha precisa de 4 caracteres." };
-    if (chave(data.nome) === "lider") return { ok: false, erro: "Esse nome é do líder." };
+    if (chave(data.nome) === "lider" || chave(data.nome) === "1111") return { ok: false, erro: "Esse nome é do líder." };
     if (!process.env.BLOB_READ_WRITE_TOKEN?.trim()) {
       return { ok: false, erro: "A nuvem não está ligada." };
     }
@@ -156,7 +157,7 @@ export const criarPreparador = createServerFn({ method: "POST" })
       }
       const next = [
         ...current.contas,
-        { nome: data.nome, senha: hashSenha(data.senha), papel: "preparador" as const, turno: "1" as const },
+        { nome: data.nome, senha: hashSenha(data.senha), papel: "preparador" as const, turno: data.turno },
       ];
       try {
         await writeContas(next, current.etag);
