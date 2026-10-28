@@ -70,10 +70,8 @@ export type State = {
   turno: Turno;
 };
 
-export const MACHINES = ["SIE01", "SIE02", "SIE03", "SIE04", "SIE05A", "SIE05B", "SIE06"] as const;
+export const MACHINES = ["SIE01", "SIE02", "SIE03", "SIE04", "SIE05", "SIE06"] as const;
 export type MachineId = (typeof MACHINES)[number];
-export const GRID_MACHINES = ["SIE01", "SIE02", "SIE03", "SIE04", "SIE05", "SIE06"] as const;
-export type GridMachine = (typeof GRID_MACHINES)[number];
 export const STATIONS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 export const SIDES = ["esq", "dir"] as const;
 
@@ -174,14 +172,10 @@ export function stationKey(machine: MachineId, station: number): string {
   return `${machine}-${station}`;
 }
 
-export function gridTargets(machine: GridMachine): MachineId[] {
-  if (machine === "SIE05") return ["SIE05A", "SIE05B"];
-  return [machine];
-}
-
 export function parseMachine(value: unknown): MachineId | null {
   if (typeof value === "number" && Number.isInteger(value)) return legacyMachine(String(value));
   if (typeof value !== "string") return null;
+  if (value === "SIE05A" || value === "SIE05B") return "SIE05";
   if ((MACHINES as readonly string[]).includes(value)) return value as MachineId;
   return legacyMachine(value);
 }
@@ -197,7 +191,9 @@ function legacyMachine(raw: string): MachineId | null {
     case "4":
       return "SIE04";
     case "5":
-      return "SIE05A";
+    case "SIE05A":
+    case "SIE05B":
+      return "SIE05";
     case "6":
       return "SIE06";
     default:

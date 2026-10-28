@@ -25,8 +25,6 @@ import {
   emptyConfig,
   fichaLines,
   formatDateBR,
-  GRID_MACHINES,
-  gridTargets,
   inShift,
   loadState,
   machineHasFicha,
@@ -36,6 +34,7 @@ import {
   mergeSharedEntries,
   nomesNaFicha,
   pad2,
+  parseMachine,
   podeAlterarApontamento,
   problemName,
   saveState,
@@ -50,7 +49,6 @@ import {
   gradeHasNumbers,
   type Entry,
   type FichaLine,
-  type GridMachine,
   type MachineId,
   type OutroMatriz,
   type Side,
@@ -96,11 +94,36 @@ function saveSessao(sessao: Sessao | null) {
   }
 }
 
+const POSTO_KEY = "estratificacao-posto-v1";
+
+type Posto = { nome: string; date: string; turno: Turno; machine: MachineId };
+
+function loadPosto(nome: string, date: string, turno: Turno): MachineId | null {
+  try {
+    const raw = localStorage.getItem(POSTO_KEY);
+    if (!raw) return null;
+    const data: unknown = JSON.parse(raw);
+    if (!data || typeof data !== "object") return null;
+    const row = data as Posto;
+    if (row.nome !== nome || row.date !== date || row.turno !== turno) return null;
+    return parseMachine(row.machine);
+  } catch {
+    return null;
+  }
+}
+
+function savePosto(posto: Posto) {
+  try {
+    localStorage.setItem(POSTO_KEY, JSON.stringify(posto));
+  } catch {
+    /* a escolha vale só neste aparelho */
+  }
+}
+
 type Screen =
   | { kind: "papel" }
   | { kind: "turnos" }
   | { kind: "machines" }
-  | { kind: "sie05" }
   | { kind: "ask"; machine: MachineId }
   | { kind: "matrices"; machine: MachineId }
   | { kind: "stations"; machine: MachineId }
@@ -462,8 +485,6 @@ function screenKey(screen: Screen): string {
       return "turnos";
     case "machines":
       return "machines";
-    case "sie05":
-      return "sie05";
     case "ask":
       return `ask-${screen.machine}`;
     case "matrices":
@@ -485,8 +506,7 @@ function machineFrom(screen: Screen): MachineId | null {
   if (
     screen.kind === "papel" ||
     screen.kind === "turnos" ||
-    screen.kind === "machines" ||
-    screen.kind === "sie05"
+    screen.kind === "machines"
   ) {
     return null;
   }
@@ -580,6 +600,28 @@ export function EstratificacaoApp() {
     };
   }, [sessao?.papel, sessao?.turno]);
 
+  const postoDia = useRef("");
+  useEffect(() => {
+    if (!state || sessao?.papel !== "preparador") return;
+    const turno = sessao.turno ?? "1";
+    const hoje = todayISO();
+    const chave = `${sessao.nome}|${hoje}|${turno}`;
+    if (postoDia.current === chave) return;
+    postoDia.current = chave;
+    const machine = loadPosto(sessao.nome, hoje, turno);
+    const home: Screen = machine
+      ? machineHasMatrices(state, machine)
+        ? { kind: "stations", machine }
+        : { kind: "ask", machine }
+      : { kind: "machines" };
+    homeRef.current = home;
+    stackRef.current = [home];
+    depthRef.current = 1;
+    setDir("forward");
+    setStack([home]);
+    window.history.replaceState(stampDepth(1), "");
+  }, [Boolean(state), sessao?.papel, sessao?.nome, sessao?.turno, state?.date]);
+
   useEffect(() => {
     scroller.current?.scrollTo(0, 0);
     setMenuAberto(false);
@@ -629,6 +671,7 @@ export function EstratificacaoApp() {
   }
 
   function chooseSessao(next: Sessao) {
+    postoDia.current = "";
     saveSessao(next);
     setSessao(next);
     if (next.papel === "preparador") {
@@ -645,6 +688,7 @@ export function EstratificacaoApp() {
   }
 
   function leavePapel() {
+    postoDia.current = "";
     saveSessao(null);
     setSessao(null);
     const home: Screen = { kind: "papel" };
@@ -705,19 +749,17 @@ export function EstratificacaoApp() {
     commit((current) => ({ ...current, turno }));
   }
 
-  function openGrid(machine: GridMachine) {
-    if (machine === "SIE05") {
-      push({ kind: "sie05" });
-      return;
-    }
-    openMachine(machine);
-  }
-
   function openMachine(machine: MachineId) {
     const current = read();
     if (!current) return;
-    if (machineHasMatrices(current, machine)) push({ kind: "stations", machine });
-    else push({ kind: "ask", machine });
+    if (sessao?.papel === "preparador") {
+      savePosto({ nome: sessao.nome, date: today, turno: sessao.turno ?? current.turno, machine });
+    }
+    const dest: Screen = machineHasMatrices(current, machine)
+      ? { kind: "stations", machine }
+      : { kind: "ask", machine };
+    if (sessao?.papel === "preparador") homeRef.current = dest;
+    adoptStack([dest]);
   }
 
   function saveGrade(machine: MachineId, configs: StationConfig[]) {
@@ -732,12 +774,9 @@ export function EstratificacaoApp() {
       return { ...current, stations };
     });
     flash("Grade de matrizaria salva");
-    const sie05 = machine === "SIE05A" || machine === "SIE05B";
-    adoptStack(
-      sie05
-        ? [{ kind: "machines" }, { kind: "sie05" }, { kind: "stations", machine }]
-        : [{ kind: "machines" }, { kind: "stations", machine }],
-    );
+    const dest: Screen = { kind: "stations", machine };
+    if (sessao?.papel === "preparador") homeRef.current = dest;
+    adoptStack([dest]);
   }
 
   function addOutro(
@@ -1043,15 +1082,9 @@ export function EstratificacaoApp() {
           {papel === "preparador" && screen.kind === "machines" ? (
             <MachinesScreen
               state={state}
-              today={today}
-              offDay={offDay}
-              onDate={setDate}
-              onOpen={openGrid}
+              atual={loadPosto(nome, today, sessao?.turno ?? state.turno)}
+              onOpen={openMachine}
             />
-          ) : null}
-
-          {papel === "preparador" && screen.kind === "sie05" ? (
-            <Sie05Screen state={state} onPick={openMachine} />
           ) : null}
 
           {papel === "preparador" && screen.kind === "ask" ? (
@@ -1059,6 +1092,7 @@ export function EstratificacaoApp() {
               machine={screen.machine}
               onEdit={() => push({ kind: "matrices", machine: screen.machine })}
               onSkip={() => replaceTop({ kind: "stations", machine: screen.machine })}
+              onTrocar={() => push({ kind: "machines" })}
             />
           ) : null}
 
@@ -1095,6 +1129,7 @@ export function EstratificacaoApp() {
                     })
               }
               onDeleteOutro={removeOutro}
+              onTrocar={() => push({ kind: "machines" })}
             />
           ) : null}
 
@@ -1154,6 +1189,8 @@ export function EstratificacaoApp() {
               onTurno={setTurno}
               papel={papel}
               nome={nome}
+              posto={sessao?.papel === "preparador" ? loadPosto(nome, today, sessao.turno ?? state.turno) : null}
+              onTrocar={sessao?.papel === "preparador" ? () => push({ kind: "machines" }) : undefined}
               onDelete={(entries) =>
                 removeMany(
                   entries.map((entry) => entry.id),
@@ -1192,8 +1229,6 @@ function headerFor(screen: Screen): { context: string } {
       return { context: "" };
     case "machines":
       return { context: "" };
-    case "sie05":
-      return { context: "Máquina SIE05" };
     case "ask":
       return { context: `Máquina ${screen.machine}` };
     case "matrices":
@@ -1398,86 +1433,41 @@ function DayControls({
 
 function MachinesScreen({
   state,
-  today,
-  offDay,
-  onDate,
+  atual,
   onOpen,
 }: {
   state: State;
-  today: string;
-  offDay: boolean;
-  onDate: (date: string) => void;
-  onOpen: (machine: GridMachine) => void;
+  atual: MachineId | null;
+  onOpen: (machine: MachineId) => void;
 }) {
   return (
     <div>
-      <p className="mb-3 font-display text-4xl leading-none text-accent">{TURNO_LABEL[state.turno]}</p>
-      <p className="mb-3 text-sm font-semibold text-muted">
-        1º 06:01–14:47 · 2º 14:48–23:30 · 3º 23:31–06:00
+      <p className="mb-2 font-display text-4xl leading-none text-accent">{TURNO_LABEL[state.turno]}</p>
+      <h2 className="font-display text-3xl leading-none">
+        {atual ? "Trocar de máquina?" : "Qual máquina você vai cuidar?"}
+      </h2>
+      <p className="mb-3 mt-2 text-sm text-muted">
+        {formatDateBR(state.date)} · só o seu turno. Amanhã a escolha começa de novo.
       </p>
-      <DayControls state={state} today={today} offDay={offDay} onDate={onDate} />
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        {GRID_MACHINES.map((machine) => {
-          const count = gridTargets(machine).reduce(
-            (sum, id) => sum + shiftEntries(state, id).length,
-            0,
-          );
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+        {MACHINES.map((machine) => {
+          const count = shiftEntries(state, machine).length;
+          const ativa = atual === machine;
           return (
             <button
               key={machine}
               type="button"
               onClick={() => onOpen(machine)}
-              className="flex min-h-32 flex-col rounded-tile border border-line bg-surface p-4 text-left"
+              className={cx(
+                "flex min-h-32 flex-col rounded-tile border bg-surface p-4 text-left",
+                ativa ? "border-accent" : "border-line",
+              )}
             >
-              <span className="text-sm font-semibold text-muted">Máquina</span>
+              <span className="text-sm font-semibold text-muted">{ativa ? "Sua máquina" : "Máquina"}</span>
               <span className="mt-1 font-display text-4xl leading-none">{machine}</span>
               <span
                 className={cx(
                   "mt-auto pt-4 font-display text-2xl leading-none tabular-nums",
-                  count > 0 ? "text-accent" : "text-muted",
-                )}
-              >
-                {count > 0 ? `${count} perdas` : "sem perda"}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function Sie05Screen({
-  state,
-  onPick,
-}: {
-  state: State;
-  onPick: (machine: "SIE05A" | "SIE05B") => void;
-}) {
-  const models = [
-    { id: "SIE05A", letter: "A" },
-    { id: "SIE05B", letter: "B" },
-  ] as const;
-  return (
-    <div>
-      <p className="text-base text-muted">Dois modelos nesta máquina. Escolha A ou B.</p>
-      <div className="mt-4 grid gap-3 md:grid-cols-2">
-        {models.map((model) => {
-          const count = shiftEntries(state, model.id).length;
-          return (
-            <button
-              key={model.id}
-              type="button"
-              onClick={() => onPick(model.id)}
-              className="flex min-h-28 items-center justify-between rounded-tile border border-line bg-surface px-5 py-4 text-left"
-            >
-              <span>
-                <span className="block font-display text-6xl leading-none">{model.letter}</span>
-                <span className="mt-1 block text-base font-semibold text-muted">{model.id}</span>
-              </span>
-              <span
-                className={cx(
-                  "font-display text-2xl leading-none",
                   count > 0 ? "text-accent" : "text-muted",
                 )}
               >
@@ -1500,6 +1490,7 @@ function StationsScreen({
   onOutros,
   onOpenOutro,
   onDeleteOutro,
+  onTrocar,
 }: {
   state: State;
   machine: MachineId;
@@ -1509,6 +1500,7 @@ function StationsScreen({
   onOutros: () => void;
   onOpenOutro: (outro: OutroMatriz) => void;
   onDeleteOutro: (id: string) => void;
+  onTrocar: () => void;
 }) {
   const [pedindo, setPedindo] = useState("");
   const outros = state.outros.filter(
@@ -1517,7 +1509,18 @@ function StationsScreen({
   return (
     <div>
       <ContextLine state={state} offDay={offDay} />
-      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+      <button
+        type="button"
+        onClick={onTrocar}
+        className="mt-3 flex w-full items-center justify-between rounded-tile border border-line bg-surface px-4 py-3 text-left"
+      >
+        <span>
+          <span className="block text-sm text-muted">Sua máquina neste turno</span>
+          <span className="font-display text-3xl leading-none">{machine}</span>
+        </span>
+        <span className="text-sm font-semibold text-accent">Trocar</span>
+      </button>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
         <button
           type="button"
           onClick={onMatrices}
@@ -1911,10 +1914,12 @@ function AskScreen({
   machine,
   onEdit,
   onSkip,
+  onTrocar,
 }: {
   machine: MachineId;
   onEdit: () => void;
   onSkip: () => void;
+  onTrocar: () => void;
 }) {
   return (
     <div>
@@ -1922,8 +1927,15 @@ function AskScreen({
       <h2 className="mt-2 font-display text-4xl leading-none">Editar a grade de matrizaria?</h2>
       <button
         type="button"
+        onClick={onTrocar}
+        className="mt-4 text-sm font-semibold text-accent"
+      >
+        Trocar de máquina
+      </button>
+      <button
+        type="button"
         onClick={onEdit}
-        className="mt-6 w-full rounded-tile bg-accent py-4 font-display text-3xl leading-none text-accent-ink"
+        className="mt-4 w-full rounded-tile bg-accent py-4 font-display text-3xl leading-none text-accent-ink"
       >
         Sim, editar
       </button>
@@ -2060,6 +2072,53 @@ function NumberPair({
   );
 }
 
+function SeletorMaquinas({
+  shown,
+  value,
+  onChange,
+}: {
+  shown: MachineId[];
+  value: MachineId[];
+  onChange: (machines: MachineId[]) => void;
+}) {
+  const todas = shown.length > 0 && shown.every((machine) => value.includes(machine));
+  return (
+    <div className="rounded-tile border border-line bg-surface p-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-semibold">Máquinas na foto e no PDF</p>
+        <button
+          type="button"
+          onClick={() => onChange(todas ? [] : shown)}
+          className="text-sm font-semibold text-accent"
+        >
+          {todas ? "Limpar" : "Todas"}
+        </button>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {shown.map((machine) => {
+          const ligada = value.includes(machine);
+          return (
+            <button
+              key={machine}
+              type="button"
+              aria-pressed={ligada}
+              onClick={() =>
+                onChange(ligada ? value.filter((item) => item !== machine) : [...value, machine])
+              }
+              className={cx(
+                "rounded-full px-3 py-2 text-sm font-semibold",
+                ligada ? "bg-accent text-accent-ink" : "bg-surface-2 text-muted",
+              )}
+            >
+              {machine}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function SheetScreen({
   state,
   today,
@@ -2068,6 +2127,8 @@ function SheetScreen({
   onTurno,
   papel,
   nome,
+  posto,
+  onTrocar,
   onDelete,
   onNotice,
 }: {
@@ -2078,30 +2139,35 @@ function SheetScreen({
   onTurno: (turno: Turno) => void;
   papel: Papel;
   nome: string;
+  posto?: MachineId | null;
+  onTrocar?: () => void;
   onDelete?: (entries: Entry[]) => void;
   onNotice: (text: string) => void;
 }) {
   const [busy, setBusy] = useState<"foto" | "pdf" | null>(null);
-  const [fotoPick, setFotoPick] = useState(false);
   const [aba, setAba] = useState<"turno" | "comparativo">("turno");
   const view: State =
     papel === "preparador"
       ? { ...state, entries: state.entries.filter((entry) => entry.autor === nome) }
       : state;
   const shown = MACHINES.filter((machine) => shiftEntries(view, machine).length > 0);
+  const [escolhidas, setEscolhidas] = useState<MachineId[]>(shown);
+  const escolhaChave = shown.join("|");
+  useEffect(() => {
+    setEscolhidas(shown);
+  }, [escolhaChave]);
   const fileBase = `perdas-${state.date}-turno-${state.turno}`;
+  const alvo = papel === "lider" ? shown.filter((machine) => escolhidas.includes(machine)) : shown;
 
-  async function sendPhoto(machine?: MachineId) {
-    const machines = machine ? shown.filter((item) => item === machine) : shown;
-    if (machines.length === 0) {
-      onNotice("Nenhuma ficha neste turno.");
+  async function sendPhoto() {
+    if (alvo.length === 0) {
+      onNotice(papel === "lider" ? "Escolha ao menos uma máquina." : "Nenhuma ficha neste turno.");
       return;
     }
-    setFotoPick(false);
     setBusy("foto");
     try {
       const files: File[] = [];
-      for (const item of machines) {
+      for (const item of alvo) {
         const blob = await renderFichaPng(view, item);
         files.push(
           new File([blob], `${fileBase}-maquina-${item}.png`, { type: "image/png" }),
@@ -2125,7 +2191,7 @@ function SheetScreen({
         onNotice("Foto baixada. Envie ao gestor.");
         return;
       }
-      const pdf = await renderFichasPdf(view, machines);
+      const pdf = await renderFichasPdf(view, alvo);
       downloadBlob(`${fileBase}.pdf`, pdf);
       onNotice("O celular não abriu o compartilhamento. O PDF foi baixado.");
     } catch {
@@ -2136,15 +2202,15 @@ function SheetScreen({
   }
 
   async function downloadPdf() {
-    if (shown.length === 0) {
-      onNotice("Nenhuma ficha neste turno.");
+    if (alvo.length === 0) {
+      onNotice(papel === "lider" ? "Escolha ao menos uma máquina." : "Nenhuma ficha neste turno.");
       return;
     }
     setBusy("pdf");
     try {
-      const pdf = await renderFichasPdf(view, shown);
+      const pdf = await renderFichasPdf(view, alvo);
       downloadBlob(`${fileBase}.pdf`, pdf);
-      onNotice("PDF baixado. Uma máquina por folha.");
+      onNotice(alvo.length === 1 ? "PDF baixado." : "PDF baixado. Uma máquina por folha.");
     } catch {
       onNotice("Não foi possível gerar o PDF.");
     } finally {
@@ -2193,10 +2259,21 @@ function SheetScreen({
           />
         </div>
       ) : (
-        <p className="mb-3 text-sm text-muted">
-          Cada toque seu vai para a planilha, uma sola por vez. A foto e o PDF saem com o seu nome.
-        </p>
+        <p className="mb-3 text-sm text-muted">Só o seu turno. A foto e o PDF saem com o seu nome.</p>
       )}
+      {papel === "preparador" && onTrocar ? (
+        <button
+          type="button"
+          onClick={onTrocar}
+          className="mb-3 flex w-full items-center justify-between rounded-tile border border-line bg-surface px-4 py-3 text-left"
+        >
+          <span>
+            <span className="block text-sm text-muted">Sua máquina neste turno</span>
+            <span className="font-display text-3xl leading-none">{posto ?? "Escolher"}</span>
+          </span>
+          <span className="text-sm font-semibold text-accent">{posto ? "Trocar" : "Escolher"}</span>
+        </button>
+      ) : null}
       <DayControls state={state} today={today} offDay={offDay} onDate={onDate} />
       {papel === "lider" ? (
         <div className="mb-4">
@@ -2219,43 +2296,24 @@ function SheetScreen({
               key={machine}
               state={view}
               machine={machine}
-              force={false}
+              force={papel === "preparador" && machine === posto}
               onDelete={onDelete ? (entries) => onDelete(entries) : undefined}
             />
           ))
         )}
       </div>
 
-      {papel === "lider" && fotoPick ? (
-        <div className="mt-4 rounded-tile border border-line bg-surface p-3">
-          <p className="text-sm font-semibold">Qual máquina vai na foto?</p>
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            {shown.map((machine) => (
-              <button
-                key={machine}
-                type="button"
-                disabled={busy !== null}
-                onClick={() => void sendPhoto(machine)}
-                className="rounded-tile bg-accent-soft py-3 font-semibold text-accent disabled:opacity-60"
-              >
-                {machine}
-              </button>
-            ))}
-          </div>
+      {papel === "lider" && shown.length > 0 ? (
+        <div className="mt-4">
+          <SeletorMaquinas shown={shown} value={escolhidas} onChange={setEscolhidas} />
         </div>
       ) : null}
 
       <div className="mt-4 grid grid-cols-2 gap-2">
         <button
           type="button"
-          disabled={busy !== null || shown.length === 0}
-          onClick={() => {
-            if (papel === "lider" && shown.length > 1) {
-              setFotoPick((open) => !open);
-              return;
-            }
-            void sendPhoto(papel === "lider" ? shown[0] : undefined);
-          }}
+          disabled={busy !== null || alvo.length === 0}
+          onClick={() => void sendPhoto()}
           className="flex items-center justify-center gap-2 rounded-tile bg-surface-2 py-3 font-semibold disabled:opacity-60"
         >
           <ImageDown className="size-5" />
@@ -2263,7 +2321,7 @@ function SheetScreen({
         </button>
         <button
           type="button"
-          disabled={busy !== null}
+          disabled={busy !== null || alvo.length === 0}
           onClick={() => void downloadPdf()}
           className="flex items-center justify-center gap-2 rounded-tile bg-surface-2 py-3 font-semibold disabled:opacity-60"
         >
@@ -2302,9 +2360,13 @@ function SheetScreen({
             onDate={onDate}
             onTurno={onTurno}
             papel={papel}
+            posto={posto}
+            onTrocar={onTrocar}
             shown={shown}
             busy={busy}
-            onPhoto={(machine) => void sendPhoto(machine)}
+            escolhidas={escolhidas}
+            onEscolha={setEscolhidas}
+            onPhoto={() => void sendPhoto()}
             onPdf={() => void downloadPdf()}
             onDelete={onDelete}
           />
@@ -2643,8 +2705,12 @@ function PainelMesa({
   onDate,
   onTurno,
   papel,
+  posto,
+  onTrocar,
   shown,
   busy,
+  escolhidas,
+  onEscolha,
   onPhoto,
   onPdf,
   onDelete,
@@ -2655,14 +2721,17 @@ function PainelMesa({
   onDate: (date: string) => void;
   onTurno: (turno: Turno) => void;
   papel: Papel;
+  posto?: MachineId | null;
+  onTrocar?: () => void;
   shown: MachineId[];
   busy: "foto" | "pdf" | null;
-  onPhoto: (machine?: MachineId) => void;
+  escolhidas: MachineId[];
+  onEscolha: (machines: MachineId[]) => void;
+  onPhoto: () => void;
   onPdf: () => void;
   onDelete?: (entries: Entry[]) => void;
 }) {
   const [foco, setFoco] = useState<MachineId | null>(null);
-  const [fotoAberta, setFotoAberta] = useState(false);
   const [pedirExclusao, setPedirExclusao] = useState(false);
   const recorte = foco && shown.includes(foco) ? shown.filter((machine) => machine === foco) : shown;
   const linhas = linhasDaMesa(state, recorte);
@@ -2696,6 +2765,19 @@ function PainelMesa({
   return (
     <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
       <div className="grid min-w-0 gap-4">
+        {papel === "preparador" && onTrocar ? (
+          <button
+            type="button"
+            onClick={onTrocar}
+            className="flex items-center justify-between rounded-3xl bg-white px-4 py-3 text-left shadow-[0_8px_24px_rgba(47,84,150,0.08)]"
+          >
+            <span>
+              <span className="block text-sm text-muted">Sua máquina neste turno</span>
+              <span className="font-display text-3xl leading-none">{posto ?? "Escolher"}</span>
+            </span>
+            <span className="text-sm font-semibold text-accent">{posto ? "Trocar" : "Escolher"}</span>
+          </button>
+        ) : null}
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold text-fg">
@@ -2710,25 +2792,15 @@ function PainelMesa({
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              disabled={busy !== null || shown.length === 0}
-              onClick={() => {
-                if (foco) {
-                  onPhoto(foco);
-                  return;
-                }
-                if (papel === "lider" && shown.length > 1) {
-                  setFotoAberta((open) => !open);
-                  return;
-                }
-                onPhoto(shown[0]);
-              }}
+              disabled={busy !== null || (papel === "lider" ? escolhidas.length === 0 : shown.length === 0)}
+              onClick={onPhoto}
               className="rounded-full bg-white px-4 py-2 text-sm font-semibold shadow-[0_6px_16px_rgba(47,84,150,0.08)] disabled:opacity-50"
             >
               {busy === "foto" ? "Gerando foto…" : "Enviar foto"}
             </button>
             <button
               type="button"
-              disabled={busy !== null || shown.length === 0}
+              disabled={busy !== null || (papel === "lider" ? escolhidas.length === 0 : shown.length === 0)}
               onClick={onPdf}
               className="rounded-full bg-white px-4 py-2 text-sm font-semibold shadow-[0_6px_16px_rgba(47,84,150,0.08)] disabled:opacity-50"
             >
@@ -2737,19 +2809,8 @@ function PainelMesa({
           </div>
         </div>
 
-        {fotoAberta ? (
-          <div className="flex flex-wrap gap-2">
-            {shown.map((machine) => (
-              <button
-                key={machine}
-                type="button"
-                onClick={() => onPhoto(machine)}
-                className="rounded-full bg-[#e8eefc] px-3 py-2 text-sm font-semibold text-[#2457b8]"
-              >
-                Foto {machine}
-              </button>
-            ))}
-          </div>
+        {papel === "lider" && shown.length > 0 ? (
+          <SeletorMaquinas shown={shown} value={escolhidas} onChange={onEscolha} />
         ) : null}
 
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
