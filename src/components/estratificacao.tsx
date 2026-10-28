@@ -2897,6 +2897,7 @@ function PainelHistorico({
   const janelaEstacao = base.filter(
     (entry) =>
       diasJanela.includes(entry.date) &&
+      (!maquina || entry.machine === maquina) &&
       (numeroAtivo === null || (entry.matrizNumero.trim() || "sem nº") === numeroAtivo),
   );
   const porEstacao = STATIONS.map((station) => ({
@@ -2933,8 +2934,8 @@ function PainelHistorico({
               : remoto === null
                 ? "Lendo os últimos 31 dias…"
                 : maquina
-                  ? `${maquina} · número, produto e onde a perda está.`
-                  : "Ranking de número e produto. Toque numa máquina para ver só ela."}
+                  ? `${maquina}${estacao ? ` · Estação ${pad2(estacao)}` : ""} · número, referência e onde a perda está.`
+                  : "Ranking de número e referência. Toque na máquina e na estação."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -2992,6 +2993,26 @@ function PainelHistorico({
         ))}
       </div>
 
+      <div className="flex gap-2 overflow-x-auto">
+        <button
+          type="button"
+          onClick={() => setEstacao(null)}
+          className={cx("shrink-0 rounded-full px-4 py-2 text-sm font-semibold", estacao === null ? "bg-[#2457b8] text-white" : "bg-white text-fg")}
+        >
+          Todas as estações
+        </button>
+        {STATIONS.map((station) => (
+          <button
+            key={station}
+            type="button"
+            onClick={() => setEstacao((atual) => (atual === station ? null : station))}
+            className={cx("shrink-0 rounded-full px-4 py-2 text-sm font-semibold", estacao === station ? "bg-[#2457b8] text-white" : "bg-white text-fg")}
+          >
+            Est. {pad2(station)}
+          </button>
+        ))}
+      </div>
+
       <div className="grid gap-3 sm:grid-cols-3">
         {turnos.map((item) => (
           <Kpi
@@ -3027,8 +3048,14 @@ function PainelHistorico({
       ) : null}
 
       <RankingNumeros
-        titulo={maquina ? `Ranking da ${maquina}` : "Ranking geral"}
-        detalhe={`${tituloJanela} · número e produto que mais perderam`}
+        titulo={
+          maquina
+            ? `Ranking da ${maquina}${estacao ? ` · Estação ${pad2(estacao)}` : ""}`
+            : estacao
+              ? `Ranking da estação ${pad2(estacao)}`
+              : "Ranking geral"
+        }
+        detalhe={`${tituloJanela} · número e referência que mais perderam`}
         entries={periodo}
       />
 
@@ -3049,6 +3076,10 @@ function PainelHistorico({
             <Barras
               itens={porEstacao.filter((item) => item.valor > 0)}
               maximo={Math.max(1, ...porEstacao.map((item) => item.valor))}
+              onPick={(nome) => {
+                const station = Number(nome);
+                setEstacao((atual) => (atual === station ? null : station));
+              }}
             />
           </section>
         </div>
@@ -3091,9 +3122,12 @@ function RankingNumeros({
               <div className="min-w-0">
                 <p className="text-sm font-semibold leading-snug">
                   Nº {item.numero}
-                  {item.referencia ? ` · Produto ${item.referencia}` : " · sem produto"}
+                  {item.referencia ? ` · Ref. ${item.referencia}` : " · sem ref."}
                 </p>
-                <p className="text-xs text-muted">{item.maquinas || "sem máquina"}</p>
+                <p className="text-xs text-muted">
+                  {item.maquinas || "sem máquina"}
+                  {item.estacoes ? ` · Est. ${item.estacoes}` : ""}
+                </p>
                 <p className="text-xs font-semibold tabular-nums">
                   {item.solas} solas · {item.pares} {item.pares === 1 ? "par" : "pares"} · {item.percentual}%
                 </p>
@@ -3115,14 +3149,21 @@ function juntarHistorico(remoto: Entry[], local: Entry[], datas: Set<string>): E
 }
 
 function rankNumeros(entries: Entry[]) {
-  const grupos = new Map<string, { numero: string; referencia: string; machines: Map<string, number>; solas: number }>();
+  const grupos = new Map<string, { numero: string; referencia: string; machines: Map<string, number>; stations: Map<number, number>; solas: number }>();
   for (const entry of entries) {
     const numero = entry.matrizNumero.trim();
     const referencia = entry.matrizRel.trim();
     const chave = `${numero}||${referencia}`;
-    const atual = grupos.get(chave) ?? { numero, referencia, machines: new Map<string, number>(), solas: 0 };
+    const atual = grupos.get(chave) ?? {
+      numero,
+      referencia,
+      machines: new Map<string, number>(),
+      stations: new Map<number, number>(),
+      solas: 0,
+    };
     atual.solas += 1;
     atual.machines.set(entry.machine, (atual.machines.get(entry.machine) ?? 0) + 1);
+    atual.stations.set(entry.station, (atual.stations.get(entry.station) ?? 0) + 1);
     grupos.set(chave, atual);
   }
   const total = entries.length;
@@ -3134,6 +3175,10 @@ function rankNumeros(entries: Entry[]) {
       maquinas: [...item.machines.entries()]
         .sort((a, b) => b[1] - a[1])
         .map(([machine]) => machine)
+        .join(" · "),
+      estacoes: [...item.stations.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([station]) => pad2(station))
         .join(" · "),
       solas: item.solas,
       pares: pares(item.solas),
@@ -3321,9 +3366,17 @@ function PainelMesa({
         </div>
 
         <RankingNumeros
-          titulo={foco ? `Ranking da ${foco}` : "Ranking do turno"}
-          detalhe="Número e produto que mais perderam neste turno"
-          entries={recorte.flatMap((machine) => shiftEntries(state, machine))}
+          titulo={
+            foco
+              ? `Ranking da ${foco}${estacao ? ` · Estação ${pad2(estacao)}` : ""}`
+              : estacao
+                ? `Ranking da estação ${pad2(estacao)}`
+                : "Ranking do turno"
+          }
+          detalhe="Número e referência que mais perderam neste turno"
+          entries={recorte.flatMap((machine) =>
+            shiftEntries(state, machine).filter((entry) => estacao === null || entry.station === estacao),
+          )}
         />
 
         {foco ? (
