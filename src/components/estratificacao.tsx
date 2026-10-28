@@ -2380,6 +2380,82 @@ function SheetScreen({
   );
 }
 
+function FiltrosRecorte({
+  estacao,
+  numero,
+  numeros,
+  onEstacao,
+  onNumero,
+}: {
+  estacao: number | null;
+  numero: string | null;
+  numeros: string[];
+  onEstacao: (station: number | null) => void;
+  onNumero: (numero: string | null) => void;
+}) {
+  return (
+    <div className="grid gap-3 rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+      <div>
+        <p className="text-xs font-semibold text-muted">Estação</p>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          <button
+            type="button"
+            onClick={() => onEstacao(null)}
+            className={cx(
+              "rounded-xl px-3 py-2 text-sm font-semibold",
+              estacao === null ? "bg-[#2457b8] text-white" : "bg-[#f3f6fb] text-fg",
+            )}
+          >
+            Todas
+          </button>
+          {STATIONS.map((station) => (
+            <button
+              key={station}
+              type="button"
+              onClick={() => onEstacao(estacao === station ? null : station)}
+              className={cx(
+                "rounded-xl px-3 py-2 text-sm font-semibold tabular-nums",
+                estacao === station ? "bg-[#2457b8] text-white" : "bg-[#f3f6fb] text-fg",
+              )}
+            >
+              {pad2(station)}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div>
+        <p className="text-xs font-semibold text-muted">Número</p>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          <button
+            type="button"
+            onClick={() => onNumero(null)}
+            className={cx(
+              "rounded-xl px-3 py-2 text-sm font-semibold",
+              numero === null ? "bg-[#2457b8] text-white" : "bg-[#f3f6fb] text-fg",
+            )}
+          >
+            Todos
+          </button>
+          {numeros.map((item) => (
+            <button
+              key={item}
+              type="button"
+              onClick={() => onNumero(numero === item ? null : item)}
+              className={cx(
+                "rounded-xl px-3 py-2 text-sm font-semibold",
+                numero === item ? "bg-[#2457b8] text-white" : "bg-[#f3f6fb] text-fg",
+              )}
+            >
+              {item}
+            </button>
+          ))}
+        </div>
+        {numeros.length === 0 ? <p className="mt-2 text-sm text-muted">Nenhum número neste recorte.</p> : null}
+      </div>
+    </div>
+  );
+}
+
 function PainelHistorico({
   state,
   today,
@@ -2392,6 +2468,8 @@ function PainelHistorico({
   const [remoto, setRemoto] = useState<Entry[] | null>(null);
   const [erro, setErro] = useState(false);
   const [janela, setJanela] = useState<"dia" | "semana" | "mes">("dia");
+  const [estacao, setEstacao] = useState<number | null>(null);
+  const [numero, setNumero] = useState<string | null>(null);
   const datas = diasAte(state.date, 31);
   const semana = new Set(diasAte(state.date, 7));
   const mes = new Set(datas);
@@ -2414,9 +2492,23 @@ function PainelHistorico({
 
   const base = juntarHistorico(remoto ?? [], state.entries, mes);
   const diasJanela = janela === "dia" ? [state.date] : janela === "semana" ? diasAte(state.date, 7) : datas;
-  const periodo = base.filter((entry) => diasJanela.includes(entry.date));
-  const doDia = base.filter((entry) => entry.date === state.date);
-  const daSemana = base.filter((entry) => semana.has(entry.date));
+  const numerosJanela = [
+    ...new Set(
+      base
+        .filter((entry) => diasJanela.includes(entry.date) && (estacao === null || entry.station === estacao))
+        .map((entry) => entry.matrizNumero.trim() || "sem nº"),
+    ),
+  ].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const numeroAtivo = numero && numerosJanela.includes(numero) ? numero : null;
+  function passaRecorte(entry: Entry) {
+    if (estacao !== null && entry.station !== estacao) return false;
+    if (numeroAtivo !== null && (entry.matrizNumero.trim() || "sem nº") !== numeroAtivo) return false;
+    return true;
+  }
+  const periodo = base.filter((entry) => diasJanela.includes(entry.date) && passaRecorte(entry));
+  const doDia = base.filter((entry) => entry.date === state.date && passaRecorte(entry));
+  const daSemana = base.filter((entry) => semana.has(entry.date) && passaRecorte(entry));
+  const doMes = base.filter((entry) => passaRecorte(entry));
   const turnos = (["1", "2", "3"] as const).map((turno) => {
     const lista = periodo.filter((entry) => entry.turno === turno);
     return { turno, lista, solas: lista.length, pares: paresDasEntradas(lista) };
@@ -2446,9 +2538,43 @@ function PainelHistorico({
   const serie = (["1", "2", "3"] as const).map((turno) => ({
     nome: TURNO_LABEL[turno],
     cor: turno === "1" ? "#6a4cff" : turno === "2" ? "#2457d6" : "#129a78",
-    valores: diasJanela.map((dia) => base.filter((entry) => entry.date === dia && entry.turno === turno).length),
+    valores: diasJanela.map(
+      (dia) => base.filter((entry) => entry.date === dia && entry.turno === turno && passaRecorte(entry)).length,
+    ),
   }));
   const tituloJanela = janela === "dia" ? "24 horas" : janela === "semana" ? "Semana" : "Mês";
+  const janelaNumero = base.filter(
+    (entry) =>
+      diasJanela.includes(entry.date) &&
+      (estacao === null || entry.station === estacao),
+  );
+  const janelaEstacao = base.filter(
+    (entry) =>
+      diasJanela.includes(entry.date) &&
+      (numeroAtivo === null || (entry.matrizNumero.trim() || "sem nº") === numeroAtivo),
+  );
+  const porEstacao = STATIONS.map((station) => ({
+    nome: pad2(station),
+    valor: janelaEstacao.filter((entry) => entry.station === station).length,
+    ativo: estacao === null ? undefined : estacao === station,
+  }));
+  const porNumeroGraf = numerosJanela.map((item) => ({
+    nome: item,
+    valor: janelaNumero.filter((entry) => (entry.matrizNumero.trim() || "sem nº") === item).length,
+    ativo: numeroAtivo === null ? undefined : numeroAtivo === item,
+  }));
+  const porLado = SIDES.map((side) => ({
+    nome: SIDE_SHORT[side],
+    valor: periodo.filter((entry) => entry.side === side).length,
+  }));
+  const refs = new Map<string, number>();
+  for (const entry of periodo) {
+    const chave = entry.matrizRel.trim() || "sem ref.";
+    refs.set(chave, (refs.get(chave) ?? 0) + 1);
+  }
+  const porRef = [...refs.entries()]
+    .map(([nome, valor]) => ({ nome, valor }))
+    .sort((a, b) => b.valor - a.valor || a.nome.localeCompare(b.nome, "pt-BR"));
 
   return (
     <div className="grid gap-4">
@@ -2498,6 +2624,14 @@ function PainelHistorico({
         </div>
       </div>
 
+      <FiltrosRecorte
+        estacao={estacao}
+        numero={numeroAtivo}
+        numeros={numerosJanela}
+        onEstacao={setEstacao}
+        onNumero={setNumero}
+      />
+
       <div className="grid gap-3 sm:grid-cols-3">
         {turnos.map((item) => (
           <Kpi
@@ -2517,7 +2651,7 @@ function PainelHistorico({
       <div className="grid gap-3 sm:grid-cols-3">
         <Kpi tom="ciano" titulo="24 horas" valor={String(doDia.length)} detalhe={`${paresDasEntradas(doDia)} pares · ${formatDateBR(state.date)} · os 3 turnos`} />
         <Kpi tom="azul" titulo="Semana" valor={String(daSemana.length)} detalhe={`${paresDasEntradas(daSemana)} pares · 7 dias · os 3 turnos`} />
-        <Kpi tom="verde" titulo="Mês" valor={String(base.length)} detalhe={`${paresDasEntradas(base)} pares · 31 dias · os 3 turnos`} />
+        <Kpi tom="verde" titulo="Mês" valor={String(doMes.length)} detalhe={`${paresDasEntradas(doMes)} pares · 31 dias · os 3 turnos`} />
       </div>
 
       {piorTurno && piorTurno.solas > 0 ? (
@@ -2542,64 +2676,50 @@ function PainelHistorico({
 
       <div className="grid gap-4 xl:grid-cols-2">
         <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
-          <h3 className="text-base font-semibold">O que cada turno mais aponta</h3>
-          <p className="text-xs text-muted">{tituloJanela}. Nome completo da perda.</p>
-          {porProblema.length === 0 ? (
-            <p className="py-8 text-sm text-muted">Sem apontamento neste período.</p>
-          ) : (
-            <div className="mt-3 overflow-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="text-[11px] uppercase tracking-wide text-muted">
-                  <tr>
-                    {["Perda", "1º", "2º", "3º", "Total"].map((coluna) => (
-                      <th key={coluna} className="px-2 py-2 font-semibold">{coluna}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {porProblema.map((item) => (
-                    <tr key={item.name} className="border-t border-[#eef2f8]">
-                      <td className="px-2 py-2 leading-snug">{item.name}</td>
-                      <td className="px-2 py-2 tabular-nums">{item["1"] || "—"}</td>
-                      <td className="px-2 py-2 tabular-nums">{item["2"] || "—"}</td>
-                      <td className="px-2 py-2 tabular-nums">{item["3"] || "—"}</td>
-                      <td className="px-2 py-2 font-semibold tabular-nums">{item.total}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <h3 className="text-base font-semibold">Perdas por tipo</h3>
+          <p className="text-xs text-muted">{tituloJanela}. Solas, nome completo.</p>
+          <Barras
+            largo
+            itens={porProblema.map((item) => ({ nome: item.name, valor: item.total }))}
+            maximo={Math.max(1, ...porProblema.map((item) => item.total))}
+          />
         </section>
         <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
-          <h3 className="text-base font-semibold">Máquina por turno</h3>
-          <p className="text-xs text-muted">Onde o volume está, separado por turno.</p>
-          {porMaquina.length === 0 ? (
-            <p className="py-8 text-sm text-muted">Sem apontamento neste período.</p>
-          ) : (
-            <div className="mt-3 overflow-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="text-[11px] uppercase tracking-wide text-muted">
-                  <tr>
-                    {["Máquina", "1º", "2º", "3º", "Total"].map((coluna) => (
-                      <th key={coluna} className="px-2 py-2 font-semibold">{coluna}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {porMaquina.map((item) => (
-                    <tr key={item.machine} className="border-t border-[#eef2f8]">
-                      <td className="px-2 py-2 font-semibold">{item.machine}</td>
-                      <td className="px-2 py-2 tabular-nums">{item["1"] || "—"}</td>
-                      <td className="px-2 py-2 tabular-nums">{item["2"] || "—"}</td>
-                      <td className="px-2 py-2 tabular-nums">{item["3"] || "—"}</td>
-                      <td className="px-2 py-2 font-semibold tabular-nums">{item.total}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <h3 className="text-base font-semibold">Máquina</h3>
+          <p className="text-xs text-muted">Solas no recorte.</p>
+          <Barras
+            itens={porMaquina.map((item) => ({ nome: item.machine, valor: item.total }))}
+            maximo={Math.max(1, ...porMaquina.map((item) => item.total))}
+          />
+        </section>
+        <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+          <h3 className="text-base font-semibold">Estação</h3>
+          <p className="text-xs text-muted">Toque para filtrar o dashboard.</p>
+          <Barras
+            itens={porEstacao}
+            maximo={Math.max(1, ...porEstacao.map((item) => item.valor))}
+            onPick={(nome) => {
+              const station = Number(nome);
+              setEstacao((atual) => (atual === station ? null : station));
+            }}
+          />
+        </section>
+        <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+          <h3 className="text-base font-semibold">Número</h3>
+          <p className="text-xs text-muted">Toque para ver só essa numeração.</p>
+          <Barras
+            itens={porNumeroGraf}
+            maximo={Math.max(1, ...porNumeroGraf.map((item) => item.valor))}
+            onPick={(nome) => setNumero((atual) => (atual === nome ? null : nome))}
+          />
+        </section>
+        <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+          <h3 className="text-base font-semibold">Lado</h3>
+          <Barras itens={porLado} maximo={Math.max(1, ...porLado.map((item) => item.valor))} />
+        </section>
+        <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+          <h3 className="text-base font-semibold">Referência</h3>
+          <Barras itens={porRef} maximo={Math.max(1, ...porRef.map((item) => item.valor))} />
         </section>
       </div>
 
@@ -2734,14 +2854,29 @@ function PainelMesa({
   onDelete?: (entries: Entry[]) => void;
 }) {
   const [foco, setFoco] = useState<MachineId | null>(null);
+  const [estacao, setEstacao] = useState<number | null>(null);
+  const [numero, setNumero] = useState<string | null>(null);
   const [pedirExclusao, setPedirExclusao] = useState(false);
   const recorte = foco && shown.includes(foco) ? shown.filter((machine) => machine === foco) : shown;
-  const linhas = linhasDaMesa(state, recorte);
+  const baseLinhas = linhasDaMesa(state, recorte);
+  const numerosMesa = [
+    ...new Set(
+      baseLinhas
+        .filter((linha) => estacao === null || linha.station === estacao)
+        .map((linha) => linha.numero || "sem nº"),
+    ),
+  ].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const numeroAtivo = numero && numerosMesa.includes(numero) ? numero : null;
+  const linhas = baseLinhas.filter((linha) => {
+    if (estacao !== null && linha.station !== estacao) return false;
+    if (numeroAtivo !== null && (linha.numero || "sem nº") !== numeroAtivo) return false;
+    return true;
+  });
   const solas = linhas.reduce((sum, linha) => sum + linha.solas, 0);
   const totalPares = linhas.reduce((sum, linha) => sum + linha.pares, 0);
   const porMaquina = shown.map((machine) => ({
     machine,
-    solas: linhasDaMesa(state, [machine]).reduce((sum, linha) => sum + linha.solas, 0),
+    solas: linhas.filter((linha) => linha.machine === machine).reduce((sum, linha) => sum + linha.solas, 0),
   }));
   const maxMaquina = Math.max(1, ...porMaquina.map((item) => item.solas));
   const porProblema = PROBLEMS.map((problem) => ({
@@ -2750,6 +2885,29 @@ function PainelMesa({
   }))
     .filter((item) => item.solas > 0)
     .sort((a, b) => b.solas - a.solas);
+  const porEstacao = STATIONS.map((station) => ({
+    nome: pad2(station),
+    valor: baseLinhas
+      .filter((linha) => linha.station === station && (numeroAtivo === null || (linha.numero || "sem nº") === numeroAtivo))
+      .reduce((sum, linha) => sum + linha.solas, 0),
+    ativo: estacao === null ? undefined : estacao === station,
+  }));
+  const porNumeroGraf = numerosMesa.map((item) => ({
+    nome: item,
+    valor: baseLinhas
+      .filter((linha) => (estacao === null || linha.station === estacao) && (linha.numero || "sem nº") === item)
+      .reduce((sum, linha) => sum + linha.solas, 0),
+    ativo: numeroAtivo === null ? undefined : numeroAtivo === item,
+  }));
+  const porLado = SIDES.map((side) => ({
+    nome: SIDE_SHORT[side],
+    valor: linhas.filter((linha) => linha.side === side).reduce((sum, linha) => sum + linha.solas, 0),
+  }));
+  const refs = new Map<string, number>();
+  for (const linha of linhas) refs.set(linha.referencia || "sem ref.", (refs.get(linha.referencia || "sem ref.") ?? 0) + linha.solas);
+  const porRef = [...refs.entries()]
+    .map(([nome, valor]) => ({ nome, valor }))
+    .sort((a, b) => b.valor - a.valor || a.nome.localeCompare(b.nome, "pt-BR"));
   const pior = porProblema[0];
   const autores = [
     ...new Set(
@@ -2788,6 +2946,8 @@ function PainelMesa({
             <p className="text-sm text-muted">
               {formatDateBR(state.date)} · {TURNO_LABEL[state.turno]}
               {foco ? ` · ${foco}` : " · turno inteiro"}
+              {estacao ? ` · Estação ${pad2(estacao)}` : ""}
+              {numeroAtivo ? ` · Nº ${numeroAtivo}` : ""}
               {autores.length > 0 ? ` · ${autores.join(" · ")}` : ""}
             </p>
           </div>
@@ -2842,6 +3002,46 @@ function PainelMesa({
             <div className="mt-2">
               <Rosca fatias={porProblema.map((item) => ({ nome: item.name, valor: item.solas }))} />
             </div>
+          </section>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-2">
+          <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+            <h3 className="text-base font-semibold">Estação</h3>
+            <p className="text-xs text-muted">Toque na barra para isolar a estação.</p>
+            <Barras
+              itens={porEstacao}
+              maximo={Math.max(1, ...porEstacao.map((item) => item.valor))}
+              onPick={(nome) => {
+                const station = Number(nome);
+                setEstacao((atual) => (atual === station ? null : station));
+              }}
+            />
+          </section>
+          <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+            <h3 className="text-base font-semibold">Número</h3>
+            <p className="text-xs text-muted">Toque para ver só essa numeração.</p>
+            <Barras
+              itens={porNumeroGraf}
+              maximo={Math.max(1, ...porNumeroGraf.map((item) => item.valor))}
+              onPick={(nome) => setNumero((atual) => (atual === nome ? null : nome))}
+            />
+          </section>
+          <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+            <h3 className="text-base font-semibold">Lado</h3>
+            <Barras itens={porLado} maximo={Math.max(1, ...porLado.map((item) => item.valor))} />
+          </section>
+          <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+            <h3 className="text-base font-semibold">Referência</h3>
+            <Barras itens={porRef} maximo={Math.max(1, ...porRef.map((item) => item.valor))} />
+          </section>
+          <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)] xl:col-span-2">
+            <h3 className="text-base font-semibold">Tipo de perda</h3>
+            <Barras
+              largo
+              itens={porProblema.map((item) => ({ nome: item.name, valor: item.solas }))}
+              maximo={Math.max(1, ...porProblema.map((item) => item.solas))}
+            />
           </section>
         </div>
 
@@ -2982,6 +3182,13 @@ function PainelMesa({
           </div>
           {shown.length === 0 ? <p className="mt-2 text-sm text-muted">Nenhuma máquina neste turno.</p> : null}
         </section>
+        <FiltrosRecorte
+          estacao={estacao}
+          numero={numeroAtivo}
+          numeros={numerosMesa}
+          onEstacao={setEstacao}
+          onNumero={setNumero}
+        />
         {papel === "lider" ? <MatrizariaConsulta state={state} ocultar={shown} /> : null}
       </aside>
     </div>
@@ -3071,32 +3278,47 @@ function Barras({
   itens,
   maximo,
   onPick,
+  largo,
 }: {
   itens: { nome: string; valor: number; ativo?: boolean }[];
   maximo: number;
   onPick?: (nome: string) => void;
+  largo?: boolean;
 }) {
   if (itens.length === 0) return <p className="py-8 text-sm text-muted">Sem apontamento neste recorte.</p>;
   return (
     <div className="mt-3 grid gap-2.5">
       {itens.map((item, index) => {
-        const corpo = (
+        const barra = (
+          <span className="h-3 overflow-hidden rounded-full bg-[#eef2f8]">
+            <span
+              className="block h-full rounded-full"
+              style={{
+                width: item.valor <= 0 ? "0%" : `${Math.max(6, (item.valor / maximo) * 100)}%`,
+                background: `linear-gradient(90deg, ${CORES[index % CORES.length]}, #8eb6ff)`,
+                opacity: item.ativo === false ? 0.35 : 1,
+              }}
+            />
+          </span>
+        );
+        const corpo = largo ? (
+          <>
+            <span className="flex items-start justify-between gap-3 text-xs font-semibold leading-snug">
+              <span>{item.nome}</span>
+              <span className="tabular-nums">{item.valor}</span>
+            </span>
+            {barra}
+          </>
+        ) : (
           <>
             <span className="text-xs font-semibold">{item.nome}</span>
-            <span className="h-3 overflow-hidden rounded-full bg-[#eef2f8]">
-              <span
-                className="block h-full rounded-full"
-                style={{
-                  width: `${Math.max(6, (item.valor / maximo) * 100)}%`,
-                  background: `linear-gradient(90deg, ${CORES[index % CORES.length]}, #8eb6ff)`,
-                  opacity: item.ativo === false ? 0.35 : 1,
-                }}
-              />
-            </span>
+            {barra}
             <span className="text-right text-sm font-semibold tabular-nums">{item.valor}</span>
           </>
         );
-        const classe = "grid grid-cols-[4.6rem_minmax(0,1fr)_2.4rem] items-center gap-2 text-left";
+        const classe = largo
+          ? "grid gap-1 text-left"
+          : "grid grid-cols-[4.6rem_minmax(0,1fr)_2.4rem] items-center gap-2 text-left";
         if (!onPick) {
           return (
             <div key={item.nome} className={classe}>
