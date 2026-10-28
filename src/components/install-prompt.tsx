@@ -32,9 +32,9 @@ export function InstallPrompt() {
   const [hint, setHint] = useState("");
 
   useEffect(() => {
+    if (window.parent === window) registerAppWorker();
     if (isStandalone()) return;
     if (dismissedForNow()) return;
-    if (window.parent === window) registerAppWorker();
     setIos(isIosBrowser());
     setOpen(true);
   }, []);

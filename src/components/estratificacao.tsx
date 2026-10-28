@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { InstallPrompt } from "@/components/install-prompt";
+import { UpdateNotice } from "@/components/update-notice";
 import {
   ChevronLeft,
   ChevronDown,
@@ -1041,6 +1042,7 @@ export function EstratificacaoApp() {
       </header>
 
       <InstallPrompt />
+      <UpdateNotice />
 
       {banner ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 px-4 pb-4">
