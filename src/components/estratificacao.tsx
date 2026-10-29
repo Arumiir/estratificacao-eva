@@ -827,18 +827,6 @@ export function EstratificacaoApp() {
     adoptStack([dest]);
   }
 
-  function saveFechamento(parcial: Omit<Fechamento, "id" | "salvoEm">) {
-    const item: Fechamento = {
-      ...parcial,
-      id: `${parcial.date}|${parcial.turno}|${parcial.machine}`,
-      salvoEm: Date.now(),
-    };
-    commit((current) => ({
-      ...current,
-      fechamentos: mergeFechamentos(current.fechamentos ?? [], [item]),
-    }));
-  }
-
   function criarCor(machine: MachineId, nome: string, stations: number[], grades: Record<string, StationConfig>) {
     const limpo = nome.trim().slice(0, 40);
     if (!limpo) {
@@ -1314,7 +1302,6 @@ export function EstratificacaoApp() {
               nome={nome}
               posto={sessao?.papel === "preparador" ? loadPosto(nome, today, sessao.turno ?? state.turno) : null}
               onTrocar={sessao?.papel === "preparador" ? () => push({ kind: "machines" }) : undefined}
-              onFechamento={saveFechamento}
               onDelete={(entries) =>
                 removeMany(
                   entries.map((entry) => entry.id),
@@ -2491,7 +2478,6 @@ function SheetScreen({
   onTrocar,
   onDelete,
   onNotice,
-  onFechamento,
 }: {
   state: State;
   today: string;
@@ -2504,7 +2490,6 @@ function SheetScreen({
   onTrocar?: () => void;
   onDelete?: (entries: Entry[]) => void;
   onNotice: (text: string) => void;
-  onFechamento: (parcial: Omit<Fechamento, "id" | "salvoEm">) => void;
 }) {
   const [busy, setBusy] = useState<"foto" | "pdf" | null>(null);
   const [aba, setAba] = useState<"turno" | "comparativo">("turno");
@@ -2600,7 +2585,7 @@ function SheetScreen({
       ) : null}
       {papel === "lider" && aba === "comparativo" ? (
         <div className="lg:hidden">
-          <PainelHistorico state={state} today={today} onDate={onDate} onFechamento={onFechamento} />
+          <PainelHistorico state={state} today={today} onDate={onDate} />
         </div>
       ) : (
       <div className="lg:hidden">
@@ -2716,11 +2701,10 @@ function SheetScreen({
             busy={busy}
             onPhoto={abrirSeletor}
             onPdf={() => void downloadPdf()}
-            onFechamento={onFechamento}
             onDelete={onDelete}
           />
         ) : (
-          <PainelHistorico state={state} today={today} onDate={onDate} onFechamento={onFechamento} />
+          <PainelHistorico state={state} today={today} onDate={onDate} />
         )}
       </div>
       {escolherFoto ? (
@@ -2891,12 +2875,10 @@ function PainelHistorico({
   state,
   today,
   onDate,
-  onFechamento,
 }: {
   state: State;
   today: string;
   onDate: (date: string) => void;
-  onFechamento: (parcial: Omit<Fechamento, "id" | "salvoEm">) => void;
 }) {
   const [remoto, setRemoto] = useState<Entry[] | null>(null);
   const [erro, setErro] = useState(false);
@@ -3095,8 +3077,6 @@ function PainelHistorico({
         ))}
       </div>
 
-      {maquina ? <ResumoMaquina state={state} machine={maquina} onSave={onFechamento} /> : null}
-
       <div className="grid gap-3 sm:grid-cols-3">
         {turnos.map((item) => (
           <Kpi
@@ -3179,134 +3159,6 @@ function PainelHistorico({
         </section>
       )}
     </div>
-  );
-}
-
-function ResumoMaquina({
-  state,
-  machine,
-  onSave,
-}: {
-  state: State;
-  machine: MachineId;
-  onSave: (parcial: Omit<Fechamento, "id" | "salvoEm">) => void;
-}) {
-  const salvo = (state.fechamentos ?? []).find(
-    (item) => item.machine === machine && item.date === state.date && item.turno === state.turno,
-  );
-  const [horas, setHoras] = useState(salvo?.horasBaixadas ?? "");
-  const [producao, setProducao] = useState(salvo ? String(salvo.producao || "") : "");
-  const [saldo, setSaldo] = useState(salvo?.saldo ?? "");
-  const [setup, setSetup] = useState(salvo?.setup ?? "");
-  useEffect(() => {
-    setHoras(salvo?.horasBaixadas ?? "");
-    setProducao(salvo?.producao ? String(salvo.producao) : "");
-    setSaldo(salvo?.saldo ?? "");
-    setSetup(salvo?.setup ?? "");
-  }, [salvo?.salvoEm, machine, state.date, state.turno]);
-  const entradas = state.entries.filter(
-    (entry) => entry.machine === machine && entry.date === state.date && entry.turno === state.turno,
-  );
-  const solas = entradas.length;
-  const paresPerda = pares(solas);
-  const producaoNum = Math.max(0, Math.round(Number(producao.replace(",", ".")) || 0));
-  const percentual = producaoNum > 0 ? (paresPerda / producaoNum) * 100 : null;
-  const contagem = new Map<string, number>();
-  for (const entry of entradas) {
-    const nome = problemName(entry.problem);
-    contagem.set(nome, (contagem.get(nome) ?? 0) + 1);
-  }
-  const top = [...contagem.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(([nome]) => nome);
-  const problemas =
-    top.length === 0 ? "—" : top.length === 1 ? top[0] : `${top.slice(0, -1).join(", ")} e ${top[top.length - 1]}`;
-
-  function gravar(proximo?: { horas?: string; producao?: string; saldo?: string; setup?: string }) {
-    const horasValor = proximo?.horas ?? horas;
-    const producaoValor = proximo?.producao ?? producao;
-    const saldoValor = proximo?.saldo ?? saldo;
-    const setupValor = proximo?.setup ?? setup;
-    onSave({
-      date: state.date,
-      turno: state.turno,
-      machine,
-      horasBaixadas: horasValor,
-      producao: Math.max(0, Math.round(Number(producaoValor.replace(",", ".")) || 0)),
-      saldo: saldoValor,
-      setup: setupValor.trim(),
-    });
-  }
-
-  return (
-    <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
-      <h3 className="text-base font-semibold">{machine}</h3>
-      <p className="text-xs text-muted">
-        {formatDateBR(state.date)} · {TURNO_LABEL[state.turno]}. Perdas e problemas vêm do apontamento.
-      </p>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
-        <label className="block text-sm">
-          <span className="font-semibold text-muted">Horas baixadas</span>
-          <input
-            type="time"
-            value={horas}
-            onChange={(event) => setHoras(event.target.value)}
-            onBlur={(event) => gravar({ horas: event.target.value })}
-            className="mt-1 w-full rounded-xl border border-line bg-[#f7f9fc] px-3 py-2 text-base font-semibold"
-          />
-        </label>
-        <label className="block text-sm">
-          <span className="font-semibold text-muted">Produção (pares)</span>
-          <input
-            inputMode="numeric"
-            value={producao}
-            placeholder="575"
-            onChange={(event) => setProducao(event.target.value.replace(/[^\d]/g, ""))}
-            onBlur={(event) => gravar({ producao: event.target.value.replace(/[^\d]/g, "") })}
-            className="mt-1 w-full rounded-xl border border-line bg-[#f7f9fc] px-3 py-2 text-base font-semibold"
-          />
-        </label>
-        <label className="block text-sm">
-          <span className="font-semibold text-muted">Saldo</span>
-          <input
-            type="time"
-            value={saldo}
-            onChange={(event) => setSaldo(event.target.value)}
-            onBlur={(event) => gravar({ saldo: event.target.value })}
-            className="mt-1 w-full rounded-xl border border-line bg-[#f7f9fc] px-3 py-2 text-base font-semibold"
-          />
-        </label>
-        <label className="block text-sm">
-          <span className="font-semibold text-muted">Setup</span>
-          <input
-            value={setup}
-            placeholder="1 troca de cor"
-            onChange={(event) => setSetup(event.target.value)}
-            onBlur={(event) => gravar({ setup: event.target.value })}
-            className="mt-1 w-full rounded-xl border border-line bg-[#f7f9fc] px-3 py-2 text-base font-semibold"
-          />
-        </label>
-      </div>
-      <dl className="mt-3 grid gap-1 text-sm">
-        <div className="flex justify-between gap-3">
-          <dt className="text-muted">Perdas</dt>
-          <dd className="font-semibold tabular-nums">
-            {solas} solas · {paresPerda} {paresPerda === 1 ? "par" : "pares"}
-          </dd>
-        </div>
-        <div className="flex justify-between gap-3">
-          <dt className="text-muted">Percentual</dt>
-          <dd className="font-semibold tabular-nums">
-            {percentual === null ? "—" : `${percentual.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-muted">Prob.</dt>
-          <dd className="font-semibold leading-snug">{problemas}</dd>
-        </div>
-      </dl>
-    </section>
   );
 }
 
@@ -3413,7 +3265,6 @@ function PainelMesa({
   busy,
   onPhoto,
   onPdf,
-  onFechamento,
   onDelete,
 }: {
   state: State;
@@ -3428,7 +3279,6 @@ function PainelMesa({
   busy: "foto" | "pdf" | null;
   onPhoto: () => void;
   onPdf: () => void;
-  onFechamento: (parcial: Omit<Fechamento, "id" | "salvoEm">) => void;
   onDelete?: (entries: Entry[]) => void;
 }) {
   const [foco, setFoco] = useState<MachineId | null>(null);
@@ -3547,8 +3397,6 @@ function PainelMesa({
             </button>
           </div>
         </div>
-
-        {foco ? <ResumoMaquina state={state} machine={foco} onSave={onFechamento} /> : null}
 
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Kpi tom="roxo" titulo="Pares" valor={String(totalPares)} detalhe="1 sola fecha 1 par" />
