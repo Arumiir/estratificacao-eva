@@ -2492,7 +2492,7 @@ function SheetScreen({
   onNotice: (text: string) => void;
 }) {
   const [busy, setBusy] = useState<"foto" | "pdf" | null>(null);
-  const [abaLider, setAbaLider] = useState<"diario" | "geral">("diario");
+  const [abaLider, setAbaLider] = useState<"geral" | "diario">("geral");
   const [escolherFoto, setEscolherFoto] = useState(false);
   const [escolhidas, setEscolhidas] = useState<MachineId[]>([]);
   const view: State =
@@ -2566,8 +2566,8 @@ function SheetScreen({
           <div className="mb-4 flex flex-wrap gap-2">
             {(
               [
-                ["diario", "Acompanhamento diário"],
                 ["geral", "Visão geral"],
+                ["diario", "Acompanhamento diário"],
               ] as const
             ).map(([id, label]) => (
               <button
@@ -4034,19 +4034,10 @@ function AcompanhamentoDiario({
   onPdf: () => void;
   onDelete?: (entries: Entry[]) => void;
 }) {
-  const comGrade = MACHINES.filter((machine) => machineHasMatrices(state, machine) && !shown.includes(machine));
-  const [aberta, setAberta] = useState<MachineId | null>(shown[0] ?? null);
-  const aoVivo = state.date === today;
+  const [aberta, setAberta] = useState<MachineId | null>(null);
 
   return (
-    <div className="grid gap-4">
-      <div>
-        <h2 className="font-display text-4xl leading-none text-fg">Acompanhamento diário</h2>
-        <p className="mt-2 text-sm text-muted">
-          {aoVivo ? "Lançamentos ao vivo. " : "Dia fechado. "}
-          Máquina, estação e a matriz que está nela agora.
-        </p>
-      </div>
+    <div className="grid gap-3">
       <DayControls state={state} today={today} offDay={offDay} onDate={onDate} />
       <TurnoPicker value={state.turno} onChange={onTurno} />
       {shown.length === 0 ? (
@@ -4065,22 +4056,6 @@ function AcompanhamentoDiario({
           />
         ))
       )}
-      {comGrade.length > 0 ? (
-        <div>
-          <p className="text-sm font-semibold text-muted">Matrizaria sem perda neste turno</p>
-          <div className="mt-2 grid gap-3">
-            {comGrade.map((machine) => (
-              <MaquinaDoDia
-                key={machine}
-                state={state}
-                machine={machine}
-                aberta={aberta === machine}
-                onToggle={() => setAberta((atual) => (atual === machine ? null : machine))}
-              />
-            ))}
-          </div>
-        </div>
-      ) : null}
       <div className="grid grid-cols-2 gap-2">
         <button
           type="button"
@@ -4122,9 +4097,10 @@ function MaquinaDoDia({
   const mine = shiftEntries(state, machine);
   const paresMaquina = paresDasEntradas(mine);
   const nomes = nomesNaFicha(state, machine);
+  const piores = topProblems(lines);
   const [pedir, setPedir] = useState(false);
   const editaveis = mine.filter((entry) => podeAlterarApontamento(entry));
-  const resumo = estacoesDoDia(state, machine, lines).filter((item) => item.pares > 0);
+  const estacoes = estacoesDoDia(state, machine, lines).filter((item) => item.pares > 0);
 
   return (
     <section className="overflow-hidden rounded-3xl bg-white shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
@@ -4139,59 +4115,52 @@ function MaquinaDoDia({
           </div>
           <ChevronDown className={cx("mt-1 size-6 shrink-0 text-muted transition-transform", aberta && "rotate-180")} />
         </div>
-        {resumo.length > 0 ? (
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {resumo.map((item) => (
-              <span key={item.chave} className="rounded-full bg-[#f3f6fb] px-2.5 py-1 text-xs font-semibold text-fg">
-                Est. {item.titulo} · {item.matrizCurta} · {item.pares} {item.pares === 1 ? "par" : "pares"}
-              </span>
+        {piores.length > 0 ? (
+          <ol className="mt-3 grid gap-1.5">
+            {piores.map((item, index) => (
+              <li key={item.name} className="flex items-start gap-2">
+                <span className="w-5 shrink-0 font-display text-xl leading-none text-accent">{index + 1}</span>
+                <span className="min-w-0 flex-1 text-sm font-semibold leading-snug">{item.name}</span>
+                <span className="shrink-0 text-xs font-semibold tabular-nums">
+                  {item.pares} {item.pares === 1 ? "par" : "pares"}
+                </span>
+              </li>
             ))}
-          </div>
+          </ol>
         ) : (
-          <p className="mt-2 text-sm text-muted">Matriz no lugar. Sem perda neste turno.</p>
+          <p className="mt-3 text-sm text-muted">Nenhuma perda passou de 2 solas.</p>
         )}
       </button>
       {aberta ? (
-        <div className="grid gap-2 border-t border-[#f3f2f1] px-3 py-3">
-          {estacoesDoDia(state, machine, lines).map((item) => (
-            <article key={item.chave} className="rounded-2xl bg-[#f7f9fd] px-3 py-3">
-              <div className="flex items-start justify-between gap-3">
-                <h4 className="font-display text-2xl leading-none">Estação {item.titulo}</h4>
-                <p className="text-right text-sm font-semibold tabular-nums">
-                  {item.pares} {item.pares === 1 ? "par" : "pares"}
-                </p>
-              </div>
-              <div className="mt-2 grid gap-1">
-                {item.matrizes.map((matriz) => (
-                  <p key={matriz.lado} className="text-sm leading-snug">
-                    <span className="font-semibold text-muted">{matriz.lado} </span>
-                    {matriz.texto}
-                  </p>
-                ))}
-              </div>
-              {item.perdas.length === 0 ? (
-                <p className="mt-2 text-sm text-muted">Sem lançamento nesta estação.</p>
-              ) : (
-                <ul className="mt-2 grid gap-1.5">
-                  {item.perdas.map((perda) => (
-                    <li key={perda.chave} className="flex items-start justify-between gap-3 text-sm">
-                      <span className="min-w-0 leading-snug">
-                        <span className="font-semibold">{perda.lado}</span>
-                        <span className="text-muted"> · </span>
-                        {perda.nome}
-                      </span>
-                      <span className="shrink-0 font-semibold tabular-nums">
-                        {perda.pares} {perda.pares === 1 ? "par" : "pares"}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </article>
-          ))}
+        <div className="border-t border-[#f3f2f1] px-3 py-3">
+          {estacoes.length === 0 ? (
+            <p className="text-sm text-muted">Sem estação apontada.</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              {estacoes.map((item) => (
+                <article key={item.chave} className="rounded-2xl bg-[#f7f9fd] p-3">
+                  <h4 className="font-display text-2xl leading-none">
+                    {item.troca ? "Troca " : ""}
+                    {item.titulo}
+                  </h4>
+                  <div className="mt-2 grid gap-2">
+                    {item.lados.map((lado) => (
+                      <div key={lado.lado}>
+                        <p className="text-xs font-semibold text-muted">{lado.lado}</p>
+                        <p className="text-sm font-semibold leading-snug">{lado.texto}</p>
+                        <p className="text-sm tabular-nums">
+                          {lado.pares} {lado.pares === 1 ? "par" : "pares"}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
           {onDelete && editaveis.length > 0 ? (
             pedir ? (
-              <div className="flex items-center gap-2 rounded-2xl bg-[#f7f9fd] px-3 py-2">
+              <div className="mt-3 flex items-center gap-2 rounded-2xl bg-[#f7f9fd] px-3 py-2">
                 <span className="min-w-0 flex-1 text-sm font-semibold">
                   Excluir {editaveis.length} apontamento{editaveis.length === 1 ? "" : "s"} desta máquina?
                 </span>
@@ -4210,7 +4179,7 @@ function MaquinaDoDia({
                 </button>
               </div>
             ) : (
-              <button type="button" onClick={() => setPedir(true)} className="py-2 text-sm font-semibold text-[#9b3a34]">
+              <button type="button" onClick={() => setPedir(true)} className="mt-2 py-2 text-sm font-semibold text-[#9b3a34]">
                 Excluir apontamentos
               </button>
             )
@@ -4226,27 +4195,20 @@ function estacoesDoDia(state: State, machine: MachineId, lines: FichaLine[]) {
     const doPosto = lines.filter((line) => !line.outroId && line.station === station);
     const config = state.stations[stationKey(machine, station)];
     const ambos = Boolean(config?.ambos);
-    const matrizes = ambos
-      ? [{ lado: "Ambos", texto: describeMatrix(config, "esq") || textoDaLinha(doPosto[0]) || "sem numeração" }]
-      : SIDES.map((side) => {
-          const linha = doPosto.find((item) => item.side === side);
-          return { lado: SIDE_SHORT[side], texto: describeMatrix(config, side) || textoDaLinha(linha) || "sem numeração" };
-        });
-    const temMatriz = matrizes.some((item) => item.texto !== "sem numeração");
-    const perdas = perdasDasLinhas(doPosto);
-    if (!temMatriz && perdas.length === 0) return [];
-    const paresEstacao = perdas.reduce((soma, item) => soma + item.pares, 0);
+    const lados = SIDES.map((side) => {
+      const linha = doPosto.find((item) => item.side === side);
+      const texto = (ambos ? describeMatrix(config, "esq") : describeMatrix(config, side)) || textoDaLinha(linha) || "sem numeração";
+      const paresLado = perdasDasLinhas(linha ? [linha] : []).reduce((soma, item) => soma + item.pares, 0);
+      return { lado: SIDE_SHORT[side], texto, pares: paresLado };
+    }).filter((lado) => lado.pares > 0);
+    if (lados.length === 0) return [];
     return [
       {
         chave: `est-${station}`,
         titulo: pad2(station),
-        matrizCurta: matrizes
-          .filter((item) => item.texto !== "sem numeração")
-          .map((item) => (ambos ? item.texto : `${item.lado} ${item.texto}`))
-          .join(" · ") || "sem nº",
-        pares: paresEstacao,
-        matrizes,
-        perdas,
+        troca: false,
+        pares: lados.reduce((soma, lado) => soma + lado.pares, 0),
+        lados,
       },
     ];
   });
@@ -4258,21 +4220,25 @@ function estacoesDoDia(state: State, machine: MachineId, lines: FichaLine[]) {
       else grupos.push([line]);
       return grupos;
     }, [])
-    .map((grupo) => {
+    .flatMap((grupo) => {
       const primeiro = grupo[0];
-      const ambos = Boolean(primeiro?.shared);
-      const perdas = perdasDasLinhas(grupo);
-      const titulo = primeiro && primeiro.station >= 1 ? `Troca ${pad2(primeiro.station)}` : "Troca";
-      return {
-        chave: primeiro?.outroId ?? "troca",
-        titulo,
-        matrizCurta: textoDaLinha(primeiro) || "sem nº",
-        pares: perdas.reduce((soma, item) => soma + item.pares, 0),
-        matrizes: ambos
-          ? [{ lado: "Ambos", texto: textoDaLinha(primeiro) || "sem numeração" }]
-          : grupo.map((line) => ({ lado: SIDE_SHORT[line.side], texto: textoDaLinha(line) || "sem numeração" })),
-        perdas,
-      };
+      const lados = grupo
+        .map((line) => ({
+          lado: SIDE_SHORT[line.side],
+          texto: textoDaLinha(line) || "sem numeração",
+          pares: perdasDasLinhas([line]).reduce((soma, item) => soma + item.pares, 0),
+        }))
+        .filter((lado) => lado.pares > 0);
+      if (lados.length === 0 || !primeiro) return [];
+      return [
+        {
+          chave: primeiro.outroId,
+          titulo: primeiro.station >= 1 ? pad2(primeiro.station) : "—",
+          troca: true,
+          pares: lados.reduce((soma, lado) => soma + lado.pares, 0),
+          lados,
+        },
+      ];
     });
   return [...daGrade, ...trocas];
 }
