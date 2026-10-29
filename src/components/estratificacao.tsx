@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { InstallPrompt } from "@/components/install-prompt";
 import { UpdateNotice } from "@/components/update-notice";
 import {
@@ -2808,6 +2808,30 @@ function FiltrosRecorte({
   );
 }
 
+function OpcaoFiltro({ ativo, onClick, children }: { ativo: boolean; onClick: () => void; children: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cx(
+        "rounded-xl px-3 py-2 text-left text-sm font-semibold",
+        ativo ? "bg-[#2457b8] text-white" : "bg-[#f3f6fb] text-fg",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function GrupoFiltro({ titulo, children }: { titulo: string; children: ReactNode }) {
+  return (
+    <div>
+      <p className="text-xs font-semibold text-muted">{titulo}</p>
+      <div className="mt-2 flex flex-wrap gap-1.5">{children}</div>
+    </div>
+  );
+}
+
 function PainelHistorico({
   state,
   today,
@@ -2823,6 +2847,11 @@ function PainelHistorico({
   const [maquina, setMaquina] = useState<MachineId | null>(null);
   const [estacao, setEstacao] = useState<number | null>(null);
   const [numero, setNumero] = useState<string | null>(null);
+  const [referencia, setReferencia] = useState<string | null>(null);
+  const [lado, setLado] = useState<Side | null>(null);
+  const [turnoFiltro, setTurnoFiltro] = useState<Turno | null>(null);
+  const [problema, setProblema] = useState<string | null>(null);
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
   const datas = diasAte(state.date, 31);
   const semana = new Set(diasAte(state.date, 7));
   const mes = new Set(datas);
@@ -2845,18 +2874,28 @@ function PainelHistorico({
 
   const base = juntarHistorico(remoto ?? [], state.entries, mes);
   const diasJanela = janela === "dia" ? [state.date] : janela === "semana" ? diasAte(state.date, 7) : datas;
-  const numerosJanela = [
-    ...new Set(
-      base
-        .filter((entry) => diasJanela.includes(entry.date) && (estacao === null || entry.station === estacao))
-        .map((entry) => entry.matrizNumero.trim() || "sem nº"),
-    ),
-  ].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const recorteLista = base.filter((entry) => {
+    if (!diasJanela.includes(entry.date)) return false;
+    if (maquina && entry.machine !== maquina) return false;
+    if (estacao !== null && entry.station !== estacao) return false;
+    return true;
+  });
+  const numerosJanela = [...new Set(recorteLista.map((entry) => entry.matrizNumero.trim() || "sem nº"))].sort((a, b) =>
+    a.localeCompare(b, "pt-BR"),
+  );
+  const referenciasJanela = [...new Set(recorteLista.map((entry) => entry.matrizRel.trim() || "sem ref."))].sort((a, b) =>
+    a.localeCompare(b, "pt-BR"),
+  );
   const numeroAtivo = numero && numerosJanela.includes(numero) ? numero : null;
+  const refAtiva = referencia && referenciasJanela.includes(referencia) ? referencia : null;
   function passaRecorte(entry: Entry) {
     if (maquina && entry.machine !== maquina) return false;
     if (estacao !== null && entry.station !== estacao) return false;
     if (numeroAtivo !== null && (entry.matrizNumero.trim() || "sem nº") !== numeroAtivo) return false;
+    if (refAtiva !== null && (entry.matrizRel.trim() || "sem ref.") !== refAtiva) return false;
+    if (lado && entry.side !== lado) return false;
+    if (turnoFiltro && entry.turno !== turnoFiltro) return false;
+    if (problema && entry.problem !== problema) return false;
     return true;
   }
   const periodo = base.filter((entry) => diasJanela.includes(entry.date) && passaRecorte(entry));
@@ -2924,6 +2963,43 @@ function PainelHistorico({
     .map(([nome, valor]) => ({ nome, valor }))
     .sort((a, b) => b.valor - a.valor || a.nome.localeCompare(b.nome, "pt-BR"));
 
+  const problemaNome = PROBLEMS.find((item) => item.id === problema)?.name ?? null;
+  const filtrosAtivos = [
+    janela !== "mes",
+    state.date !== today,
+    maquina !== null,
+    estacao !== null,
+    numeroAtivo !== null,
+    refAtiva !== null,
+    lado !== null,
+    turnoFiltro !== null,
+    problema !== null,
+  ].filter(Boolean).length;
+  const resumoFiltro = [
+    tituloJanela,
+    maquina,
+    estacao !== null ? `Est. ${pad2(estacao)}` : null,
+    numeroAtivo ? `Nº ${numeroAtivo}` : null,
+    refAtiva ? `Ref. ${refAtiva}` : null,
+    lado ? SIDE_LABEL[lado] : null,
+    turnoFiltro ? TURNO_LABEL[turnoFiltro] : null,
+    problemaNome,
+  ]
+    .filter((item): item is string => Boolean(item))
+    .join(" · ");
+
+  function limparFiltros() {
+    setJanela("mes");
+    setMaquina(null);
+    setEstacao(null);
+    setNumero(null);
+    setReferencia(null);
+    setLado(null);
+    setTurnoFiltro(null);
+    setProblema(null);
+    if (state.date !== today) onDate(today);
+  }
+
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -2934,85 +3010,178 @@ function PainelHistorico({
               ? "Não leu a nuvem. Mostrando o que este computador já tem."
               : remoto === null
                 ? "Lendo o mês…"
-                : maquina
-                  ? `${maquina}${estacao ? ` · Estação ${pad2(estacao)}` : ""} · ${tituloJanela.toLowerCase()}.`
-                  : "O mês inteiro, os três turnos. Toque em 24 horas se quiser só o dia."}
+                : resumoFiltro}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {(
-            [
-              ["mes", "Mês"],
-              ["semana", "Semana"],
-              ["dia", "24 horas"],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setJanela(id)}
-              className={cx(
-                "rounded-full px-3 py-1.5 text-sm font-semibold",
-                janela === id ? "bg-[#2457b8] text-white" : "bg-white text-fg shadow-[0_6px_16px_rgba(47,84,150,0.06)]",
-              )}
-            >
-              {label}
-            </button>
-          ))}
-          <input
-            type="date"
-            value={state.date}
-            aria-label="Até"
-            onChange={(event) => onDate(event.target.value)}
-            className="rounded-xl border border-line bg-white px-3 py-2 text-sm font-semibold"
-          />
-          {state.date !== today ? (
-            <button type="button" onClick={() => onDate(today)} className="text-sm font-semibold text-[#2457b8]">
-              Hoje
-            </button>
+        <button
+          type="button"
+          onClick={() => setFiltrosAbertos(true)}
+          aria-label="Abrir filtros"
+          className="relative grid size-12 shrink-0 place-items-center rounded-2xl bg-white text-[#2457b8] shadow-[0_8px_24px_rgba(47,84,150,0.08)]"
+        >
+          <svg viewBox="0 0 24 24" className="size-6" aria-hidden="true">
+            <path
+              d="M4 5h16l-6.2 7.1V19l-3.6 1.4v-8.3L4 5z"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinejoin="round"
+            />
+          </svg>
+          {filtrosAtivos > 0 ? (
+            <span className="absolute -right-1 -top-1 grid size-5 place-items-center rounded-full bg-[#2457b8] text-[11px] font-semibold text-white">
+              {filtrosAtivos}
+            </span>
           ) : null}
+        </button>
+      </div>
+
+      {filtrosAbertos ? (
+        <div className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center">
+          <div className="flex max-h-[85dvh] w-full max-w-lg flex-col rounded-3xl bg-white shadow-xl">
+            <div className="flex items-center justify-between gap-3 border-b border-[#f3f2f1] px-4 py-3">
+              <h3 className="text-base font-semibold">Filtros</h3>
+              <button type="button" onClick={() => setFiltrosAbertos(false)} className="text-sm font-semibold text-muted">
+                Fechar
+              </button>
+            </div>
+            <div className="grid gap-4 overflow-y-auto px-4 py-4">
+              <div>
+                <p className="text-xs font-semibold text-muted">Período</p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {(
+                    [
+                      ["mes", "Mês"],
+                      ["semana", "Semana"],
+                      ["dia", "24 horas"],
+                    ] as const
+                  ).map(([id, label]) => (
+                    <OpcaoFiltro key={id} ativo={janela === id} onClick={() => setJanela(id)}>
+                      {label}
+                    </OpcaoFiltro>
+                  ))}
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <input
+                    type="date"
+                    value={state.date}
+                    aria-label="Até"
+                    onChange={(event) => onDate(event.target.value)}
+                    className="rounded-xl border border-line bg-white px-3 py-2 text-sm font-semibold"
+                  />
+                  {state.date !== today ? (
+                    <button type="button" onClick={() => onDate(today)} className="text-sm font-semibold text-[#2457b8]">
+                      Hoje
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+              <GrupoFiltro titulo="Máquina">
+                <OpcaoFiltro ativo={maquina === null} onClick={() => setMaquina(null)}>
+                  Todas
+                </OpcaoFiltro>
+                {MACHINES.map((machine) => (
+                  <OpcaoFiltro
+                    key={machine}
+                    ativo={maquina === machine}
+                    onClick={() => setMaquina((atual) => (atual === machine ? null : machine))}
+                  >
+                    {machine}
+                  </OpcaoFiltro>
+                ))}
+              </GrupoFiltro>
+              <GrupoFiltro titulo="Estação">
+                <OpcaoFiltro ativo={estacao === null} onClick={() => setEstacao(null)}>
+                  Todas
+                </OpcaoFiltro>
+                {STATIONS.map((station) => (
+                  <OpcaoFiltro
+                    key={station}
+                    ativo={estacao === station}
+                    onClick={() => setEstacao((atual) => (atual === station ? null : station))}
+                  >
+                    {pad2(station)}
+                  </OpcaoFiltro>
+                ))}
+              </GrupoFiltro>
+              <GrupoFiltro titulo="Número">
+                <OpcaoFiltro ativo={numeroAtivo === null} onClick={() => setNumero(null)}>
+                  Todos
+                </OpcaoFiltro>
+                {numerosJanela.map((item) => (
+                  <OpcaoFiltro key={item} ativo={numeroAtivo === item} onClick={() => setNumero((atual) => (atual === item ? null : item))}>
+                    {item}
+                  </OpcaoFiltro>
+                ))}
+              </GrupoFiltro>
+              <GrupoFiltro titulo="Referência">
+                <OpcaoFiltro ativo={refAtiva === null} onClick={() => setReferencia(null)}>
+                  Todas
+                </OpcaoFiltro>
+                {referenciasJanela.map((item) => (
+                  <OpcaoFiltro
+                    key={item}
+                    ativo={refAtiva === item}
+                    onClick={() => setReferencia((atual) => (atual === item ? null : item))}
+                  >
+                    {item}
+                  </OpcaoFiltro>
+                ))}
+              </GrupoFiltro>
+              <GrupoFiltro titulo="Lado">
+                <OpcaoFiltro ativo={lado === null} onClick={() => setLado(null)}>
+                  Ambos
+                </OpcaoFiltro>
+                {SIDES.map((side) => (
+                  <OpcaoFiltro key={side} ativo={lado === side} onClick={() => setLado((atual) => (atual === side ? null : side))}>
+                    {SIDE_LABEL[side]}
+                  </OpcaoFiltro>
+                ))}
+              </GrupoFiltro>
+              <GrupoFiltro titulo="Turno">
+                <OpcaoFiltro ativo={turnoFiltro === null} onClick={() => setTurnoFiltro(null)}>
+                  Os três
+                </OpcaoFiltro>
+                {(["1", "2", "3"] as const).map((turno) => (
+                  <OpcaoFiltro
+                    key={turno}
+                    ativo={turnoFiltro === turno}
+                    onClick={() => setTurnoFiltro((atual) => (atual === turno ? null : turno))}
+                  >
+                    {TURNO_LABEL[turno]}
+                  </OpcaoFiltro>
+                ))}
+              </GrupoFiltro>
+              <GrupoFiltro titulo="Problema">
+                <OpcaoFiltro ativo={problema === null} onClick={() => setProblema(null)}>
+                  Todos
+                </OpcaoFiltro>
+                {PROBLEMS.map((item) => (
+                  <OpcaoFiltro
+                    key={item.id}
+                    ativo={problema === item.id}
+                    onClick={() => setProblema((atual) => (atual === item.id ? null : item.id))}
+                  >
+                    {item.name}
+                  </OpcaoFiltro>
+                ))}
+              </GrupoFiltro>
+            </div>
+            <div className="grid grid-cols-2 gap-2 border-t border-[#f3f2f1] px-4 py-3">
+              <button type="button" onClick={limparFiltros} className="rounded-2xl bg-[#f3f6fb] py-3 text-sm font-semibold">
+                Limpar
+              </button>
+              <button
+                type="button"
+                onClick={() => setFiltrosAbertos(false)}
+                className="rounded-2xl bg-[#2457b8] py-3 text-sm font-semibold text-white"
+              >
+                Ver resultado
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
-
-      <div className="flex gap-2 overflow-x-auto">
-        <button
-          type="button"
-          onClick={() => setMaquina(null)}
-          className={cx("shrink-0 rounded-full px-4 py-2 text-sm font-semibold", maquina === null ? "bg-[#2457b8] text-white" : "bg-white text-fg")}
-        >
-          Todas
-        </button>
-        {MACHINES.map((machine) => (
-          <button
-            key={machine}
-            type="button"
-            onClick={() => setMaquina((atual) => (atual === machine ? null : machine))}
-            className={cx("shrink-0 rounded-full px-4 py-2 text-sm font-semibold", maquina === machine ? "bg-[#2457b8] text-white" : "bg-white text-fg")}
-          >
-            {machine}
-          </button>
-        ))}
-      </div>
-
-      <div className="flex gap-2 overflow-x-auto">
-        <button
-          type="button"
-          onClick={() => setEstacao(null)}
-          className={cx("shrink-0 rounded-full px-4 py-2 text-sm font-semibold", estacao === null ? "bg-[#2457b8] text-white" : "bg-white text-fg")}
-        >
-          Todas as estações
-        </button>
-        {STATIONS.map((station) => (
-          <button
-            key={station}
-            type="button"
-            onClick={() => setEstacao((atual) => (atual === station ? null : station))}
-            className={cx("shrink-0 rounded-full px-4 py-2 text-sm font-semibold", estacao === station ? "bg-[#2457b8] text-white" : "bg-white text-fg")}
-          >
-            Est. {pad2(station)}
-          </button>
-        ))}
-      </div>
+      ) : null}
 
       <div className="grid gap-3 sm:grid-cols-3">
         {turnos.map((item) => (
