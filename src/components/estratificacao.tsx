@@ -2492,7 +2492,6 @@ function SheetScreen({
   onNotice: (text: string) => void;
 }) {
   const [busy, setBusy] = useState<"foto" | "pdf" | null>(null);
-  const [aba, setAba] = useState<"turno" | "comparativo">("turno");
   const [escolherFoto, setEscolherFoto] = useState(false);
   const [escolhidas, setEscolhidas] = useState<MachineId[]>([]);
   const view: State =
@@ -2562,151 +2561,89 @@ function SheetScreen({
   return (
     <>
       {papel === "lider" ? (
-        <div className="mb-4 inline-flex rounded-full bg-white p-1 shadow-[0_8px_24px_rgba(47,84,150,0.08)] lg:hidden">
-          {(
-            [
-              ["turno", "Visão do turno"],
-              ["comparativo", "Comparativo"],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setAba(id)}
-              className={cx(
-                "rounded-full px-4 py-2 text-sm font-semibold",
-                aba === id ? "bg-[#2457b8] text-white" : "text-muted",
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      ) : null}
-      {papel === "lider" && aba === "comparativo" ? (
-        <div className="lg:hidden">
+        <>
           <PainelHistorico state={state} today={today} onDate={onDate} />
-        </div>
-      ) : (
-      <div className="lg:hidden">
-      {papel === "lider" ? (
-        <div className="mb-3 grid grid-cols-2 gap-2">
-          <Kpi tom="roxo" titulo="Máquinas" valor={String(shown.length)} detalhe="com apontamento" />
-          <Kpi
-            tom="azul"
-            titulo="Pares"
-            valor={String(paresDasEntradas(shown.flatMap((machine) => shiftEntries(view, machine))))}
-            detalhe={TURNO_LABEL[state.turno]}
-          />
-        </div>
-      ) : (
-        <p className="mb-3 text-sm text-muted">Só o seu turno. A imagem e o PDF saem com o seu nome.</p>
-      )}
-      {papel === "preparador" && onTrocar ? (
-        <button
-          type="button"
-          onClick={onTrocar}
-          className="mb-3 flex w-full items-center justify-between rounded-tile border border-line bg-surface px-4 py-3 text-left"
-        >
-          <span>
-            <span className="block text-sm text-muted">Sua máquina neste turno</span>
-            <span className="font-display text-3xl leading-none">{posto ?? "Escolher"}</span>
-          </span>
-          <span className="text-sm font-semibold text-accent">{posto ? "Trocar" : "Escolher"}</span>
-        </button>
-      ) : null}
-      <DayControls state={state} today={today} offDay={offDay} onDate={onDate} />
-      {papel === "lider" ? (
-        <div className="mb-4">
-          <TurnoPicker value={state.turno} onChange={onTurno} />
-        </div>
-      ) : null}
-
-      {papel === "lider" ? <MatrizariaConsulta state={view} ocultar={shown} /> : null}
-
-      <div className="mt-4">
-        {shown.length === 0 ? (
-          <p className="rounded-tile border border-dashed border-line bg-surface px-4 py-6 text-base text-muted">
-            {papel === "preparador"
-              ? "Você ainda não apontou máquina neste turno."
-              : "Nenhuma máquina apontada neste turno."}
-          </p>
-        ) : (
-          shown.map((machine) => (
-            <FichaSheet
-              key={machine}
-              state={view}
-              machine={machine}
-              force={papel === "preparador" && machine === posto}
-              onDelete={onDelete ? (entries) => onDelete(entries) : undefined}
-            />
-          ))
-        )}
-      </div>
-
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          disabled={busy !== null || shown.length === 0}
-          onClick={abrirSeletor}
-          className="flex items-center justify-center gap-2 rounded-tile bg-surface-2 py-3 font-semibold disabled:opacity-60"
-        >
-          <ImageDown className="size-5" />
-          {busy === "foto" ? "Gerando…" : "Baixar imagens"}
-        </button>
-        <button
-          type="button"
-          disabled={busy !== null || shown.length === 0}
-          onClick={() => void downloadPdf()}
-          className="flex items-center justify-center gap-2 rounded-tile bg-surface-2 py-3 font-semibold disabled:opacity-60"
-        >
-          <Download className="size-5" />
-          {busy === "pdf" ? "Gerando…" : "Baixar PDF"}
-        </button>
-      </div>
-      </div>
-      )}
-      <div className="hidden lg:block">
-        <div className="mb-4 inline-flex rounded-full bg-white p-1 shadow-[0_8px_24px_rgba(47,84,150,0.08)]">
-          {(
-            [
-              ["turno", "Visão do turno"],
-              ["comparativo", "Comparativo"],
-            ] as const
-          ).map(([id, label]) => (
+          <div className="mt-4">
+            <p className="mb-2 text-sm font-semibold text-muted">Ficha para o gestor</p>
+            <TurnoPicker value={state.turno} onChange={onTurno} />
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
             <button
-              key={id}
               type="button"
-              onClick={() => setAba(id)}
-              className={cx(
-                "rounded-full px-4 py-2 text-sm font-semibold",
-                aba === id ? "bg-[#2457b8] text-white" : "text-muted",
-              )}
+              disabled={busy !== null || shown.length === 0}
+              onClick={abrirSeletor}
+              className="flex items-center justify-center gap-2 rounded-tile bg-surface-2 py-3 font-semibold disabled:opacity-60"
             >
-              {label}
+              <ImageDown className="size-5" />
+              {busy === "foto" ? "Gerando…" : "Baixar imagens"}
             </button>
-          ))}
+            <button
+              type="button"
+              disabled={busy !== null || shown.length === 0}
+              onClick={() => void downloadPdf()}
+              className="flex items-center justify-center gap-2 rounded-tile bg-surface-2 py-3 font-semibold disabled:opacity-60"
+            >
+              <Download className="size-5" />
+              {busy === "pdf" ? "Gerando…" : "Baixar PDF"}
+            </button>
+          </div>
+        </>
+      ) : (
+        <div>
+          <p className="mb-3 text-sm text-muted">Só o seu turno. A imagem e o PDF saem com o seu nome.</p>
+          {onTrocar ? (
+            <button
+              type="button"
+              onClick={onTrocar}
+              className="mb-3 flex w-full items-center justify-between rounded-tile border border-line bg-surface px-4 py-3 text-left"
+            >
+              <span>
+                <span className="block text-sm text-muted">Sua máquina neste turno</span>
+                <span className="font-display text-3xl leading-none">{posto ?? "Escolher"}</span>
+              </span>
+              <span className="text-sm font-semibold text-accent">{posto ? "Trocar" : "Escolher"}</span>
+            </button>
+          ) : null}
+          <DayControls state={state} today={today} offDay={offDay} onDate={onDate} />
+          <div className="mt-4">
+            {shown.length === 0 ? (
+              <p className="rounded-tile border border-dashed border-line bg-surface px-4 py-6 text-base text-muted">
+                Você ainda não apontou máquina neste turno.
+              </p>
+            ) : (
+              shown.map((machine) => (
+                <FichaSheet
+                  key={machine}
+                  state={view}
+                  machine={machine}
+                  force={machine === posto}
+                  onDelete={onDelete ? (entries) => onDelete(entries) : undefined}
+                />
+              ))
+            )}
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              disabled={busy !== null || shown.length === 0}
+              onClick={abrirSeletor}
+              className="flex items-center justify-center gap-2 rounded-tile bg-surface-2 py-3 font-semibold disabled:opacity-60"
+            >
+              <ImageDown className="size-5" />
+              {busy === "foto" ? "Gerando…" : "Baixar imagens"}
+            </button>
+            <button
+              type="button"
+              disabled={busy !== null || shown.length === 0}
+              onClick={() => void downloadPdf()}
+              className="flex items-center justify-center gap-2 rounded-tile bg-surface-2 py-3 font-semibold disabled:opacity-60"
+            >
+              <Download className="size-5" />
+              {busy === "pdf" ? "Gerando…" : "Baixar PDF"}
+            </button>
+          </div>
         </div>
-        {aba === "turno" ? (
-          <PainelMesa
-            state={view}
-            today={today}
-            offDay={offDay}
-            onDate={onDate}
-            onTurno={onTurno}
-            papel={papel}
-            posto={posto}
-            onTrocar={onTrocar}
-            shown={shown}
-            busy={busy}
-            onPhoto={abrirSeletor}
-            onPdf={() => void downloadPdf()}
-            onDelete={onDelete}
-          />
-        ) : (
-          <PainelHistorico state={state} today={today} onDate={onDate} />
-        )}
-      </div>
+      )}
       {escolherFoto ? (
         <div className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center">
           <div className="w-full max-w-md rounded-3xl bg-white p-4 shadow-xl">
@@ -2882,7 +2819,7 @@ function PainelHistorico({
 }) {
   const [remoto, setRemoto] = useState<Entry[] | null>(null);
   const [erro, setErro] = useState(false);
-  const [janela, setJanela] = useState<"dia" | "semana" | "mes">("dia");
+  const [janela, setJanela] = useState<"dia" | "semana" | "mes">("mes");
   const [maquina, setMaquina] = useState<MachineId | null>(null);
   const [estacao, setEstacao] = useState<number | null>(null);
   const [numero, setNumero] = useState<string | null>(null);
@@ -2991,23 +2928,23 @@ function PainelHistorico({
     <div className="grid gap-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-fg">O que mais perde</h2>
-          <p className="text-sm text-muted">
+          <h2 className="font-display text-4xl leading-none text-fg">Visão geral</h2>
+          <p className="mt-2 text-sm text-muted">
             {erro
               ? "Não leu a nuvem. Mostrando o que este computador já tem."
               : remoto === null
-                ? "Lendo os últimos 31 dias…"
+                ? "Lendo o mês…"
                 : maquina
-                  ? `${maquina}${estacao ? ` · Estação ${pad2(estacao)}` : ""} · número, referência e onde a perda está.`
-                  : "Ranking de número e referência. Toque na máquina e na estação."}
+                  ? `${maquina}${estacao ? ` · Estação ${pad2(estacao)}` : ""} · ${tituloJanela.toLowerCase()}.`
+                  : "O mês inteiro, os três turnos. Toque em 24 horas se quiser só o dia."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {(
             [
-              ["dia", "24 horas"],
-              ["semana", "Semana"],
               ["mes", "Mês"],
+              ["semana", "Semana"],
+              ["dia", "24 horas"],
             ] as const
           ).map(([id, label]) => (
             <button
