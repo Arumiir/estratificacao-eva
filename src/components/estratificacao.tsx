@@ -3140,7 +3140,7 @@ function PainelHistorico({
               </GrupoFiltro>
               <GrupoFiltro titulo="Turno">
                 <OpcaoFiltro ativo={turnoFiltro === null} onClick={() => setTurnoFiltro(null)}>
-                  Os três
+                  Todos
                 </OpcaoFiltro>
                 {(["1", "2", "3"] as const).map((turno) => (
                   <OpcaoFiltro
@@ -3219,14 +3219,21 @@ function PainelHistorico({
 
       <RankingNumeros
         titulo={
-          maquina
-            ? `Ranking da ${maquina}${estacao ? ` · Estação ${pad2(estacao)}` : ""}`
-            : estacao
-              ? `Ranking da estação ${pad2(estacao)}`
-              : "Ranking geral"
+          numeroAtivo
+            ? `Nº ${numeroAtivo} em cada máquina`
+            : maquina
+              ? `Ranking da ${maquina}${estacao ? ` · Estação ${pad2(estacao)}` : ""}`
+              : estacao
+                ? `Ranking da estação ${pad2(estacao)}`
+                : "Ranking geral"
         }
-        detalhe={`${tituloJanela} · número e referência que mais perderam`}
+        detalhe={
+          numeroAtivo
+            ? "O mesmo número em outra máquina é outra matriz"
+            : `${tituloJanela} · cada número fica na máquina dele`
+        }
         entries={periodo}
+        limite={numeroAtivo ? 40 : 12}
       />
 
       {maquina ? (
@@ -3272,12 +3279,14 @@ function RankingNumeros({
   titulo,
   detalhe,
   entries,
+  limite = 12,
 }: {
   titulo: string;
   detalhe: string;
   entries: Entry[];
+  limite?: number;
 }) {
-  const lista = rankNumeros(entries);
+  const lista = rankNumeros(entries, limite);
   return (
     <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
       <h3 className="text-sm font-semibold">{titulo}</h3>
@@ -3291,13 +3300,10 @@ function RankingNumeros({
               <span className="font-display text-2xl leading-none text-accent">{index + 1}</span>
               <div className="min-w-0">
                 <p className="text-sm font-semibold leading-snug">
-                  Nº {item.numero}
+                  {item.machine} · Nº {item.numero}
                   {item.referencia ? ` · Ref. ${item.referencia}` : " · sem ref."}
                 </p>
-                <p className="text-xs text-muted">
-                  {item.maquinas || "sem máquina"}
-                  {item.estacoes ? ` · Est. ${item.estacoes}` : ""}
-                </p>
+                <p className="text-xs text-muted">{item.estacoes ? `Est. ${item.estacoes}` : "sem estação"}</p>
                 <p className="text-xs font-semibold tabular-nums">
                   {item.pares} {item.pares === 1 ? "par" : "pares"} · {item.percentual}%
                 </p>
@@ -3318,44 +3324,40 @@ function juntarHistorico(remoto: Entry[], local: Entry[], datas: Set<string>): E
   return [...mapa.values()];
 }
 
-function rankNumeros(entries: Entry[]) {
-  const grupos = new Map<string, { numero: string; referencia: string; machines: Map<string, number>; stations: Map<number, number>; solas: number }>();
+function rankNumeros(entries: Entry[], limite = 12) {
+  const grupos = new Map<string, { machine: string; numero: string; referencia: string; stations: Map<number, number>; itens: Entry[] }>();
   for (const entry of entries) {
     const numero = entry.matrizNumero.trim();
     const referencia = entry.matrizRel.trim();
-    const chave = `${numero}||${referencia}`;
+    const chave = `${entry.machine}||${numero}||${referencia}`;
     const atual = grupos.get(chave) ?? {
+      machine: entry.machine,
       numero,
       referencia,
-      machines: new Map<string, number>(),
       stations: new Map<number, number>(),
-      solas: 0,
+      itens: [],
     };
-    atual.solas += 1;
-    atual.machines.set(entry.machine, (atual.machines.get(entry.machine) ?? 0) + 1);
+    atual.itens.push(entry);
     atual.stations.set(entry.station, (atual.stations.get(entry.station) ?? 0) + 1);
     grupos.set(chave, atual);
   }
   const total = entries.length;
   return [...grupos.values()]
     .map((item) => ({
-      chave: `${item.numero}||${item.referencia}`,
+      chave: `${item.machine}||${item.numero}||${item.referencia}`,
+      machine: item.machine,
       numero: item.numero || "sem nº",
       referencia: item.referencia,
-      maquinas: [...item.machines.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .map(([machine]) => machine)
-        .join(" · "),
       estacoes: [...item.stations.entries()]
         .sort((a, b) => b[1] - a[1])
         .map(([station]) => pad2(station))
         .join(" · "),
-      solas: item.solas,
-      pares: pares(item.solas),
-      percentual: total > 0 ? Math.round((item.solas / total) * 100) : 0,
+      solas: item.itens.length,
+      pares: paresDasEntradas(item.itens),
+      percentual: total > 0 ? Math.round((item.itens.length / total) * 100) : 0,
     }))
-    .sort((a, b) => b.solas - a.solas || a.numero.localeCompare(b.numero, "pt-BR"))
-    .slice(0, 8);
+    .sort((a, b) => b.solas - a.solas || a.machine.localeCompare(b.machine) || a.numero.localeCompare(b.numero, "pt-BR"))
+    .slice(0, limite);
 }
 
 function PainelMesa({
