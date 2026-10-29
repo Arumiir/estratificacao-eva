@@ -2492,6 +2492,7 @@ function SheetScreen({
   onNotice: (text: string) => void;
 }) {
   const [busy, setBusy] = useState<"foto" | "pdf" | null>(null);
+  const [abaLider, setAbaLider] = useState<"diario" | "geral">("diario");
   const [escolherFoto, setEscolherFoto] = useState(false);
   const [escolhidas, setEscolhidas] = useState<MachineId[]>([]);
   const view: State =
@@ -2562,31 +2563,42 @@ function SheetScreen({
     <>
       {papel === "lider" ? (
         <>
-          <PainelHistorico state={state} today={today} onDate={onDate} />
-          <div className="mt-4">
-            <p className="mb-2 text-sm font-semibold text-muted">Ficha para o gestor</p>
-            <TurnoPicker value={state.turno} onChange={onTurno} />
+          <div className="mb-4 flex flex-wrap gap-2">
+            {(
+              [
+                ["diario", "Acompanhamento diário"],
+                ["geral", "Visão geral"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setAbaLider(id)}
+                className={cx(
+                  "rounded-full px-4 py-2 text-sm font-semibold",
+                  abaLider === id ? "bg-[#2457b8] text-white" : "bg-white text-fg shadow-[0_6px_16px_rgba(47,84,150,0.06)]",
+                )}
+              >
+                {label}
+              </button>
+            ))}
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              disabled={busy !== null || shown.length === 0}
-              onClick={abrirSeletor}
-              className="flex items-center justify-center gap-2 rounded-tile bg-surface-2 py-3 font-semibold disabled:opacity-60"
-            >
-              <ImageDown className="size-5" />
-              {busy === "foto" ? "Gerando…" : "Baixar imagens"}
-            </button>
-            <button
-              type="button"
-              disabled={busy !== null || shown.length === 0}
-              onClick={() => void downloadPdf()}
-              className="flex items-center justify-center gap-2 rounded-tile bg-surface-2 py-3 font-semibold disabled:opacity-60"
-            >
-              <Download className="size-5" />
-              {busy === "pdf" ? "Gerando…" : "Baixar PDF"}
-            </button>
-          </div>
+          {abaLider === "geral" ? (
+            <PainelHistorico state={state} today={today} onDate={onDate} />
+          ) : (
+            <AcompanhamentoDiario
+              state={view}
+              today={today}
+              offDay={offDay}
+              onDate={onDate}
+              onTurno={onTurno}
+              shown={shown}
+              busy={busy}
+              onPhoto={abrirSeletor}
+              onPdf={() => void downloadPdf()}
+              onDelete={onDelete}
+            />
+          )}
         </>
       ) : (
         <div>
@@ -3996,6 +4008,297 @@ function GradeSomenteLeitura({ state, machine }: { state: State; machine: Machin
           </div>
         ))}
     </div>
+  );
+}
+
+function AcompanhamentoDiario({
+  state,
+  today,
+  offDay,
+  onDate,
+  onTurno,
+  shown,
+  busy,
+  onPhoto,
+  onPdf,
+  onDelete,
+}: {
+  state: State;
+  today: string;
+  offDay: boolean;
+  onDate: (date: string) => void;
+  onTurno: (turno: Turno) => void;
+  shown: MachineId[];
+  busy: "foto" | "pdf" | null;
+  onPhoto: () => void;
+  onPdf: () => void;
+  onDelete?: (entries: Entry[]) => void;
+}) {
+  const comGrade = MACHINES.filter((machine) => machineHasMatrices(state, machine) && !shown.includes(machine));
+  const [aberta, setAberta] = useState<MachineId | null>(shown[0] ?? null);
+  const aoVivo = state.date === today;
+
+  return (
+    <div className="grid gap-4">
+      <div>
+        <h2 className="font-display text-4xl leading-none text-fg">Acompanhamento diário</h2>
+        <p className="mt-2 text-sm text-muted">
+          {aoVivo ? "Lançamentos ao vivo. " : "Dia fechado. "}
+          Máquina, estação e a matriz que está nela agora.
+        </p>
+      </div>
+      <DayControls state={state} today={today} offDay={offDay} onDate={onDate} />
+      <TurnoPicker value={state.turno} onChange={onTurno} />
+      {shown.length === 0 ? (
+        <p className="rounded-tile border border-dashed border-line bg-surface px-4 py-6 text-base text-muted">
+          Nenhuma máquina apontada neste turno.
+        </p>
+      ) : (
+        shown.map((machine) => (
+          <MaquinaDoDia
+            key={machine}
+            state={state}
+            machine={machine}
+            aberta={aberta === machine}
+            onToggle={() => setAberta((atual) => (atual === machine ? null : machine))}
+            onDelete={onDelete}
+          />
+        ))
+      )}
+      {comGrade.length > 0 ? (
+        <div>
+          <p className="text-sm font-semibold text-muted">Matrizaria sem perda neste turno</p>
+          <div className="mt-2 grid gap-3">
+            {comGrade.map((machine) => (
+              <MaquinaDoDia
+                key={machine}
+                state={state}
+                machine={machine}
+                aberta={aberta === machine}
+                onToggle={() => setAberta((atual) => (atual === machine ? null : machine))}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          disabled={busy !== null || shown.length === 0}
+          onClick={onPhoto}
+          className="flex items-center justify-center gap-2 rounded-tile bg-surface-2 py-3 font-semibold disabled:opacity-60"
+        >
+          <ImageDown className="size-5" />
+          {busy === "foto" ? "Gerando…" : "Baixar imagens"}
+        </button>
+        <button
+          type="button"
+          disabled={busy !== null || shown.length === 0}
+          onClick={onPdf}
+          className="flex items-center justify-center gap-2 rounded-tile bg-surface-2 py-3 font-semibold disabled:opacity-60"
+        >
+          <Download className="size-5" />
+          {busy === "pdf" ? "Gerando…" : "Baixar PDF"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MaquinaDoDia({
+  state,
+  machine,
+  aberta,
+  onToggle,
+  onDelete,
+}: {
+  state: State;
+  machine: MachineId;
+  aberta: boolean;
+  onToggle: () => void;
+  onDelete?: (entries: Entry[]) => void;
+}) {
+  const lines = fichaLines(state, machine);
+  const mine = shiftEntries(state, machine);
+  const paresMaquina = paresDasEntradas(mine);
+  const nomes = nomesNaFicha(state, machine);
+  const [pedir, setPedir] = useState(false);
+  const editaveis = mine.filter((entry) => podeAlterarApontamento(entry));
+  const resumo = estacoesDoDia(state, machine, lines).filter((item) => item.pares > 0);
+
+  return (
+    <section className="overflow-hidden rounded-3xl bg-white shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+      <button type="button" onClick={onToggle} aria-expanded={aberta} className="w-full px-4 py-4 text-left">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="font-display text-4xl leading-none">{machine}</h3>
+            <p className="mt-1 text-sm text-muted">
+              {paresMaquina} {paresMaquina === 1 ? "par" : "pares"}
+              {nomes ? ` · ${nomes}` : ""}
+            </p>
+          </div>
+          <ChevronDown className={cx("mt-1 size-6 shrink-0 text-muted transition-transform", aberta && "rotate-180")} />
+        </div>
+        {resumo.length > 0 ? (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {resumo.map((item) => (
+              <span key={item.chave} className="rounded-full bg-[#f3f6fb] px-2.5 py-1 text-xs font-semibold text-fg">
+                Est. {item.titulo} · {item.matrizCurta} · {item.pares} {item.pares === 1 ? "par" : "pares"}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-2 text-sm text-muted">Matriz no lugar. Sem perda neste turno.</p>
+        )}
+      </button>
+      {aberta ? (
+        <div className="grid gap-2 border-t border-[#f3f2f1] px-3 py-3">
+          {estacoesDoDia(state, machine, lines).map((item) => (
+            <article key={item.chave} className="rounded-2xl bg-[#f7f9fd] px-3 py-3">
+              <div className="flex items-start justify-between gap-3">
+                <h4 className="font-display text-2xl leading-none">Estação {item.titulo}</h4>
+                <p className="text-right text-sm font-semibold tabular-nums">
+                  {item.pares} {item.pares === 1 ? "par" : "pares"}
+                </p>
+              </div>
+              <div className="mt-2 grid gap-1">
+                {item.matrizes.map((matriz) => (
+                  <p key={matriz.lado} className="text-sm leading-snug">
+                    <span className="font-semibold text-muted">{matriz.lado} </span>
+                    {matriz.texto}
+                  </p>
+                ))}
+              </div>
+              {item.perdas.length === 0 ? (
+                <p className="mt-2 text-sm text-muted">Sem lançamento nesta estação.</p>
+              ) : (
+                <ul className="mt-2 grid gap-1.5">
+                  {item.perdas.map((perda) => (
+                    <li key={perda.chave} className="flex items-start justify-between gap-3 text-sm">
+                      <span className="min-w-0 leading-snug">
+                        <span className="font-semibold">{perda.lado}</span>
+                        <span className="text-muted"> · </span>
+                        {perda.nome}
+                      </span>
+                      <span className="shrink-0 font-semibold tabular-nums">
+                        {perda.pares} {perda.pares === 1 ? "par" : "pares"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </article>
+          ))}
+          {onDelete && editaveis.length > 0 ? (
+            pedir ? (
+              <div className="flex items-center gap-2 rounded-2xl bg-[#f7f9fd] px-3 py-2">
+                <span className="min-w-0 flex-1 text-sm font-semibold">
+                  Excluir {editaveis.length} apontamento{editaveis.length === 1 ? "" : "s"} desta máquina?
+                </span>
+                <button type="button" onClick={() => setPedir(false)} className="text-sm font-semibold text-muted">
+                  Não
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPedir(false);
+                    onDelete(editaveis);
+                  }}
+                  className="rounded-xl bg-[#9b3a34] px-3 py-2 text-sm font-semibold text-white"
+                >
+                  Excluir
+                </button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => setPedir(true)} className="py-2 text-sm font-semibold text-[#9b3a34]">
+                Excluir apontamentos
+              </button>
+            )
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function estacoesDoDia(state: State, machine: MachineId, lines: FichaLine[]) {
+  const daGrade = STATIONS.flatMap((station) => {
+    const doPosto = lines.filter((line) => !line.outroId && line.station === station);
+    const config = state.stations[stationKey(machine, station)];
+    const ambos = Boolean(config?.ambos);
+    const matrizes = ambos
+      ? [{ lado: "Ambos", texto: describeMatrix(config, "esq") || textoDaLinha(doPosto[0]) || "sem numeração" }]
+      : SIDES.map((side) => {
+          const linha = doPosto.find((item) => item.side === side);
+          return { lado: SIDE_SHORT[side], texto: describeMatrix(config, side) || textoDaLinha(linha) || "sem numeração" };
+        });
+    const temMatriz = matrizes.some((item) => item.texto !== "sem numeração");
+    const perdas = perdasDasLinhas(doPosto);
+    if (!temMatriz && perdas.length === 0) return [];
+    const paresEstacao = perdas.reduce((soma, item) => soma + item.pares, 0);
+    return [
+      {
+        chave: `est-${station}`,
+        titulo: pad2(station),
+        matrizCurta: matrizes
+          .filter((item) => item.texto !== "sem numeração")
+          .map((item) => (ambos ? item.texto : `${item.lado} ${item.texto}`))
+          .join(" · ") || "sem nº",
+        pares: paresEstacao,
+        matrizes,
+        perdas,
+      },
+    ];
+  });
+  const trocas = lines
+    .filter((line) => line.outroId)
+    .reduce<FichaLine[][]>((grupos, line) => {
+      const grupo = grupos.find((item) => item[0]?.outroId === line.outroId);
+      if (grupo) grupo.push(line);
+      else grupos.push([line]);
+      return grupos;
+    }, [])
+    .map((grupo) => {
+      const primeiro = grupo[0];
+      const ambos = Boolean(primeiro?.shared);
+      const perdas = perdasDasLinhas(grupo);
+      const titulo = primeiro && primeiro.station >= 1 ? `Troca ${pad2(primeiro.station)}` : "Troca";
+      return {
+        chave: primeiro?.outroId ?? "troca",
+        titulo,
+        matrizCurta: textoDaLinha(primeiro) || "sem nº",
+        pares: perdas.reduce((soma, item) => soma + item.pares, 0),
+        matrizes: ambos
+          ? [{ lado: "Ambos", texto: textoDaLinha(primeiro) || "sem numeração" }]
+          : grupo.map((line) => ({ lado: SIDE_SHORT[line.side], texto: textoDaLinha(line) || "sem numeração" })),
+        perdas,
+      };
+    });
+  return [...daGrade, ...trocas];
+}
+
+function textoDaLinha(line: FichaLine | undefined): string {
+  if (!line) return "";
+  const numero = line.numero.trim();
+  const referencia = line.referencia.trim();
+  if (numero && referencia) return `${numero} · ${referencia}`;
+  return numero || referencia;
+}
+
+function perdasDasLinhas(lines: FichaLine[]) {
+  return lines.flatMap((line) =>
+    PROBLEMS.flatMap((problem, index) => {
+      const solas = line.counts[index] ?? 0;
+      if (solas <= 0) return [];
+      return [
+        {
+          chave: `${line.outroId}-${line.side}-${problem.id}`,
+          lado: SIDE_SHORT[line.side],
+          nome: problem.name,
+          pares: pares(solas),
+        },
+      ];
+    }),
   );
 }
 
