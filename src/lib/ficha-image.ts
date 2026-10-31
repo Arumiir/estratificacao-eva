@@ -5,7 +5,6 @@ import {
   TURNO_LABEL,
   fichaLines,
   formatDateBR,
-  nomesNaFicha,
   pad2,
   type FichaLine,
   type MachineId,
@@ -139,9 +138,7 @@ function drawFicha(
   ctx.fillText("ESTRATIFICAÇÃO DAS PERDAS", margin + 24, headerY + 46);
 
   ctx.font = "600 26px 'Source Sans 3', sans-serif";
-  const assinatura = nomesNaFicha(state, machine);
   let meta = `${formatDateBR(state.date)}     ${TURNO_LABEL[state.turno]}`;
-  if (assinatura) meta += `     ${assinatura}`;
   const maxMeta = W - margin * 2 - 250;
   if (ctx.measureText(meta).width > maxMeta) ctx.font = "600 22px 'Source Sans 3', sans-serif";
   while (ctx.measureText(meta).width > maxMeta && meta.length > 12) meta = `${meta.slice(0, -2)}…`;

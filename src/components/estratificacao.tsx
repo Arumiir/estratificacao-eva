@@ -6,8 +6,6 @@ import {
   ChevronDown,
   ClipboardList,
   Download,
-  Eye,
-  EyeOff,
   ImageDown,
   Minus,
   Plus,
@@ -38,7 +36,6 @@ import {
   mergeFechamentos,
   outroVivo,
   mergeSharedEntries,
-  nomesNaFicha,
   pad2,
   parseMachine,
   podeAlterarApontamento,
@@ -64,12 +61,11 @@ import {
 } from "@/lib/perdas";
 import { downloadBlob, renderFichasDaMaquina, renderFichasPdf } from "@/lib/ficha-image";
 import { enviarPlanilha, pullApontamentos, pullHistorico, pushApontamentos } from "@/lib/apontamentos.functions";
-import { entrar, criarPreparador } from "@/lib/login.functions";
 
 type Papel = "preparador" | "lider";
-type Sessao = { papel: Papel; nome: string; turno: Turno | null };
+type Sessao = { papel: Papel; turno: Turno | null };
 
-const SESSAO_KEY = "estratificacao-sessao-v2";
+const SESSAO_KEY = "estratificacao-sessao-v3";
 
 function turnoDaSessao(value: unknown, papel: Papel): Turno | null {
   if (value === "1" || value === "2" || value === "3") return value;
@@ -82,11 +78,9 @@ function loadSessao(): Sessao | null {
     if (!raw) return null;
     const data: unknown = JSON.parse(raw);
     if (!data || typeof data !== "object") return null;
-    const row = data as { papel?: unknown; nome?: unknown; turno?: unknown };
+    const row = data as { papel?: unknown; turno?: unknown };
     if (row.papel !== "preparador" && row.papel !== "lider") return null;
-    if (typeof row.nome !== "string" || row.nome.trim().length < 2) return null;
-    if (row.nome.trim() === "0000") return null;
-    return { papel: row.papel, nome: row.nome.trim(), turno: turnoDaSessao(row.turno, row.papel) };
+    return { papel: row.papel, turno: turnoDaSessao(row.turno, row.papel) };
   } catch {
     return null;
   }
@@ -103,16 +97,16 @@ function saveSessao(sessao: Sessao | null) {
 
 const POSTO_KEY = "estratificacao-posto-v1";
 
-type Posto = { nome: string; date: string; turno: Turno; machine: MachineId };
+type Posto = { date: string; turno: Turno; machine: MachineId };
 
-function loadPosto(nome: string, date: string, turno: Turno): MachineId | null {
+function loadPosto(date: string, turno: Turno): MachineId | null {
   try {
     const raw = localStorage.getItem(POSTO_KEY);
     if (!raw) return null;
     const data: unknown = JSON.parse(raw);
     if (!data || typeof data !== "object") return null;
     const row = data as Posto;
-    if (row.nome !== nome || row.date !== date || row.turno !== turno) return null;
+    if (row.date !== date || row.turno !== turno) return null;
     return parseMachine(row.machine);
   } catch {
     return null;
@@ -557,7 +551,6 @@ export function EstratificacaoApp() {
   const [stack, setStack] = useState<Screen[]>([{ kind: "papel" }]);
   const [dir, setDir] = useState<"forward" | "back">("forward");
   const [banner, setBanner] = useState<Banner | null>(null);
-  const [menuAberto, setMenuAberto] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const stackRef = useRef<Screen[]>([{ kind: "papel" }]);
   const homeRef = useRef<Screen>({ kind: "papel" });
@@ -642,10 +635,10 @@ export function EstratificacaoApp() {
     if (!state || sessao?.papel !== "preparador") return;
     const turno = sessao.turno ?? "1";
     const hoje = todayISO();
-    const chave = `${sessao.nome}|${hoje}|${turno}`;
+    const chave = `${hoje}|${turno}`;
     if (postoDia.current === chave) return;
     postoDia.current = chave;
-    const machine = loadPosto(sessao.nome, hoje, turno);
+    const machine = loadPosto(hoje, turno);
     const home: Screen = machine ? destinoDaMaquina(state, machine) : { kind: "machines" };
     homeRef.current = home;
     stackRef.current = [home];
@@ -653,11 +646,10 @@ export function EstratificacaoApp() {
     setDir("forward");
     setStack([home]);
     window.history.replaceState(stampDepth(1), "");
-  }, [Boolean(state), sessao?.papel, sessao?.nome, sessao?.turno, state?.date]);
+  }, [Boolean(state), sessao?.papel, sessao?.turno, state?.date]);
 
   useEffect(() => {
     scroller.current?.scrollTo(0, 0);
-    setMenuAberto(false);
   }, [key]);
 
   useEffect(() => {
@@ -707,7 +699,7 @@ export function EstratificacaoApp() {
     postoDia.current = "";
     saveSessao(next);
     setSessao(next);
-    if (next.papel === "preparador" || next.papel === "lider") {
+    if (next.papel === "preparador") {
       commit((current) => ({ ...current, turno: next.turno ?? "1" }));
     }
     const home: Screen =
@@ -768,7 +760,6 @@ export function EstratificacaoApp() {
   if (!state || !sessaoReady) return <Loading />;
 
   const papel = sessao?.papel ?? null;
-  const nome = sessao?.nome ?? "";
 
   const today = todayISO();
   const offDay = state.date !== today;
@@ -786,7 +777,7 @@ export function EstratificacaoApp() {
     const current = read();
     if (!current) return;
     if (sessao?.papel === "preparador") {
-      savePosto({ nome: sessao.nome, date: today, turno: sessao.turno ?? current.turno, machine });
+      savePosto({ date: today, turno: sessao.turno ?? current.turno, machine });
     }
     const dest = destinoDaMaquina(current, machine);
     if (sessao?.papel === "preparador") homeRef.current = dest;
@@ -983,7 +974,7 @@ export function EstratificacaoApp() {
         at,
         matrizNumero: snapshot.numero,
         matrizRel: snapshot.referencia,
-        autor: nome,
+        autor: "",
         outroId,
         corId: outro ? "" : (cor?.id ?? ""),
         corNome: outro ? "" : (cor?.nome ?? ""),
@@ -998,11 +989,8 @@ export function EstratificacaoApp() {
     );
   }
 
-  function sameAuthor(entry: Entry) {
-    if (papel !== "preparador") return true;
-    const mine = nome.trim().toLocaleLowerCase("pt-BR");
-    const autor = entry.autor.trim().toLocaleLowerCase("pt-BR");
-    return autor === mine || autor === "";
+  function sameAuthor(_entry: Entry) {
+    return true;
   }
 
   function removeCount(machine: MachineId, station: number, side: Side, problem: string, outroId: string, quantidade: number, corId = "") {
@@ -1105,40 +1093,17 @@ export function EstratificacaoApp() {
               </p>
             ) : null}
           </div>
-          {papel === "preparador" && nome ? (
-            <div className="flex shrink-0 items-center gap-2">
-              {screen.kind !== "sheet" ? (
-                <button
-                  type="button"
-                  onClick={() => push({ kind: "sheet", machine: null })}
-                  aria-label="Lançamentos"
-                  className="grid size-11 place-items-center rounded-tile bg-accent text-accent-ink"
-                >
-                  <ClipboardList className="size-6" />
-                </button>
-              ) : null}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setMenuAberto((open) => !open)}
-                  aria-label={`Menu de ${nome}`}
-                  aria-expanded={menuAberto}
-                  className="grid size-11 place-items-center rounded-full bg-accent font-display text-2xl leading-none text-accent-ink"
-                >
-                  {nome.trim().charAt(0).toLocaleUpperCase("pt-BR")}
-                </button>
-                {menuAberto ? (
-                  <button
-                    type="button"
-                    onClick={leavePapel}
-                    className="absolute right-0 top-full z-40 mt-2 rounded-tile border border-line bg-surface px-4 py-3 text-sm font-semibold text-accent shadow-lg"
-                  >
-                    Sair
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          ) : papel ? (
+          {papel === "preparador" && screen.kind !== "sheet" ? (
+            <button
+              type="button"
+              onClick={() => push({ kind: "sheet", machine: null })}
+              aria-label="Lançamentos"
+              className="grid size-11 shrink-0 place-items-center rounded-tile bg-accent text-accent-ink"
+            >
+              <ClipboardList className="size-6" />
+            </button>
+          ) : null}
+          {papel ? (
             <button
               type="button"
               onClick={leavePapel}
@@ -1186,14 +1151,12 @@ export function EstratificacaoApp() {
             dir === "forward" ? "enter-forward" : "enter-back",
           )}
         >
-          {screen.kind === "papel" ? (
-            <PapelScreen onPick={chooseSessao} onFail={(text) => flash(text)} />
-          ) : null}
+          {screen.kind === "papel" ? <PortaScreen onPick={chooseSessao} /> : null}
 
           {papel === "preparador" && screen.kind === "machines" ? (
             <MachinesScreen
               state={state}
-              atual={loadPosto(nome, today, sessao?.turno ?? state.turno)}
+              atual={loadPosto(today, sessao?.turno ?? state.turno)}
               onOpen={openMachine}
             />
           ) : null}
@@ -1280,7 +1243,7 @@ export function EstratificacaoApp() {
               station={screen.station}
               side={screen.side}
               offDay={offDay}
-              autor={papel === "preparador" ? nome : ""}
+              autor=""
               onAdd={(problem) =>
                 addProblem(screen.machine, screen.station, screen.side, problem, screen.outroId ?? "")
               }
@@ -1299,8 +1262,7 @@ export function EstratificacaoApp() {
               onDate={setDate}
               onTurno={setTurno}
               papel={papel}
-              nome={nome}
-              posto={sessao?.papel === "preparador" ? loadPosto(nome, today, sessao.turno ?? state.turno) : null}
+              posto={sessao?.papel === "preparador" ? loadPosto(today, sessao.turno ?? state.turno) : null}
               onTrocar={sessao?.papel === "preparador" ? () => push({ kind: "machines" }) : undefined}
               onDelete={(entries) =>
                 removeMany(
@@ -1367,7 +1329,7 @@ function headerFor(screen: Screen): { context: string } {
     case "sheet":
       return { context: "Lançamentos" };
     case "papel":
-      return { context: "Quem está usando" };
+      return { context: "" };
   }
 }
 
@@ -1406,215 +1368,28 @@ function Field({
   );
 }
 
-function PapelScreen({
-  onPick,
-  onFail,
-}: {
-  onPick: (sessao: Sessao) => void;
-  onFail: (text: string) => void;
-}) {
-  const [nome, setNome] = useState("");
-  const [senha, setSenha] = useState("");
-  const [mostraSenha, setMostraSenha] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [erro, setErro] = useState("");
-  const [cadastro, setCadastro] = useState(false);
-
-  async function submit() {
-    if (nome.trim().length < 2 || senha.length < 4) {
-      setErro("Digite o nome e a senha.");
-      return;
-    }
-    setBusy(true);
-    setErro("");
-    try {
-      const result = await entrar({ data: { nome, senha } });
-      if (!result.ok) {
-        setErro("Nome ou senha errados.");
-        return;
-      }
-      onPick({
-        papel: result.papel,
-        nome: result.nome,
-        turno: result.turno ?? (result.papel === "preparador" ? "1" : null),
-      });
-    } catch {
-      onFail("Sem rede para entrar. Tente de novo.");
-      setErro("Sem rede para entrar.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (cadastro) {
-    return (
-      <CadastroScreen
-        onVoltar={() => {
-          setCadastro(false);
-          setErro("");
-        }}
-        onFail={onFail}
-      />
-    );
-  }
-
+function PortaScreen({ onPick }: { onPick: (sessao: Sessao) => void }) {
   return (
-    <form
-      onSubmit={(event) => {
-        event.preventDefault();
-        void submit();
-      }}
-      className="mx-auto w-full max-w-md rounded-tile border border-line bg-surface p-5 lg:mt-10 lg:p-8"
-    >
-      <p className="text-base text-muted">Entre com o seu nome e a sua senha.</p>
-      <label className="mt-4 block">
-        <span className="mb-1 block text-sm font-semibold text-muted">Nome</span>
-        <input
-          value={nome}
-          autoComplete="username"
-          onChange={(event) => setNome(event.target.value)}
-          className="w-full rounded-tile border border-line bg-surface-2 px-3 py-3 text-base text-fg"
-        />
-      </label>
-      <label className="mt-3 block">
-        <span className="mb-1 block text-sm font-semibold text-muted">Senha</span>
-        <span className="relative block">
-          <input
-            type={mostraSenha ? "text" : "password"}
-            value={senha}
-            autoComplete="current-password"
-            onChange={(event) => setSenha(event.target.value)}
-            className="w-full rounded-tile border border-line bg-surface-2 px-3 py-3 pr-12 text-base text-fg"
-          />
-          <button
-            type="button"
-            onClick={() => setMostraSenha((value) => !value)}
-            aria-label={mostraSenha ? "Ocultar senha" : "Mostrar senha"}
-            className="absolute inset-y-0 right-0 grid w-12 place-items-center text-muted"
-          >
-            {mostraSenha ? <EyeOff className="size-5" /> : <Eye className="size-5" />}
-          </button>
-        </span>
-      </label>
-      {erro ? <p className="mt-2 text-sm font-semibold text-accent">{erro}</p> : null}
-      <button
-        type="submit"
-        disabled={busy}
-        className="mt-4 w-full rounded-tile bg-accent py-4 font-display text-3xl leading-none text-accent-ink disabled:opacity-60"
-      >
-        {busy ? "Entrando…" : "Entrar"}
-      </button>
+    <div className="mx-auto grid w-full max-w-md gap-3 lg:mt-8">
+      <p className="text-base text-muted">Escolha o turno para apontar, ou abra o dashboard.</p>
+      {(["1", "2", "3"] as const).map((turno) => (
+        <button
+          key={turno}
+          type="button"
+          onClick={() => onPick({ papel: "preparador", turno })}
+          className="rounded-tile bg-accent py-5 font-display text-4xl leading-none text-accent-ink"
+        >
+          {TURNO_LABEL[turno]}
+        </button>
+      ))}
       <button
         type="button"
-        onClick={() => setCadastro(true)}
-        className="mt-3 w-full rounded-tile border border-line bg-surface py-3 text-base font-semibold"
+        onClick={() => onPick({ papel: "lider", turno: null })}
+        className="rounded-tile border border-line bg-surface py-5 font-display text-3xl leading-none text-fg"
       >
-        Cadastrar
+        Dashboard geral
       </button>
-    </form>
-  );
-}
-
-function CadastroScreen({ onVoltar, onFail }: { onVoltar: () => void; onFail: (text: string) => void }) {
-  const [nome, setNome] = useState("");
-  const [senha, setSenha] = useState("");
-  const [turno, setTurno] = useState<Turno>("1");
-  const [mostraSenha, setMostraSenha] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [erro, setErro] = useState("");
-  const [pronto, setPronto] = useState("");
-
-  async function submit() {
-    if (nome.trim().length < 2 || senha.length < 4) {
-      setErro("Digite o nome, a senha e o turno.");
-      return;
-    }
-    setBusy(true);
-    setErro("");
-    try {
-      const result = await criarPreparador({ data: { nome, senha, turno } });
-      if (!result.ok) {
-        setErro(result.erro);
-        return;
-      }
-      setPronto(`${result.nome} cadastrado no ${TURNO_LABEL[turno]}.`);
-      setNome("");
-      setSenha("");
-    } catch {
-      onFail("Sem rede para cadastrar. Tente de novo.");
-      setErro("Sem rede para cadastrar.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <form
-      onSubmit={(event) => {
-        event.preventDefault();
-        void submit();
-      }}
-      className="mx-auto w-full max-w-md rounded-tile border border-line bg-surface p-5 lg:mt-10 lg:p-8"
-    >
-      <p className="text-base text-muted">Novo preparador. O turno fica fixo nesse usuário.</p>
-      <p className="mb-2 mt-4 text-sm font-semibold text-muted">Turno</p>
-      <div className="grid grid-cols-3 gap-2">
-        {(["1", "2", "3"] as const).map((item) => (
-          <button
-            key={item}
-            type="button"
-            onClick={() => setTurno(item)}
-            className={cx(
-              "rounded-tile px-2 py-3 text-sm font-semibold",
-              turno === item ? "bg-accent text-accent-ink" : "bg-surface-2 text-fg",
-            )}
-          >
-            {TURNO_LABEL[item]}
-          </button>
-        ))}
-      </div>
-      <label className="mt-4 block">
-        <span className="mb-1 block text-sm font-semibold text-muted">Nome</span>
-        <input
-          value={nome}
-          autoComplete="off"
-          onChange={(event) => setNome(event.target.value)}
-          className="w-full rounded-tile border border-line bg-surface-2 px-3 py-3 text-base text-fg"
-        />
-      </label>
-      <label className="mt-3 block">
-        <span className="mb-1 block text-sm font-semibold text-muted">Senha</span>
-        <span className="relative block">
-          <input
-            type={mostraSenha ? "text" : "password"}
-            value={senha}
-            autoComplete="new-password"
-            onChange={(event) => setSenha(event.target.value)}
-            className="w-full rounded-tile border border-line bg-surface-2 px-3 py-3 pr-12 text-base text-fg"
-          />
-          <button
-            type="button"
-            onClick={() => setMostraSenha((value) => !value)}
-            aria-label={mostraSenha ? "Ocultar senha" : "Mostrar senha"}
-            className="absolute inset-y-0 right-0 grid w-12 place-items-center text-muted"
-          >
-            {mostraSenha ? <EyeOff className="size-5" /> : <Eye className="size-5" />}
-          </button>
-        </span>
-      </label>
-      {erro ? <p className="mt-2 text-sm font-semibold text-accent">{erro}</p> : null}
-      {pronto ? <p className="mt-2 text-sm font-semibold text-fg">{pronto}</p> : null}
-      <button
-        type="submit"
-        disabled={busy}
-        className="mt-4 w-full rounded-tile bg-accent py-4 font-display text-3xl leading-none text-accent-ink disabled:opacity-60"
-      >
-        {busy ? "Salvando…" : "Cadastrar"}
-      </button>
-      <button type="button" onClick={onVoltar} className="mt-3 w-full py-2 text-sm font-semibold text-muted">
-        Voltar para entrar
-      </button>
-    </form>
+    </div>
   );
 }
 
@@ -2473,7 +2248,6 @@ function SheetScreen({
   onDate,
   onTurno,
   papel,
-  nome,
   posto,
   onTrocar,
   onDelete,
@@ -2485,7 +2259,6 @@ function SheetScreen({
   onDate: (date: string) => void;
   onTurno: (turno: Turno) => void;
   papel: Papel;
-  nome: string;
   posto?: MachineId | null;
   onTrocar?: () => void;
   onDelete?: (entries: Entry[]) => void;
@@ -2495,10 +2268,7 @@ function SheetScreen({
   const [abaLider, setAbaLider] = useState<"geral" | "diario">("geral");
   const [escolherFoto, setEscolherFoto] = useState(false);
   const [escolhidas, setEscolhidas] = useState<MachineId[]>([]);
-  const view: State =
-    papel === "preparador"
-      ? { ...state, entries: state.entries.filter((entry) => entry.autor === nome) }
-      : state;
+  const view = state;
   const shown = MACHINES.filter((machine) => shiftEntries(view, machine).length > 0);
   const fileBase = `perdas-${state.date}-turno-${state.turno}`;
 
@@ -2602,7 +2372,7 @@ function SheetScreen({
         </>
       ) : (
         <div>
-          <p className="mb-3 text-sm text-muted">Só o seu turno. A imagem e o PDF saem com o seu nome.</p>
+          <p className="mb-3 text-sm text-muted">Lançamentos deste turno.</p>
           {onTrocar ? (
             <button
               type="button"
@@ -4096,7 +3866,6 @@ function MaquinaDoDia({
   const lines = fichaLines(state, machine);
   const mine = shiftEntries(state, machine);
   const paresMaquina = paresDasEntradas(mine);
-  const nomes = nomesNaFicha(state, machine);
   const piores = topProblems(lines);
   const [pedir, setPedir] = useState(false);
   const editaveis = mine.filter((entry) => podeAlterarApontamento(entry));
@@ -4110,7 +3879,6 @@ function MaquinaDoDia({
             <h3 className="font-display text-4xl leading-none">{machine}</h3>
             <p className="mt-1 text-sm text-muted">
               {paresMaquina} {paresMaquina === 1 ? "par" : "pares"}
-              {nomes ? ` · ${nomes}` : ""}
             </p>
           </div>
           <ChevronDown className={cx("mt-1 size-6 shrink-0 text-muted transition-transform", aberta && "rotate-180")} />
@@ -4313,7 +4081,6 @@ function FichaSheet({
         </div>
         <p className="mt-1 text-sm">
           {formatDateBR(state.date)} · {TURNO_LABEL[state.turno]}
-          {nomesNaFicha(state, machine) ? ` · ${nomesNaFicha(state, machine)}` : ""}
         </p>
         <TopProblems lines={lines} />
       </button>
