@@ -1193,7 +1193,9 @@ export function EstratificacaoApp() {
           key={key}
           className={cx(
             "mx-auto w-full min-w-0 px-4 py-4",
-            screen.kind === "hub" || screen.kind === "producao" || screen.kind === "teste-maquina" ? "pb-4" : "pb-28",
+            screen.kind === "producao" || screen.kind === "teste-maquina" || screen.kind === "matrices" || screen.kind === "outros"
+              ? "pb-4"
+              : "pb-28",
             screen.kind === "sheet" ? "max-w-6xl lg:max-w-none lg:px-5 lg:py-3" : "max-w-6xl lg:px-8",
             dir === "forward" ? "enter-forward" : "enter-back",
           )}
@@ -1274,7 +1276,7 @@ export function EstratificacaoApp() {
                     })
               }
               onDeleteOutro={removeOutro}
-              onTrocar={() => push({ kind: "machines" })}
+              onTrocar={() => push({ kind: "outros", machine: screen.machine })}
             />
           ) : null}
 
@@ -1463,7 +1465,7 @@ function PortaScreen({
   }
 
   return (
-    <div className="mx-auto grid w-full max-w-md gap-3 lg:mt-8">
+    <div className="mx-auto flex min-h-[calc(100dvh-10.5rem)] w-full max-w-md flex-col justify-center gap-3">
       {(["1", "2", "3"] as const).map((turno) => (
         <button
           key={turno}
@@ -1546,8 +1548,8 @@ function HubMaquina({
   onTrocar: () => void;
 }) {
   return (
-    <div className="mx-auto flex min-h-[calc(100dvh-10.5rem)] w-full max-w-md flex-col items-center">
-      <h2 className="mt-8 text-center font-display text-5xl leading-none">{machine}</h2>
+    <div className="mx-auto flex min-h-[calc(100dvh-10.5rem)] w-full max-w-md flex-col items-center justify-center">
+      <h2 className="text-center font-display text-5xl leading-none">{machine}</h2>
       <div className="mt-6 flex justify-center gap-3">
         <button
           type="button"
@@ -1566,7 +1568,7 @@ function HubMaquina({
           <IconeTroca />
         </button>
       </div>
-      <div className="sticky bottom-0 mt-auto grid w-full gap-2 bg-bg/95 py-3 backdrop-blur">
+      <div className="mt-8 grid w-full gap-2">
         <button
           type="button"
           onClick={onProducao}
@@ -1638,7 +1640,7 @@ function TesteMaquinas({ onOpen }: { onOpen: (machine: MachineId) => void }) {
     <div>
       <p className="mb-2 text-sm font-semibold text-accent">Página de teste</p>
       <h2 className="font-display text-3xl leading-none">Qual máquina?</h2>
-      <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3">
+      <div className="mx-auto mt-3 grid w-full max-w-md grid-cols-2 gap-3 md:grid-cols-3">
         {MACHINES.map((machine) => (
           <button
             key={machine}
@@ -1765,7 +1767,7 @@ function ProducaoScreen({
 
 function TurnoPicker({ value, onChange }: { value: Turno; onChange: (turno: Turno) => void }) {
   return (
-    <div className="grid grid-cols-3 gap-1">
+    <div className="mx-auto grid w-full max-w-md grid-cols-3 gap-1">
       {(["1", "2", "3"] as const).map((turno) => (
         <button
           key={turno}
@@ -1795,7 +1797,7 @@ function DayControls({
   onDate: (date: string) => void;
 }) {
   return (
-    <div className="mb-4">
+    <div className="mx-auto mb-4 w-full max-w-md">
       <div className="mb-3 flex gap-2">
         <input
           type="date"
@@ -1826,7 +1828,7 @@ function MachinesScreen({
   onOpen: (machine: MachineId) => void;
 }) {
   return (
-    <div>
+    <div className="mx-auto w-full max-w-3xl text-center">
       <p className="mb-2 font-display text-4xl leading-none text-accent">{TURNO_LABEL[state.turno]}</p>
       <h2 className="font-display text-3xl leading-none">Qual máquina?</h2>
       <p className="mb-3 mt-2 text-sm text-muted">{formatDateBR(state.date)}</p>
@@ -1838,7 +1840,7 @@ function MachinesScreen({
               key={machine}
               type="button"
               onClick={() => onOpen(machine)}
-              className="flex min-h-32 flex-col rounded-tile border border-line bg-surface p-4 text-left"
+              className="flex min-h-32 flex-col items-center rounded-tile border border-line bg-surface p-4 text-center"
             >
               <span className="text-sm font-semibold text-muted">Máquina</span>
               <span className="mt-1 font-display text-4xl leading-none">{machine}</span>
@@ -2013,27 +2015,32 @@ function StationsScreen({
     (item) => outroVivo(item) && item.machine === machine && item.date === state.date && item.turno === state.turno,
   );
   return (
-    <div>
+    <div className="mx-auto w-full max-w-5xl">
       <ContextLine state={state} offDay={offDay} />
-      <button
-        type="button"
-        onClick={onTrocar}
-        className="mt-3 flex w-full items-center justify-between rounded-tile border border-line bg-surface px-4 py-3 text-left"
-      >
-        <span>
+      <div className="mt-3 flex items-center justify-between gap-3 rounded-tile border border-line bg-surface px-4 py-3">
+        <span className="min-w-0 text-center">
           <span className="block text-sm text-muted">Máquina</span>
           <span className="font-display text-3xl leading-none">{machine}</span>
         </span>
-        <span className="text-sm font-semibold text-accent">Outra</span>
-      </button>
-      <button
-        type="button"
-        onClick={onDownload}
-        aria-label="Baixar imagem"
-        className="mt-2 grid size-12 place-items-center rounded-tile bg-accent text-accent-ink"
-      >
-        <ImageDown className="size-6" />
-      </button>
+        <span className="flex shrink-0 gap-2">
+          <button
+            type="button"
+            onClick={onDownload}
+            aria-label="Baixar ficha"
+            className="grid size-12 place-items-center rounded-tile bg-accent text-accent-ink"
+          >
+            <ImageDown className="size-6" />
+          </button>
+          <button
+            type="button"
+            onClick={onTrocar}
+            aria-label="Troca de matriz"
+            className="grid size-12 place-items-center rounded-tile border border-line bg-white text-accent"
+          >
+            <IconeTroca />
+          </button>
+        </span>
+      </div>
       <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
         {STATIONS.map((station) => {
           const config = state.stations[stationKey(machine, station)];
@@ -2045,7 +2052,7 @@ function StationsScreen({
               key={station}
               type="button"
               onClick={() => onOpen(station)}
-              className="flex min-h-32 flex-col rounded-tile border border-line bg-surface p-3 text-left"
+              className="flex min-h-32 flex-col items-center rounded-tile border border-line bg-surface p-3 text-center"
             >
               <span className="text-sm font-semibold text-muted">Estação</span>
               <span className="font-display text-4xl leading-none">{pad2(station)}</span>
@@ -2137,8 +2144,8 @@ function OutrosScreen({
   const [numero, setNumero] = useState("");
   const [referencia, setReferencia] = useState("");
   return (
-    <div>
-      {offDay ? <p className="mb-2 text-sm font-semibold text-accent">Dia fechado.</p> : null}
+    <div className="mx-auto flex min-h-[calc(100dvh-10.5rem)] w-full max-w-md flex-col">
+      {offDay ? <p className="mb-2 text-center text-sm font-semibold text-accent">Dia fechado.</p> : null}
       <p className="mt-4 text-sm font-semibold text-muted">Estação</p>
       <div className="mt-2 grid grid-cols-4 gap-2">
         {STATIONS.map((item) => (
@@ -2187,14 +2194,16 @@ function OutrosScreen({
       <div className="mt-4">
         <NumberPair numero={numero} referencia={referencia} onNumero={setNumero} onReferencia={setReferencia} />
       </div>
-      <button
-        type="button"
-        disabled={offDay}
-        onClick={() => onSave(station, ambos, side, numero, referencia)}
-        className="mt-4 w-full rounded-tile bg-accent py-4 font-display text-3xl leading-none text-accent-ink disabled:opacity-50"
-      >
-        Adicionar troca
-      </button>
+      <div className="sticky bottom-0 mt-auto bg-bg/95 py-3 backdrop-blur">
+        <button
+          type="button"
+          disabled={offDay}
+          onClick={() => onSave(station, ambos, side, numero, referencia)}
+          className="w-full rounded-2xl bg-accent py-4 font-display text-3xl leading-none text-accent-ink disabled:opacity-50"
+        >
+          Adicionar troca
+        </button>
+      </div>
     </div>
   );
 }
@@ -2476,8 +2485,8 @@ function MatrixGradeScreen({
   }
 
   return (
-    <div>
-      <p className="text-base text-muted">
+    <div className="mx-auto flex min-h-[calc(100dvh-10.5rem)] w-full max-w-5xl flex-col">
+      <p className="text-center text-base text-muted">
         Em cada estação, ative o seletor se a mesma numeração vale para a esquerda e a direita.
       </p>
       <div className="mt-4 grid gap-3 lg:grid-cols-2">
@@ -2550,13 +2559,15 @@ function MatrixGradeScreen({
           );
         })}
       </div>
-      <button
-        type="button"
-        onClick={() => onSave(drafts)}
-        className="mt-4 w-full rounded-tile bg-accent py-4 font-display text-3xl leading-none text-accent-ink"
-      >
-        Salvar grade
-      </button>
+      <div className="sticky bottom-0 mt-auto bg-bg/95 py-3 backdrop-blur">
+        <button
+          type="button"
+          onClick={() => onSave(drafts)}
+          className="w-full rounded-2xl bg-accent py-4 font-display text-3xl leading-none text-accent-ink"
+        >
+          Salvar grade
+        </button>
+      </div>
     </div>
   );
 }
@@ -2656,7 +2667,7 @@ function SheetScreen({
     <>
       {papel === "lider" ? (
         <>
-          <div className="mb-4 flex flex-wrap gap-2">
+          <div className="mb-4 flex flex-wrap justify-center gap-2">
             {(
               [
                 ["geral", "Visão geral"],
@@ -2997,8 +3008,8 @@ function PainelHistorico({
 
   return (
     <div className="grid min-w-0 gap-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0 flex-1">
+      <div className="flex flex-wrap items-end justify-center gap-3 text-center">
+        <div className="min-w-0">
           <h2 className="font-display text-3xl leading-none text-fg lg:text-4xl">Visão geral</h2>
           <p className="mt-2 text-sm text-muted">
             {erro ? "Sem nuvem." : remoto === null ? "" : resumoFiltro}
