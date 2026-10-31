@@ -1015,7 +1015,7 @@ export function EstratificacaoApp() {
           <div className="min-w-0 flex-1">
             {screen.kind === "sheet" ? (
               <>
-                <h1 className="font-display text-4xl leading-none tracking-wide text-accent">
+                <h1 className="font-display text-2xl leading-none tracking-wide text-accent lg:text-4xl">
                   {papel === "lider" ? "Dashboard geral" : "Lançamentos"}
                 </h1>
               </>
@@ -1095,7 +1095,7 @@ export function EstratificacaoApp() {
         <div
           key={key}
           className={cx(
-            "mx-auto w-full px-4 py-4 pb-28",
+            "mx-auto w-full min-w-0 px-4 py-4 pb-28",
             screen.kind === "sheet" ? "max-w-6xl lg:max-w-none lg:px-5 lg:py-3" : "max-w-6xl lg:px-8",
             dir === "forward" ? "enter-forward" : "enter-back",
           )}
@@ -2316,7 +2316,12 @@ function SheetScreen({
         />
       )}
       {escolherFoto ? (
-        <div className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center">
+        <div
+          className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setEscolherFoto(false);
+          }}
+        >
           <div className="w-full max-w-md rounded-3xl bg-white p-4 shadow-xl">
             <div className="flex items-center justify-between gap-3">
               <h3 className="text-base font-semibold">Quais máquinas baixar?</h3>
@@ -2401,7 +2406,7 @@ function LancamentosTurno({
 
   return (
     <div className="grid gap-3">
-      <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+      <section className="min-w-0 max-w-full rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
         <p className="text-xs font-semibold text-muted">
           {TURNO_LABEL[state.turno]} · {formatDateBR(state.date)}
         </p>
@@ -2744,10 +2749,10 @@ function PainelHistorico({
   }
 
   return (
-    <div className="grid gap-4">
+    <div className="grid min-w-0 gap-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="font-display text-4xl leading-none text-fg">Visão geral</h2>
+        <div className="min-w-0 flex-1">
+          <h2 className="font-display text-3xl leading-none text-fg lg:text-4xl">Visão geral</h2>
           <p className="mt-2 text-sm text-muted">
             {erro
               ? "Não leu a nuvem. Mostrando o que este computador já tem."
@@ -2789,7 +2794,12 @@ function PainelHistorico({
       </div>
 
       {filtrosAbertos ? (
-        <div className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center">
+        <div
+          className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setFiltrosAbertos(false);
+          }}
+        >
           <div className="flex max-h-[85dvh] w-full max-w-lg flex-col rounded-3xl bg-white shadow-xl">
             <div className="flex items-center justify-between gap-3 border-b border-[#f3f2f1] px-4 py-3">
               <h3 className="text-base font-semibold">Filtros</h3>
@@ -3046,7 +3056,7 @@ function GraficoCircular({
   const frente = fatias.find((item) => item.ativo) ?? fatias[0];
 
   return (
-    <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+    <section className="min-w-0 max-w-full rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
       <h3 className="text-base font-semibold">{titulo}</h3>
       <p className="text-xs text-muted">{detalhe}</p>
       {fatias.length === 0 || !frente ? (
@@ -3130,13 +3140,13 @@ function RankingBarras({
   const maximo = Math.max(1, ...itens.map((item) => item.valor));
   const total = itens.reduce((soma, item) => soma + item.valor, 0);
   return (
-    <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+    <section className="min-w-0 max-w-full rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
       <h3 className="text-base font-semibold">{titulo}</h3>
       <p className="text-xs text-muted">{detalhe}</p>
       {itens.length === 0 || total === 0 ? (
         <p className="mt-3 text-sm text-muted">Sem apontamento neste recorte.</p>
       ) : vertical ? (
-        <div className="mt-4 flex items-start gap-2 overflow-x-auto pb-1">
+        <div className="mt-4 flex w-full min-w-0 max-w-full items-start gap-2 overflow-x-auto pb-1">
           {itens.map((item, index) => {
             const altura = item.valor <= 0 ? 0 : Math.max(8, Math.round((item.valor / maximo) * 100));
             const corpo = (
@@ -3235,7 +3245,7 @@ function RankingNumeros({
 }) {
   const lista = rankNumeros(entries, limite);
   return (
-    <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+    <section className="min-w-0 max-w-full rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
       <h3 className="text-sm font-semibold">{titulo}</h3>
       <p className="text-xs text-muted">{detalhe} · {lista.reduce((soma, item) => soma + item.pares, 0)} pares</p>
       {lista.length === 0 ? (
@@ -3460,7 +3470,7 @@ function PainelMesa({
         </div>
 
         <div className="grid gap-4 xl:grid-cols-2">
-          <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+          <section className="min-w-0 max-w-full rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
             <h3 className="text-base font-semibold">Pares por máquina</h3>
             <p className="text-xs text-muted">Clique na barra para filtrar o relatório.</p>
             <Barras
@@ -3473,7 +3483,7 @@ function PainelMesa({
               onPick={(nome) => setFoco((atual) => (atual === nome ? null : (nome as MachineId)))}
             />
           </section>
-          <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+          <section className="min-w-0 max-w-full rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
             <h3 className="text-base font-semibold">Composição das perdas</h3>
             <p className="text-xs text-muted">Esquerda e direita continuam separadas na tabela.</p>
             <div className="mt-2">
@@ -3497,7 +3507,7 @@ function PainelMesa({
         />
 
         {foco ? (
-          <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+          <section className="min-w-0 max-w-full rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-base font-semibold">Matrizaria · {foco}</h3>
               {onDelete && editaveis.length > 0 ? (
@@ -3575,7 +3585,7 @@ function PainelMesa({
       </div>
 
       <aside className="grid content-start gap-4 xl:sticky xl:top-3">
-        <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+        <section className="min-w-0 max-w-full rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
           <p className="text-sm font-semibold">Filtros</p>
           <label className="mt-3 block text-xs font-semibold text-muted">
             Data
@@ -3604,7 +3614,7 @@ function PainelMesa({
             <p className="mt-1 rounded-xl bg-[#f7f9fc] px-3 py-2 text-sm font-semibold">{TURNO_LABEL[state.turno]}</p>
           )}
         </section>
-        <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+        <section className="min-w-0 max-w-full rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
           <p className="text-sm font-semibold">Máquina</p>
           <div className="mt-2 grid grid-cols-2 gap-1.5">
             <button
@@ -3982,7 +3992,7 @@ function AcompanhamentoDiario({
   }
 
   return (
-    <div className="grid gap-3">
+    <div className="grid min-w-0 gap-3">
       <DayControls state={state} today={today} offDay={offDay} onDate={onDate} />
       <TurnoPicker value={state.turno} onChange={onTurno} />
       {shown.length === 0 ? (
@@ -3990,13 +4000,13 @@ function AcompanhamentoDiario({
           Nenhuma máquina apontada neste turno.
         </p>
       ) : (
-        <div className="grid grid-cols-2 gap-3 xl:grid-cols-3">
+        <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {shown.map((machine) => {
             const linhasCard = fichaLines(state, machine);
             const paresMaquina = paresDasEntradas(shiftEntries(state, machine));
             const piores = topProblems(linhasCard);
             return (
-              <article key={machine} className="flex flex-col rounded-3xl bg-white p-3 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+              <article key={machine} className="flex min-w-0 flex-col rounded-3xl bg-white p-3 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
                 <h3 className="font-display text-3xl leading-none">{machine}</h3>
                 <p className="mt-1 text-sm text-muted">
                   {paresMaquina} {paresMaquina === 1 ? "par" : "pares"}
@@ -4006,7 +4016,7 @@ function AcompanhamentoDiario({
                     {piores.map((item, index) => (
                       <li key={item.name} className="flex items-start gap-2">
                         <span className="w-4 shrink-0 font-display text-lg leading-none text-accent">{index + 1}</span>
-                        <span className="min-w-0 flex-1 text-sm font-semibold leading-snug">{item.name}</span>
+                        <span className="min-w-0 flex-1 break-words text-sm font-semibold leading-snug">{item.name}</span>
                         <span className="shrink-0 text-xs font-semibold tabular-nums">{item.pares}</span>
                       </li>
                     ))}
@@ -4036,7 +4046,12 @@ function AcompanhamentoDiario({
         </div>
       )}
       {painel && aberta ? (
-        <div className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center">
+        <div
+          className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setPainel(null);
+          }}
+        >
           <div className="flex max-h-[85dvh] w-full max-w-lg flex-col rounded-3xl bg-white shadow-xl">
             <div className="flex items-center justify-between gap-3 border-b border-[#f3f2f1] px-4 py-3">
               <h3 className="font-display text-3xl leading-none">

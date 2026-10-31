@@ -57,7 +57,12 @@ export function InstallPrompt() {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-fg/40 p-4 sm:items-center">
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-fg/40 p-4 sm:items-center"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) dismiss();
+      }}
+    >
       <div
         role="dialog"
         aria-labelledby="install-title"
