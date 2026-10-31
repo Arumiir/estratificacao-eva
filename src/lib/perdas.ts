@@ -600,15 +600,25 @@ export function mergeFechamentos(local: Fechamento[], remote: Fechamento[]): Fec
 }
 
 export function readProducao(value: unknown): ProducaoPares[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item) => {
+  let bruto = value;
+  if (typeof bruto === "string") {
+    try {
+      bruto = JSON.parse(bruto);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(bruto)) return [];
+  return bruto.flatMap((item) => {
     if (!isRecord(item)) return [];
     const machine = parseMachine(item.machine);
-    const turno = parseTurno(item.turno);
-    const date = typeof item.date === "string" ? item.date : "";
-    const numero = numeroLimpo(typeof item.numero === "string" ? item.numero : "");
+    const turnoBruto = typeof item.turno === "number" ? String(item.turno) : item.turno;
+    const turno = parseTurno(turnoBruto);
+    const date = typeof item.date === "string" ? item.date.slice(0, 10) : "";
+    const numero = numeroLimpo(typeof item.numero === "string" ? item.numero : String(item.numero ?? ""));
     if (!machine || !turno || !numero || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return [];
-    const pares = typeof item.pares === "number" && Number.isFinite(item.pares) ? Math.max(0, Math.floor(item.pares)) : 0;
+    const paresBrutos = typeof item.pares === "number" ? item.pares : Number(item.pares);
+    const pares = Number.isFinite(paresBrutos) ? Math.max(0, Math.floor(paresBrutos)) : 0;
     return [
       {
         id: `${date}|${turno}|${machine}|${numero}`,

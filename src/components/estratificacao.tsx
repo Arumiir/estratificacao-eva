@@ -2973,29 +2973,15 @@ function PainelHistorico({
     .sort((a, b) => b.valor - a.valor);
 
   const producaoBase = mergeProducao(producaoRemota, state.producao ?? []);
-  function passaProducao(item: ProducaoPares, datasAlvo: string[]) {
-    if (item.pares <= 0 || !datasAlvo.includes(item.date)) return false;
-    if (maquina && item.machine !== maquina) return false;
-    if (turnoFiltro && item.turno !== turnoFiltro) return false;
-    if (numeroAtivo && item.numero !== numeroAtivo) return false;
-    return true;
-  }
-  function totalProducao(datasAlvo: string[]) {
-    return producaoBase.reduce((soma, item) => (passaProducao(item, datasAlvo) ? soma + item.pares : soma), 0);
-  }
-  const producaoPeriodo = totalProducao(diasJanela);
   const perdasPeriodo = paresDasEntradas(periodo);
   const diasDia = [state.date];
   const diasSemana = diasAte(state.date, 7);
   const diasMes = datas;
-  function producaoRecorte(datasAlvo: string[], turno?: Turno, machine?: MachineId) {
+  function somaProducao(datasAlvo: string[], turno?: Turno, machine?: MachineId) {
     return producaoBase.reduce((soma, item) => {
       if (item.pares <= 0 || !datasAlvo.includes(item.date)) return soma;
       if (turno && item.turno !== turno) return soma;
       if (machine && item.machine !== machine) return soma;
-      if (maquina && item.machine !== maquina) return soma;
-      if (turnoFiltro && item.turno !== turnoFiltro) return soma;
-      if (numeroAtivo && item.numero !== numeroAtivo) return soma;
       return soma;
     }, 0);
   }
@@ -3007,12 +2993,12 @@ function PainelHistorico({
   const producaoTurnos = (["1", "2", "3"] as const).map((turno) => ({
     id: turno,
     nome: TURNO_LABEL[turno],
-    valores: producaoColunas.map((coluna) => producaoRecorte(coluna.datas, turno)),
+    valores: producaoColunas.map((coluna) => somaProducao(coluna.datas, turno)),
   }));
   const producaoPorMaquina = MACHINES.map((machine) => ({
     id: machine,
     nome: machine,
-    valores: producaoColunas.map((coluna) => producaoRecorte(coluna.datas, undefined, machine)),
+    valores: producaoColunas.map((coluna) => somaProducao(coluna.datas, undefined, machine)),
   })).filter((item) => item.valores.some((valor) => valor > 0));
 
   const problemaNome = PROBLEMS.find((item) => item.id === problema)?.name ?? null;
@@ -3053,9 +3039,9 @@ function PainelHistorico({
 
   const chips = [tituloJanela, ...resumoFiltro.split(" · ").filter(Boolean)];
   const resumoPeriodos = [
-    { nome: "Dia", producao: producaoRecorte(diasDia), perdas: paresDasEntradas(doDia) },
-    { nome: "Semana", producao: producaoRecorte(diasSemana), perdas: paresDasEntradas(daSemana) },
-    { nome: "Mês", producao: producaoRecorte(diasMes), perdas: paresDasEntradas(doMes) },
+    { nome: "Dia", producao: somaProducao(diasDia), perdas: paresDasEntradas(doDia) },
+    { nome: "Semana", producao: somaProducao(diasSemana), perdas: paresDasEntradas(daSemana) },
+    { nome: "Mês", producao: somaProducao(diasMes), perdas: paresDasEntradas(doMes) },
   ];
 
   return (
@@ -3096,7 +3082,7 @@ function PainelHistorico({
         <CartaoResumo
           titulo="Produção"
           unidade="pares"
-          valor={producaoPeriodo}
+          valor={somaProducao(diasJanela)}
           periodo={tituloJanela}
           tom="azul"
           linhas={resumoPeriodos.map((item) => ({ nome: item.nome, valor: item.producao }))}
@@ -3112,7 +3098,7 @@ function PainelHistorico({
         <CartaoResumo
           titulo="% de perda"
           unidade=""
-          valor={textoPercentual(percentualPerda(perdasPeriodo, producaoPeriodo))}
+          valor={textoPercentual(percentualPerda(perdasPeriodo, somaProducao(diasJanela)))}
           periodo={tituloJanela}
           tom="claro"
           linhas={resumoPeriodos.map((item) => ({
@@ -3447,12 +3433,16 @@ function TabelaProducao({
   maquinas: { id: string; nome: string; valores: number[] }[];
 }) {
   const totais = colunas.map((_, index) => turnos.reduce((soma, linha) => soma + (linha.valores[index] ?? 0), 0));
+  const vazio = totais.every((valor) => valor === 0);
   return (
     <section className="min-w-0 overflow-hidden rounded-3xl bg-white shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
       <div className="border-b border-[#eef1f6] px-4 py-3">
         <h3 className="text-sm font-semibold">Produção em pares</h3>
       </div>
-      <div className="overflow-x-auto">
+      {vazio ? (
+        <p className="px-4 py-4 text-sm text-muted">Nenhuma produção salva neste período.</p>
+      ) : (
+        <div className="overflow-x-auto">
         <table className="w-full min-w-[32rem] border-collapse text-sm">
           <thead>
             <tr className="text-xs font-semibold text-muted">
@@ -3490,7 +3480,8 @@ function TabelaProducao({
             )}
           </tbody>
         </table>
-      </div>
+        </div>
+      )}
     </section>
   );
 }
