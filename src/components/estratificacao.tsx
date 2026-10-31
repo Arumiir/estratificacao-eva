@@ -2702,14 +2702,6 @@ function PainelHistorico({
   }))
     .filter((item) => item.valor > 0)
     .sort((a, b) => b.valor - a.valor);
-  const rankingLado = SIDES.map((side) => ({
-    id: side,
-    nome: SIDE_LABEL[side],
-    valor: paresDasEntradas(periodo.filter((entry) => entry.side === side)),
-    ativo: lado === null ? undefined : lado === side,
-  }))
-    .filter((item) => item.valor > 0)
-    .sort((a, b) => b.valor - a.valor);
 
   const problemaNome = PROBLEMS.find((item) => item.id === problema)?.name ?? null;
   const filtrosAtivos = [
@@ -2761,12 +2753,20 @@ function PainelHistorico({
                 : resumoFiltro}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setFiltrosAbertos(true)}
-          aria-label="Abrir filtros"
-          className="relative grid size-12 shrink-0 place-items-center rounded-2xl bg-white text-[#2457b8] shadow-[0_8px_24px_rgba(47,84,150,0.08)]"
-        >
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={limparFiltros}
+            className="rounded-2xl bg-[#4682B4] px-4 py-3 text-sm font-semibold text-white shadow-[0_8px_24px_rgba(70,130,180,0.25)]"
+          >
+            Limpar filtro
+          </button>
+          <button
+            type="button"
+            onClick={() => setFiltrosAbertos(true)}
+            aria-label="Abrir filtros"
+            className="relative grid size-12 place-items-center rounded-2xl bg-white text-[#4682B4] shadow-[0_8px_24px_rgba(47,84,150,0.08)]"
+          >
           <svg viewBox="0 0 24 24" className="size-6" aria-hidden="true">
             <path
               d="M4 5h16l-6.2 7.1V19l-3.6 1.4v-8.3L4 5z"
@@ -2781,7 +2781,8 @@ function PainelHistorico({
               {filtrosAtivos}
             </span>
           ) : null}
-        </button>
+          </button>
+        </div>
       </div>
 
       {filtrosAbertos ? (
@@ -2942,31 +2943,35 @@ function PainelHistorico({
         ]}
       />
 
-      <RankingBarras
-        titulo="Piores máquinas"
-        detalhe={`${tituloJanela} · toque para ver só ela`}
-        itens={porMaquina.map((item) => ({
-          id: item.machine,
-          nome: item.machine,
-          valor: item.total,
-          ativo: maquina === null ? undefined : maquina === item.machine,
-        }))}
-        onPick={(id) => setMaquina((atual) => (atual === id ? null : (id as MachineId)))}
-      />
-      <RankingBarras
-        titulo="Piores turnos"
-        detalhe={`${tituloJanela} · toque para filtrar`}
-        itens={[...turnos]
-          .sort((a, b) => b.pares - a.pares || a.turno.localeCompare(b.turno))
-          .map((item) => ({
-            id: item.turno,
-            nome: TURNO_LABEL[item.turno],
-            valor: item.pares,
-            ativo: turnoFiltro === null ? undefined : turnoFiltro === item.turno,
+      <div className="grid gap-4 xl:grid-cols-2">
+        <GraficoCircular
+          titulo="Piores máquinas"
+          detalhe={`${tituloJanela} · toque para ver só ela`}
+          itens={porMaquina.map((item) => ({
+            id: item.machine,
+            nome: item.machine,
+            valor: item.total,
+            ativo: maquina === null ? undefined : maquina === item.machine,
           }))}
-        onPick={(id) => setTurnoFiltro((atual) => (atual === id ? null : (id as Turno)))}
-      />
+          onPick={(id) => setMaquina((atual) => (atual === id ? null : (id as MachineId)))}
+        />
+        <GraficoCircular
+          titulo="Piores turnos"
+          detalhe={`${tituloJanela} · toque para filtrar`}
+          itens={[...turnos]
+            .sort((a, b) => b.pares - a.pares || a.turno.localeCompare(b.turno))
+            .filter((item) => item.pares > 0)
+            .map((item) => ({
+              id: item.turno,
+              nome: TURNO_LABEL[item.turno],
+              valor: item.pares,
+              ativo: turnoFiltro === null ? undefined : turnoFiltro === item.turno,
+            }))}
+          onPick={(id) => setTurnoFiltro((atual) => (atual === id ? null : (id as Turno)))}
+        />
+      </div>
       <RankingBarras
+        vertical
         titulo="Piores problemas"
         detalhe="Nome completo · toque para filtrar"
         itens={porProblema.map((item) => ({
@@ -2995,19 +3000,110 @@ function PainelHistorico({
           setNumero(numeroItem || null);
         }}
       />
-      <div className="grid gap-4 xl:grid-cols-2">
-        <RankingBarras
-          titulo="Piores estações"
-          detalhe={maquina ? `Dentro da ${maquina}` : "Nas máquinas do recorte"}
-          itens={rankingEstacao}
-          onPick={(id) => {
-            const station = Number(id);
-            setEstacao((atual) => (atual === station ? null : station));
-          }}
-        />
-        <RankingBarras titulo="Lado" detalhe="Esquerda e direita não se somam" itens={rankingLado} />
-      </div>
+      <RankingBarras
+        vertical
+        titulo="Piores estações"
+        detalhe={maquina ? `Dentro da ${maquina}` : "Nas máquinas do recorte"}
+        itens={rankingEstacao}
+        onPick={(id) => {
+          const station = Number(id);
+          setEstacao((atual) => (atual === station ? null : station));
+        }}
+      />
     </div>
+  );
+}
+
+const CORES_FATIA = ["#4682B4", "#2a5270", "#7eb0d4", "#1c3d55", "#b7d0e4", "#5c89a8"];
+
+function GraficoCircular({
+  titulo,
+  detalhe,
+  itens,
+  onPick,
+}: {
+  titulo: string;
+  detalhe: string;
+  itens: { id: string; nome: string; valor: number; ativo?: boolean }[];
+  onPick?: (id: string) => void;
+}) {
+  const total = itens.reduce((soma, item) => soma + item.valor, 0);
+  const raio = 42;
+  const volta = 2 * Math.PI * raio;
+  let percorrido = 0;
+  const fatias = itens.map((item, index) => {
+    const parte = total > 0 ? item.valor / total : 0;
+    const comprimento = parte * volta;
+    const inicio = percorrido;
+    percorrido += comprimento;
+    return { ...item, index, parte, comprimento, inicio, cor: CORES_FATIA[index % CORES_FATIA.length] };
+  });
+  const frente = fatias.find((item) => item.ativo) ?? fatias[0];
+
+  return (
+    <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+      <h3 className="text-base font-semibold">{titulo}</h3>
+      <p className="text-xs text-muted">{detalhe}</p>
+      {fatias.length === 0 || !frente ? (
+        <p className="mt-3 text-sm text-muted">Sem apontamento neste recorte.</p>
+      ) : (
+        <>
+          <div className="relative mx-auto mt-3 size-56">
+            <svg viewBox="0 0 120 120" className="size-full -rotate-90" role="img" aria-label={titulo}>
+              {fatias.map((item) => (
+                <circle
+                  key={item.id}
+                  cx="60"
+                  cy="60"
+                  r={raio}
+                  fill="none"
+                  stroke={item.cor}
+                  strokeWidth="16"
+                  strokeDasharray={`${Math.max(item.comprimento - 1.5, 0)} ${volta}`}
+                  strokeDashoffset={-item.inicio}
+                  opacity={item.ativo === false ? 0.28 : 1}
+                  className={onPick ? "cursor-pointer" : undefined}
+                  onClick={() => onPick?.(item.id)}
+                />
+              ))}
+            </svg>
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center px-12 text-center">
+              <p className="font-display text-4xl leading-none tabular-nums">{frente.valor}</p>
+              <p className="mt-1 text-[11px] font-semibold text-muted">{frente.valor === 1 ? "par" : "pares"}</p>
+              <p className="mt-2 text-sm font-semibold leading-tight">{frente.nome}</p>
+              <p className="text-xs font-semibold text-[#4682B4]">{Math.round(frente.parte * 100)}%</p>
+            </div>
+          </div>
+          <ul className="mt-3 grid gap-1.5">
+            {fatias.map((item) => {
+              const linha = (
+                <>
+                  <span className="mt-1 size-2.5 shrink-0 rounded-full" style={{ background: item.cor }} />
+                  <span className="min-w-0 flex-1 text-sm font-semibold leading-snug">{item.nome}</span>
+                  <span className="shrink-0 text-xs font-semibold tabular-nums">
+                    {item.valor} {item.valor === 1 ? "par" : "pares"} · {Math.round(item.parte * 100)}%
+                  </span>
+                </>
+              );
+              if (!onPick) {
+                return (
+                  <li key={item.id} className="flex items-start gap-2">
+                    {linha}
+                  </li>
+                );
+              }
+              return (
+                <li key={item.id}>
+                  <button type="button" onClick={() => onPick(item.id)} className="flex w-full items-start gap-2 text-left">
+                    {linha}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
+    </section>
   );
 }
 
