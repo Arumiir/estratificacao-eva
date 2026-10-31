@@ -88,11 +88,22 @@ export type Fechamento = {
   salvoEm: number;
 };
 
+export type ProducaoPares = {
+  id: string;
+  date: string;
+  turno: Turno;
+  machine: MachineId;
+  numero: string;
+  pares: number;
+  salvoEm: number;
+};
+
 export type State = {
   stations: Record<string, StationConfig>;
   outros: OutroMatriz[];
   cores: Cor[];
   fechamentos: Fechamento[];
+  producao: ProducaoPares[];
   entries: Entry[];
   date: string;
   turno: Turno;
@@ -361,6 +372,7 @@ export function emptyState(now = new Date()): State {
     outros: [],
     cores: [],
     fechamentos: [],
+    producao: [],
     entries: [],
     date: todayISO(now),
     turno: "1",
@@ -587,6 +599,39 @@ export function mergeFechamentos(local: Fechamento[], remote: Fechamento[]): Fec
   return [...map.values()];
 }
 
+export function readProducao(value: unknown): ProducaoPares[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!isRecord(item)) return [];
+    const machine = parseMachine(item.machine);
+    const turno = parseTurno(item.turno);
+    const date = typeof item.date === "string" ? item.date : "";
+    const numero = numeroLimpo(typeof item.numero === "string" ? item.numero : "");
+    if (!machine || !turno || !numero || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return [];
+    const pares = typeof item.pares === "number" && Number.isFinite(item.pares) ? Math.max(0, Math.floor(item.pares)) : 0;
+    return [
+      {
+        id: `${date}|${turno}|${machine}|${numero}`,
+        date,
+        turno,
+        machine,
+        numero,
+        pares,
+        salvoEm: typeof item.salvoEm === "number" && Number.isFinite(item.salvoEm) ? item.salvoEm : 0,
+      },
+    ];
+  });
+}
+
+export function mergeProducao(local: ProducaoPares[], remote: ProducaoPares[]): ProducaoPares[] {
+  const map = new Map(local.map((item) => [item.id, item]));
+  for (const item of remote) {
+    const prev = map.get(item.id);
+    if (!prev || item.salvoEm >= prev.salvoEm) map.set(item.id, item);
+  }
+  return [...map.values()];
+}
+
 export function coresDaMaquina(state: State, machine: MachineId): Cor[] {
   return state.cores.filter(
     (item) => corViva(item) && item.machine === machine && item.date === state.date && item.turno === state.turno,
@@ -655,6 +700,7 @@ export function loadState(): State {
       outros: readOutros(data.outros),
       cores: readCores(data.cores),
       fechamentos: readFechamentos(data.fechamentos),
+      producao: readProducao(data.producao),
       entries,
       date: base.date,
       turno: parseTurno(data.turno) ?? base.turno,

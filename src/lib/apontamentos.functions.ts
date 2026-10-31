@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { pullDay, pushDays } from "@/lib/apontamentos-blob";
 import { dbSource, getSql } from "@/lib/db";
-import { apontamentoBloqueado, coerceEntry, diasAte, mergeCores, mergeFechamentos, mergeOutros, podeAlterarApontamento, problemName, readCores, readFechamentos, readGrades, readOutros, todayISO, turnoPeloRelogio, type Cor, type Entry, type Fechamento, type OutroMatriz, type StationConfig } from "@/lib/perdas";
+import { apontamentoBloqueado, coerceEntry, diasAte, mergeCores, mergeFechamentos, mergeOutros, mergeProducao, podeAlterarApontamento, problemName, readCores, readFechamentos, readGrades, readOutros, readProducao, todayISO, turnoPeloRelogio, type Cor, type Entry, type Fechamento, type OutroMatriz, type ProducaoPares, type StationConfig } from "@/lib/perdas";
 
 type SyncResult = {
   entries: Entry[];
@@ -10,6 +10,7 @@ type SyncResult = {
   outros: OutroMatriz[];
   cores: Cor[];
   fechamentos: Fechamento[];
+  producao: ProducaoPares[];
   cloud: boolean;
 };
 
@@ -95,7 +96,7 @@ function cleanEntries(value: unknown): Entry[] {
 }
 
 export const pushApontamentos = createServerFn({ method: "POST" })
-  .validator((data: { upserts?: unknown; removed?: unknown; grades?: unknown; date?: unknown; outros?: unknown; cores?: unknown; fechamentos?: unknown; revives?: unknown }) => ({
+  .validator((data: { upserts?: unknown; removed?: unknown; grades?: unknown; date?: unknown; outros?: unknown; cores?: unknown; fechamentos?: unknown; producao?: unknown; revives?: unknown }) => ({
     upserts: cleanEntries(data?.upserts),
     removed: cleanRemoved(data?.removed),
     grades: readGrades(data?.grades),
@@ -103,6 +104,7 @@ export const pushApontamentos = createServerFn({ method: "POST" })
     outros: readOutros(data?.outros),
     cores: readCores(data?.cores),
     fechamentos: readFechamentos(data?.fechamentos),
+    producao: readProducao(data?.producao),
     revives: Array.isArray(data?.revives) ? data.revives.filter((id): id is string => typeof id === "string").slice(0, 2000) : [],
   }))
   .handler(async ({ data }) => {
@@ -220,6 +222,17 @@ export const pushApontamentos = createServerFn({ method: "POST" })
           on conflict (date, key) do update set config = excluded.config
         `;
       }
+      if (data.producao.length > 0) {
+        const existingProducao = await sql<{ config: unknown }>`
+          select config from grades where date = ${data.date} and key = ${"__producao__"}
+        `;
+        const producao = mergeProducao(readProducao(existingProducao[0]?.config), data.producao);
+        await sql`
+          insert into grades (date, key, config)
+          values (${data.date}, ${"__producao__"}, ${JSON.stringify(producao)}::jsonb)
+          on conflict (date, key) do update set config = excluded.config
+        `;
+      }
     }
     return { ok: true as const, cloud: cloudOn() };
   });
@@ -230,10 +243,10 @@ export const pullApontamentos = createServerFn({ method: "POST" })
     return { date };
   })
   .handler(async ({ data }): Promise<SyncResult> => {
-    if (!data.date) return { entries: [], removed: [], grades: {}, outros: [], cores: [], fechamentos: [], cloud: cloudOn() };
+    if (!data.date) return { entries: [], removed: [], grades: {}, outros: [], cores: [], fechamentos: [], producao: [], cloud: cloudOn() };
     if (usesBlob()) {
       const day = await pullDay(data.date);
-      return { entries: day.entries, removed: day.removed, grades: day.grades, outros: day.outros, cores: [], fechamentos: [], cloud: true };
+      return { entries: day.entries, removed: day.removed, grades: day.grades, outros: day.outros, cores: [], fechamentos: [], producao: [], cloud: true };
     }
     const sql = await getSql();
     const rows = await sql<{
@@ -284,14 +297,15 @@ export const pullApontamentos = createServerFn({ method: "POST" })
     const outros = readOutros(gradeRows.find((row) => row.key === "__outros__")?.config);
     const cores = readCores(gradeRows.find((row) => row.key === "__cores__")?.config);
     const fechamentos = readFechamentos(gradeRows.find((row) => row.key === "__fechamento__")?.config);
+    const producao = readProducao(gradeRows.find((row) => row.key === "__producao__")?.config);
     const grades = readGrades(
       Object.fromEntries(
         gradeRows
-          .filter((row) => row.key !== "__outros__" && row.key !== "__cores__" && row.key !== "__fechamento__")
+          .filter((row) => row.key !== "__outros__" && row.key !== "__cores__" && row.key !== "__fechamento__" && row.key !== "__producao__")
           .map((row) => [row.key, row.config]),
       ),
     );
-    return { entries, removed: removedRows.map((row) => row.id), grades, outros, cores, fechamentos, cloud: cloudOn() };
+    return { entries, removed: removedRows.map((row) => row.id), grades, outros, cores, fechamentos, producao, cloud: cloudOn() };
   });
 
 export const pullHistorico = createServerFn({ method: "POST" })
@@ -300,13 +314,13 @@ export const pullHistorico = createServerFn({ method: "POST" })
     const dias = typeof data?.dias === "number" && Number.isFinite(data.dias) ? data.dias : 31;
     return { ate, dias: Math.min(31, Math.max(1, Math.floor(dias))) };
   })
-  .handler(async ({ data }): Promise<{ entries: Entry[]; cloud: boolean }> => {
-    if (!data.ate) return { entries: [], cloud: cloudOn() };
+  .handler(async ({ data }): Promise<{ entries: Entry[]; producao: ProducaoPares[]; cloud: boolean }> => {
+    if (!data.ate) return { entries: [], producao: [], cloud: cloudOn() };
     const datas = diasAte(data.ate, data.dias);
     const inicio = datas[0] ?? data.ate;
     if (usesBlob()) {
       const days = await Promise.all(datas.map((date) => pullDay(date)));
-      return { entries: days.flatMap((day) => day.entries), cloud: true };
+      return { entries: days.flatMap((day) => day.entries), producao: [], cloud: true };
     }
     const sql = await getSql();
     const rows = await sql<{
@@ -349,6 +363,10 @@ export const pullHistorico = createServerFn({ method: "POST" })
         });
         return entry ? [entry] : [];
       }),
+      producao: (await sql<{ config: unknown }>`
+        select config from grades
+        where key = ${"__producao__"} and date >= ${inicio} and date <= ${data.ate}
+      `).flatMap((row) => readProducao(row.config)),
       cloud: cloudOn(),
     };
   });
