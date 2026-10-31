@@ -9,12 +9,20 @@ import {
   type FichaLine,
   type MachineId,
   type State,
+  type Turno,
 } from "@/lib/perdas";
 
 const W = 1800;
 const H = 1180;
 /** Mesmo quadro, mais pixels. 3× deixa o zoom nítido; 2× se o celular recusar o canvas. */
 const SCALES = [3, 2];
+
+/** Papel e faixa por turno. Perto do formulário, longe do azul do app. */
+const FICHA_TURNO: Record<Turno, { papel: string; faixa: string; tabela: string; cabeca: string; zebra: string; tinta: string }> = {
+  "1": { papel: "#f6f1e8", faixa: "#8d4e34", tabela: "#fbf8f3", cabeca: "#f3e6dc", zebra: "#efe4d8", tinta: "#3a2e28" },
+  "2": { papel: "#e7f1ec", faixa: "#2c6b58", tabela: "#f4faf7", cabeca: "#dceae3", zebra: "#d5e6dd", tinta: "#24332e" },
+  "3": { papel: "#eeedf4", faixa: "#4a3f72", tabela: "#f7f6fb", cabeca: "#e4e0ef", zebra: "#e0dcec", tinta: "#2c2838" },
+};
 
 export async function renderFichasDaMaquina(
   state: State,
@@ -123,12 +131,13 @@ function drawFicha(
   corNome = "",
 ) {
   const margin = 36;
-  ctx.fillStyle = "#e7f2e4";
+  const cor = FICHA_TURNO[state.turno];
+  ctx.fillStyle = cor.papel;
   ctx.fillRect(0, 0, W, H);
 
   const headerY = 28;
   const headerH = 118;
-  ctx.fillStyle = "#8d3030";
+  ctx.fillStyle = cor.faixa;
   ctx.fillRect(margin, headerY, W - margin * 2, headerH);
 
   ctx.fillStyle = "#fffaf7";
@@ -170,22 +179,22 @@ function drawFicha(
   const fixed = estW + ladoW + numW + relW;
   const probW = (tableW - fixed) / PROBLEMS.length;
 
-  ctx.fillStyle = "#f7fbf6";
+  ctx.fillStyle = cor.tabela;
   ctx.fillRect(tableX, tableY, tableW, tableBottom - tableY);
-  ctx.fillStyle = "#f3e3dc";
+  ctx.fillStyle = cor.cabeca;
   ctx.fillRect(tableX, tableY, tableW, headH);
 
   lines.forEach((line, index) => {
     if (Math.floor(index / 2) % 2 === 1) {
-      ctx.fillStyle = "#dcecde";
+      ctx.fillStyle = cor.zebra;
       ctx.fillRect(tableX, tableY + headH + index * rowH, tableW, rowH);
     }
   });
 
-  ctx.fillStyle = "#8d3030";
+  ctx.fillStyle = cor.faixa;
   ctx.fillRect(tableX, bodyBottom, tableW, totalH);
 
-  ctx.strokeStyle = "#243028";
+  ctx.strokeStyle = cor.tinta;
   ctx.lineWidth = 1.5;
   ctx.strokeRect(tableX, tableY, tableW, tableBottom - tableY);
 
@@ -223,7 +232,7 @@ function drawFicha(
   });
   ctx.stroke();
 
-  ctx.fillStyle = "#243028";
+  ctx.fillStyle = cor.tinta;
   ctx.textAlign = "center";
   ctx.font = "700 22px 'Barlow Condensed', sans-serif";
   const headMid = tableY + headH / 2;
@@ -241,14 +250,14 @@ function drawFicha(
     ctx.font = `600 ${size}px 'Source Sans 3', sans-serif`;
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    ctx.fillStyle = "#243028";
+    ctx.fillStyle = cor.tinta;
     ctx.fillText(problem.name, 0, 0);
     ctx.restore();
   });
 
   lines.forEach((line, index) => {
     const y = tableY + headH + index * rowH + rowH / 2;
-    ctx.fillStyle = "#243028";
+    ctx.fillStyle = cor.tinta;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     if (index % 2 === 0 || line.outroId) {

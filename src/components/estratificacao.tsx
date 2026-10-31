@@ -1103,6 +1103,7 @@ export function EstratificacaoApp() {
   }
 
   const header = headerFor(screen);
+  const telaFixa = screen.kind === "hub" || screen.kind === "papel";
 
   return (
     <div className="relative flex h-dvh flex-col bg-bg text-fg">
@@ -1188,14 +1189,16 @@ export function EstratificacaoApp() {
         </div>
       ) : null}
 
-      <div ref={scroller} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+      <div ref={scroller} className={cx("min-h-0 flex-1 overflow-x-hidden", telaFixa ? "overflow-hidden" : "overflow-y-auto")}>
         <div
           key={key}
           className={cx(
-            "mx-auto w-full min-w-0 px-4 py-4",
-            screen.kind === "producao" || screen.kind === "teste-maquina" || screen.kind === "matrices" || screen.kind === "outros"
-              ? "pb-4"
-              : "pb-28",
+            "mx-auto w-full min-w-0",
+            telaFixa ? "flex h-full items-center justify-center px-6" : "px-4 py-4",
+            !telaFixa &&
+              (screen.kind === "producao" || screen.kind === "teste-maquina" || screen.kind === "matrices" || screen.kind === "outros"
+                ? "pb-4"
+                : "pb-28"),
             screen.kind === "sheet" ? "max-w-6xl lg:max-w-none lg:px-5 lg:py-3" : "max-w-6xl lg:px-8",
             dir === "forward" ? "enter-forward" : "enter-back",
           )}
@@ -1216,8 +1219,6 @@ export function EstratificacaoApp() {
               machine={screen.machine}
               onProducao={() => push({ kind: "producao", machine: screen.machine })}
               onPerdas={() => push({ kind: "stations", machine: screen.machine })}
-              onEditar={() => push({ kind: "matrices", machine: screen.machine })}
-              onTrocar={() => push({ kind: "outros", machine: screen.machine })}
             />
           ) : null}
 
@@ -1258,6 +1259,7 @@ export function EstratificacaoApp() {
               machine={screen.machine}
               offDay={offDay}
               onDownload={() => void baixarFicha(screen.machine)}
+              onEditar={() => push({ kind: "matrices", machine: screen.machine })}
               onOpen={(station) => push({ kind: "side", machine: screen.machine, station })}
               onOpenOutro={(outro) =>
                 outro.ambos
@@ -1465,7 +1467,7 @@ function PortaScreen({
   }
 
   return (
-    <div className="mx-auto flex min-h-[calc(100dvh-10.5rem)] w-full max-w-md flex-col justify-center gap-3">
+    <div className="mx-auto flex w-full max-w-md flex-col justify-center gap-3">
       {(["1", "2", "3"] as const).map((turno) => (
         <button
           key={turno}
@@ -1538,48 +1540,27 @@ function HubMaquina({
   machine,
   onProducao,
   onPerdas,
-  onEditar,
-  onTrocar,
 }: {
   machine: MachineId;
   onProducao: () => void;
   onPerdas: () => void;
-  onEditar: () => void;
-  onTrocar: () => void;
 }) {
   return (
-    <div className="mx-auto flex min-h-[calc(100dvh-10.5rem)] w-full max-w-md flex-col items-center justify-center">
-      <h2 className="text-center font-display text-5xl leading-none">{machine}</h2>
-      <div className="mt-6 flex justify-center gap-3">
-        <button
-          type="button"
-          onClick={onEditar}
-          aria-label="Editar matrizes"
-          className="grid size-14 place-items-center rounded-2xl border border-line bg-surface text-accent"
-        >
-          <IconeEditar />
-        </button>
-        <button
-          type="button"
-          onClick={onTrocar}
-          aria-label="Troca de matriz"
-          className="grid size-14 place-items-center rounded-2xl border border-line bg-surface text-accent"
-        >
-          <IconeTroca />
-        </button>
-      </div>
-      <div className="mt-8 grid w-full gap-2">
+    <div className="w-full max-w-sm">
+      <p className="text-center text-xs font-semibold tracking-[0.22em] text-muted">MÁQUINA</p>
+      <h2 className="mt-2 text-center font-display text-5xl leading-none">{machine}</h2>
+      <div className="mt-8 grid gap-3">
         <button
           type="button"
           onClick={onProducao}
-          className="w-full rounded-2xl bg-white py-4 font-display text-3xl leading-none text-accent shadow-[0_8px_24px_rgba(47,84,150,0.08)]"
+          className="rounded-3xl border border-line bg-white py-7 text-center font-display text-4xl leading-none text-fg shadow-[0_10px_30px_rgba(47,84,150,0.08)]"
         >
           Produção
         </button>
         <button
           type="button"
           onClick={onPerdas}
-          className="w-full rounded-2xl bg-accent py-4 font-display text-3xl leading-none text-accent-ink"
+          className="rounded-3xl bg-accent py-7 text-center font-display text-4xl leading-none text-accent-ink"
         >
           Perdas
         </button>
@@ -1996,6 +1977,7 @@ function StationsScreen({
   machine,
   offDay,
   onDownload,
+  onEditar,
   onOpen,
   onOpenOutro,
   onDeleteOutro,
@@ -2005,6 +1987,7 @@ function StationsScreen({
   machine: MachineId;
   offDay: boolean;
   onDownload: () => void;
+  onEditar: () => void;
   onOpen: (station: number) => void;
   onOpenOutro: (outro: OutroMatriz) => void;
   onDeleteOutro: (id: string) => void;
@@ -2030,6 +2013,14 @@ function StationsScreen({
             className="grid size-12 place-items-center rounded-tile bg-accent text-accent-ink"
           >
             <ImageDown className="size-6" />
+          </button>
+          <button
+            type="button"
+            onClick={onEditar}
+            aria-label="Editar matrizes"
+            className="grid size-12 place-items-center rounded-tile border border-line bg-white text-accent"
+          >
+            <IconeEditar />
           </button>
           <button
             type="button"
@@ -2612,6 +2603,7 @@ function SheetScreen({
 }) {
   const [busy, setBusy] = useState<"foto" | "pdf" | null>(null);
   const [abaLider, setAbaLider] = useState<"geral" | "diario">("geral");
+  const [rotuloPeriodo, setRotuloPeriodo] = useState("Mês");
   const [escolherFoto, setEscolherFoto] = useState(false);
   const [escolhidas, setEscolhidas] = useState<MachineId[]>([]);
   const view = state;
@@ -2682,25 +2674,25 @@ function SheetScreen({
           <div className="mb-4 flex flex-wrap justify-center gap-2">
             {(
               [
-                ["geral", "Visão geral"],
-                ["diario", "Acompanhamento diário"],
-              ] as const
-            ).map(([id, label]) => (
+                { id: "geral" as const, label: rotuloPeriodo },
+                { id: "diario" as const, label: "Acompanhamento diário" },
+              ]
+            ).map((aba) => (
               <button
-                key={id}
+                key={aba.id}
                 type="button"
-                onClick={() => setAbaLider(id)}
+                onClick={() => setAbaLider(aba.id)}
                 className={cx(
                   "rounded-full px-4 py-2 text-sm font-semibold",
-                  abaLider === id ? "bg-[#2457b8] text-white" : "bg-white text-fg shadow-[0_6px_16px_rgba(47,84,150,0.06)]",
+                  abaLider === aba.id ? "bg-[#2457b8] text-white" : "bg-white text-fg shadow-[0_6px_16px_rgba(47,84,150,0.06)]",
                 )}
               >
-                {label}
+                {aba.label}
               </button>
             ))}
           </div>
           {abaLider === "geral" ? (
-            <PainelHistorico state={state} today={today} onDate={onDate} />
+            <PainelHistorico state={state} today={today} onDate={onDate} onPeriodo={setRotuloPeriodo} />
           ) : (
             <AcompanhamentoDiario
               state={view}
@@ -2914,10 +2906,12 @@ function PainelHistorico({
   state,
   today,
   onDate,
+  onPeriodo,
 }: {
   state: State;
   today: string;
   onDate: (date: string) => void;
+  onPeriodo?: (rotulo: string) => void;
 }) {
   const [remoto, setRemoto] = useState<Entry[] | null>(null);
   const [producaoRemota, setProducaoRemota] = useState<ProducaoPares[]>([]);
@@ -3047,7 +3041,6 @@ function PainelHistorico({
     problema !== null,
   ].filter(Boolean).length;
   const resumoFiltro = [
-    tituloJanela,
     maquina,
     estacao !== null ? `Est. ${pad2(estacao)}` : null,
     numeroAtivo ? `Nº ${numeroAtivo}` : null,
@@ -3058,6 +3051,10 @@ function PainelHistorico({
   ]
     .filter((item): item is string => Boolean(item))
     .join(" · ");
+
+  useEffect(() => {
+    onPeriodo?.(tituloJanela);
+  }, [tituloJanela, onPeriodo]);
 
   function limparFiltros() {
     setJanela("mes");
@@ -3075,7 +3072,7 @@ function PainelHistorico({
     <div className="grid min-w-0 gap-4">
       <div className="flex flex-wrap items-end justify-center gap-3 text-center">
         <div className="min-w-0">
-          <h2 className="font-display text-3xl leading-none text-fg lg:text-4xl">Visão geral</h2>
+          <h2 className="font-display text-3xl leading-none text-fg lg:text-4xl">{tituloJanela}</h2>
           <p className="mt-2 text-sm text-muted">
             {erro ? "Sem nuvem." : remoto === null ? "" : resumoFiltro}
           </p>
