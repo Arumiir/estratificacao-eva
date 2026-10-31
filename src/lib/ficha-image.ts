@@ -17,11 +17,11 @@ const H = 1180;
 /** Mesmo quadro, mais pixels. 3× deixa o zoom nítido; 2× se o celular recusar o canvas. */
 const SCALES = [3, 2];
 
-/** Papel e faixa por turno. Perto do formulário, longe do azul do app. */
+/** Papel e faixa da ficha: 1º cinza, 2º azul, 3º vermelho. */
 const FICHA_TURNO: Record<Turno, { papel: string; faixa: string; tabela: string; cabeca: string; zebra: string; tinta: string }> = {
-  "1": { papel: "#f6f1e8", faixa: "#8d4e34", tabela: "#fbf8f3", cabeca: "#f3e6dc", zebra: "#efe4d8", tinta: "#3a2e28" },
-  "2": { papel: "#e7f1ec", faixa: "#2c6b58", tabela: "#f4faf7", cabeca: "#dceae3", zebra: "#d5e6dd", tinta: "#24332e" },
-  "3": { papel: "#eeedf4", faixa: "#4a3f72", tabela: "#f7f6fb", cabeca: "#e4e0ef", zebra: "#e0dcec", tinta: "#2c2838" },
+  "1": { papel: "#ececee", faixa: "#5c6168", tabela: "#f7f7f8", cabeca: "#e2e3e6", zebra: "#d7d8dc", tinta: "#2c3036" },
+  "2": { papel: "#e7f0f8", faixa: "#1f5f99", tabela: "#f4f8fc", cabeca: "#d5e4f2", zebra: "#c9dced", tinta: "#1c3348" },
+  "3": { papel: "#f8eeee", faixa: "#9b2c2c", tabela: "#fdf7f7", cabeca: "#f3dede", zebra: "#edd3d3", tinta: "#3d2424" },
 };
 
 export async function renderFichasDaMaquina(

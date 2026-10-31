@@ -1664,6 +1664,12 @@ function ProducaoScreen({
   const assinatura = numeros.map((item) => item.id).join("|");
   const [valores, setValores] = useState<Record<string, string>>({});
   const [sujo, setSujo] = useState(false);
+  const [editando, setEditando] = useState(
+    () =>
+      !(state.producao ?? []).some(
+        (item) => item.date === state.date && item.turno === turno && item.machine === machine && item.pares > 0,
+      ),
+  );
 
   useEffect(() => {
     if (sujo) return;
@@ -1673,6 +1679,7 @@ function ProducaoScreen({
       proximo[item.numero] = String(item.pares);
     }
     setValores(proximo);
+    setEditando(Object.keys(proximo).length === 0);
   }, [state.date, state.producao, turno, machine, assinatura, sujo]);
 
   const producao = numeros.reduce((soma, item) => soma + (Number(valores[item.id]) || 0), 0);
@@ -1716,31 +1723,50 @@ function ProducaoScreen({
                 value={valores[item.id] ?? ""}
                 aria-label={`Pares de ${item.numero}`}
                 placeholder="0"
+                readOnly={!editando}
                 onChange={(event) => {
+                  if (!editando) return;
                   const limpo = event.target.value.replace(/\D/g, "").slice(0, 6);
                   setSujo(true);
                   setValores((atual) => ({ ...atual, [item.id]: limpo }));
                 }}
-                className="mt-4 w-full rounded-2xl border border-line bg-[#f7f9fd] px-3 py-3 text-center font-display text-3xl leading-none tabular-nums outline-none focus:border-[#4682B4]"
+                className={cx(
+                  "mt-4 w-full rounded-2xl border border-line px-3 py-3 text-center font-display text-3xl leading-none tabular-nums outline-none",
+                  editando ? "bg-[#f7f9fd] focus:border-[#4682B4]" : "bg-[#f3f4f6] text-muted",
+                )}
               />
             </label>
           ))}
         </div>
       )}
       <div className="sticky bottom-0 mt-auto bg-bg/95 py-3 backdrop-blur">
-        <button
-          type="button"
-          disabled={numeros.length === 0}
-          onClick={() => {
-            const gravar: Record<string, number> = {};
-            for (const item of numeros) gravar[item.id] = Number(valores[item.id]) || 0;
-            setSujo(false);
-            onSave(gravar);
-          }}
-          className="w-full rounded-2xl bg-accent py-4 font-display text-3xl leading-none text-accent-ink disabled:opacity-50"
-        >
-          Salvar
-        </button>
+        {editando ? (
+          <button
+            type="button"
+            disabled={numeros.length === 0}
+            onClick={() => {
+              const gravar: Record<string, number> = {};
+              for (const item of numeros) gravar[item.id] = Number(valores[item.id]) || 0;
+              setSujo(false);
+              setEditando(false);
+              onSave(gravar);
+            }}
+            className="w-full rounded-2xl bg-accent py-4 font-display text-3xl leading-none text-accent-ink disabled:opacity-50"
+          >
+            Salvar
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setEditando(true);
+              setSujo(true);
+            }}
+            className="w-full rounded-2xl border border-line bg-white py-4 font-display text-3xl leading-none text-fg"
+          >
+            Editar produção
+          </button>
+        )}
       </div>
     </div>
   );
