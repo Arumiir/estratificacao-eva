@@ -2653,44 +2653,24 @@ function SheetScreen({
   return (
     <>
       {papel === "lider" ? (
-        <div className="relative">
-          <div className="mb-3 flex justify-end gap-2 lg:pointer-events-none lg:absolute lg:inset-x-0 lg:top-0 lg:z-10 lg:mb-0">
-            {(
-              [
-                { id: "geral" as const, label: "Visão geral" },
-                { id: "diario" as const, label: "Acompanhamento diário" },
-              ]
-            ).map((aba) => (
-              <button
-                key={aba.id}
-                type="button"
-                onClick={() => setAbaLider(aba.id)}
-                className={cx(
-                  "pointer-events-auto rounded-xl px-4 py-2.5 text-sm font-semibold lg:px-5 lg:py-3 lg:text-base",
-                  abaLider === aba.id ? "bg-[#2457b8] text-white" : "bg-white text-fg shadow-[0_6px_16px_rgba(47,84,150,0.06)]",
-                )}
-              >
-                {aba.label}
-              </button>
-            ))}
-          </div>
-          {abaLider === "geral" ? (
-            <PainelHistorico state={state} today={today} onDate={onDate} />
-          ) : (
-            <AcompanhamentoDiario
-              state={view}
-              today={today}
-              offDay={offDay}
-              onDate={onDate}
-              onTurno={onTurno}
-              shown={shown}
-              busy={busy}
-              onPhoto={abrirSeletor}
-              onPdf={() => void downloadPdf()}
-              onDelete={onDelete}
-            />
-          )}
-        </div>
+        abaLider === "geral" ? (
+          <PainelHistorico state={state} today={today} onDate={onDate} aba={abaLider} onAba={setAbaLider} />
+        ) : (
+          <AcompanhamentoDiario
+            state={view}
+            today={today}
+            offDay={offDay}
+            onDate={onDate}
+            onTurno={onTurno}
+            shown={shown}
+            busy={busy}
+            onPhoto={abrirSeletor}
+            onPdf={() => void downloadPdf()}
+            onDelete={onDelete}
+            aba={abaLider}
+            onAba={setAbaLider}
+          />
+        )
       ) : null}
       {escolherFoto ? (
         <div
@@ -2889,10 +2869,14 @@ function PainelHistorico({
   state,
   today,
   onDate,
+  aba,
+  onAba,
 }: {
   state: State;
   today: string;
   onDate: (date: string) => void;
+  aba: "geral" | "diario";
+  onAba: (aba: "geral" | "diario") => void;
 }) {
   const [remoto, setRemoto] = useState<Entry[] | null>(null);
   const [producaoRemota, setProducaoRemota] = useState<ProducaoPares[]>([]);
@@ -3068,17 +3052,21 @@ function PainelHistorico({
   }
 
   const chips = [tituloJanela, ...resumoFiltro.split(" · ").filter(Boolean)];
+  const resumoPeriodos = [
+    { nome: "Dia", producao: producaoRecorte(diasDia), perdas: paresDasEntradas(doDia) },
+    { nome: "Semana", producao: producaoRecorte(diasSemana), perdas: paresDasEntradas(daSemana) },
+    { nome: "Mês", producao: producaoRecorte(diasMes), perdas: paresDasEntradas(doMes) },
+  ];
 
   return (
-    <div className="grid min-w-0 gap-4 lg:pt-1">
-      <div className="flex items-center gap-3 lg:pr-[28rem]">
+    <div className="grid min-w-0 gap-4">
+      <BarraDash aba={aba} onAba={onAba}>
         <button
           type="button"
           onClick={() => setFiltrosAbertos(true)}
-          aria-label="Abrir filtros"
-          className="relative grid size-12 shrink-0 place-items-center rounded-2xl bg-white text-[#4682B4] shadow-[0_8px_24px_rgba(47,84,150,0.08)]"
+          className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border border-[#d5dee8] bg-[#f7f9fc] px-3 text-sm font-semibold text-fg"
         >
-          <svg viewBox="0 0 24 24" className="size-6" aria-hidden="true">
+          <svg viewBox="0 0 24 24" className="size-4 text-[#4682B4]" aria-hidden="true">
             <path
               d="M4 5h16l-6.2 7.1V19l-3.6 1.4v-8.3L4 5z"
               fill="none"
@@ -3087,37 +3075,51 @@ function PainelHistorico({
               strokeLinejoin="round"
             />
           </svg>
+          Filtros
           {filtrosAtivos > 0 ? (
-            <span className="absolute -right-1 -top-1 grid size-5 place-items-center rounded-full bg-[#2457b8] text-[11px] font-semibold text-white">
+            <span className="grid size-5 place-items-center rounded-full bg-[#2457b8] text-[11px] font-semibold text-white">
               {filtrosAtivos}
             </span>
           ) : null}
         </button>
-        <div className="ml-auto flex min-w-0 flex-wrap justify-end gap-1.5">
-          {erro ? <span className="text-sm font-semibold text-muted">Sem nuvem.</span> : null}
+        <div className="flex min-w-0 flex-1 flex-wrap justify-end gap-1.5">
+          {erro ? <span className="self-center text-sm text-muted">Sem nuvem.</span> : null}
           {chips.map((chip) => (
-            <span key={chip} className="rounded-full bg-white px-3 py-1.5 text-sm font-semibold text-fg shadow-[0_4px_12px_rgba(47,84,150,0.06)]">
+            <span key={chip} className="inline-flex h-8 items-center rounded-lg border border-[#d5dee8] bg-[#f7f9fc] px-2.5 text-sm font-semibold">
               {chip}
             </span>
           ))}
         </div>
-      </div>
+      </BarraDash>
 
-      <section className="grid grid-cols-3 gap-2 rounded-3xl bg-white p-4 text-center shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
-        <div>
-          <p className="text-xs font-semibold text-muted">Produção</p>
-          <p className="mt-1 font-display text-3xl leading-none tabular-nums lg:text-4xl">{producaoPeriodo}</p>
-        </div>
-        <div>
-          <p className="text-xs font-semibold text-muted">Perdas</p>
-          <p className="mt-1 font-display text-3xl leading-none tabular-nums lg:text-4xl">{perdasPeriodo}</p>
-        </div>
-        <div>
-          <p className="text-xs font-semibold text-muted">% perda</p>
-          <p className="mt-1 font-display text-3xl leading-none tabular-nums lg:text-4xl">
-            {textoPercentual(percentualPerda(perdasPeriodo, producaoPeriodo))}
-          </p>
-        </div>
+      <section className="grid gap-3 lg:grid-cols-3">
+        <CartaoResumo
+          titulo="Produção"
+          unidade="pares"
+          valor={producaoPeriodo}
+          periodo={tituloJanela}
+          tom="azul"
+          linhas={resumoPeriodos.map((item) => ({ nome: item.nome, valor: item.producao }))}
+        />
+        <CartaoResumo
+          titulo="Perdas"
+          unidade="pares"
+          valor={perdasPeriodo}
+          periodo={tituloJanela}
+          tom="escuro"
+          linhas={resumoPeriodos.map((item) => ({ nome: item.nome, valor: item.perdas }))}
+        />
+        <CartaoResumo
+          titulo="% de perda"
+          unidade=""
+          valor={textoPercentual(percentualPerda(perdasPeriodo, producaoPeriodo))}
+          periodo={tituloJanela}
+          tom="claro"
+          linhas={resumoPeriodos.map((item) => ({
+            nome: item.nome,
+            valor: textoPercentual(percentualPerda(item.perdas, item.producao)),
+          }))}
+        />
       </section>
 
       {filtrosAbertos ? (
@@ -3352,6 +3354,85 @@ function PainelHistorico({
   );
 }
 
+function BarraDash({
+  aba,
+  onAba,
+  children,
+}: {
+  aba: "geral" | "diario";
+  onAba: (aba: "geral" | "diario") => void;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-3 rounded-2xl border border-[#d5dee8] bg-white px-3 py-3 lg:flex-row lg:items-center">
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">{children}</div>
+      <div className="grid h-11 shrink-0 grid-cols-2 overflow-hidden rounded-xl border border-[#d5dee8] lg:w-[26rem]">
+        {(
+          [
+            ["geral", "Visão geral"],
+            ["diario", "Acompanhamento diário"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => onAba(id)}
+            className={cx(
+              "px-3 text-sm font-semibold lg:text-base",
+              aba === id ? "bg-[#2457b8] text-white" : "bg-white text-fg",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CartaoResumo({
+  titulo,
+  unidade,
+  valor,
+  periodo,
+  tom,
+  linhas,
+}: {
+  titulo: string;
+  unidade: string;
+  valor: number | string;
+  periodo: string;
+  tom: "azul" | "escuro" | "claro";
+  linhas: { nome: string; valor: number | string }[];
+}) {
+  const claro = tom === "claro";
+  return (
+    <article
+      className={cx(
+        "rounded-2xl p-4",
+        tom === "azul" && "bg-[#4682B4] text-white",
+        tom === "escuro" && "bg-[#1e3a5f] text-white",
+        claro && "border border-[#d5dee8] bg-white text-fg",
+      )}
+    >
+      <p className={cx("text-xs font-semibold uppercase tracking-wide", claro ? "text-muted" : "text-white/75")}>{titulo}</p>
+      <p className="mt-2 font-display text-4xl leading-none tabular-nums lg:text-5xl">{valor}</p>
+      <p className={cx("mt-2 text-sm", claro ? "text-muted" : "text-white/75")}>
+        {unidade ? `${unidade} · ` : ""}
+        {periodo}
+      </p>
+      <div className={cx("mt-4 grid grid-cols-3 gap-2 border-t pt-3", claro ? "border-[#e6ebf2]" : "border-white/20")}>
+        {linhas.map((linha) => (
+          <div key={linha.nome}>
+            <p className={cx("text-[11px]", claro ? "text-muted" : "text-white/70")}>{linha.nome}</p>
+            <p className="mt-1 text-sm font-semibold tabular-nums">{linha.valor}</p>
+          </div>
+        ))}
+      </div>
+    </article>
+  );
+}
+
 const CORES_FATIA = ["#e23b3b", "#f08a24", "#e2b423", "#2f9e6b", "#2aa0c7", "#3b6fe0", "#7a4fd4", "#d4538a", "#6b7280", "#8b5a2b", "#1f7a4d"];
 
 function TabelaProducao({
@@ -3534,42 +3615,46 @@ function RankingBarras({
       {itens.length === 0 || total === 0 ? (
         <p className="mt-3 text-sm text-muted">Sem apontamento neste recorte.</p>
       ) : vertical ? (
-        <div className="mt-4 flex items-end justify-center gap-4 overflow-x-auto pb-1">
-          {itens.map((item, index) => {
-            const altura = item.valor <= 0 ? 0 : Math.max(4, Math.round((item.valor / maximo) * 112));
-            const corpo = (
-              <>
-                <span className="text-xs font-semibold tabular-nums">{item.valor}</span>
-                <span className="mt-1 flex h-28 w-8 items-end">
+        <div className="mt-4 overflow-x-auto">
+          <div className="flex min-w-max items-end gap-5 border-b border-[#c5d0dc] px-2">
+            {itens.map((item, index) => {
+              const altura = item.valor <= 0 ? 0 : Math.max(6, Math.round((item.valor / maximo) * 132));
+              const corpo = (
+                <>
+                  <span className="mb-1 text-xs font-semibold tabular-nums">{item.valor}</span>
                   <span
-                    className="block w-8 rounded-t-sm"
+                    className="block w-9 rounded-t-md"
                     style={{
                       height: `${altura}px`,
                       background: CORES_FATIA[index % CORES_FATIA.length],
                       opacity: item.ativo === false ? 0.35 : 1,
                     }}
                   />
-                </span>
-                <span className="mt-2 w-16 break-words whitespace-pre-line text-center text-[11px] font-medium leading-tight text-[#3b4250]">
-                  {item.nome}
-                </span>
-                {item.extra ? <span className="mt-1 w-16 text-center text-[10px] text-muted">{item.extra}</span> : null}
-              </>
-            );
-            const classe = "flex w-16 shrink-0 flex-col items-center";
-            if (!onPick) {
-              return (
-                <div key={item.id} className={classe}>
-                  {corpo}
-                </div>
+                </>
               );
-            }
-            return (
-              <button key={item.id} type="button" onClick={() => onPick(item.id)} className={classe}>
-                {corpo}
-              </button>
-            );
-          })}
+              const classe = "flex w-16 flex-col items-center justify-end";
+              if (!onPick) {
+                return (
+                  <div key={item.id} className={classe}>
+                    {corpo}
+                  </div>
+                );
+              }
+              return (
+                <button key={item.id} type="button" onClick={() => onPick(item.id)} className={classe}>
+                  {corpo}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-2 flex min-w-max gap-5 px-2">
+            {itens.map((item) => (
+              <span key={item.id} className="w-16 break-words whitespace-pre-line text-center text-[11px] font-medium leading-tight text-[#3b4250]">
+                {item.nome}
+                {item.extra ? <span className="mt-1 block text-[10px] font-normal text-muted">{item.extra}</span> : null}
+              </span>
+            ))}
+          </div>
         </div>
       ) : (
         <ol className="mt-3 grid gap-3">
@@ -3590,7 +3675,7 @@ function RankingBarras({
                     <span className="block text-muted">{percentual}%</span>
                   </p>
                 </div>
-                <span className="mt-1 block h-1.5 overflow-hidden rounded-sm bg-[#e7eef5]">
+                <span className="mt-1.5 block h-2.5 overflow-hidden rounded-sm bg-[#e7eef5]">
                   <span
                     className="block h-full rounded-full"
                     style={{
@@ -4350,6 +4435,8 @@ function AcompanhamentoDiario({
   onPhoto,
   onPdf,
   onDelete,
+  aba,
+  onAba,
 }: {
   state: State;
   today: string;
@@ -4361,6 +4448,8 @@ function AcompanhamentoDiario({
   onPhoto: () => void;
   onPdf: () => void;
   onDelete?: (entries: Entry[]) => void;
+  aba: "geral" | "diario";
+  onAba: (aba: "geral" | "diario") => void;
 }) {
   const [painel, setPainel] = useState<{ machine: MachineId; tipo: "apontamentos" | "matrizaria" } | null>(null);
   const [pedir, setPedir] = useState(false);
@@ -4381,7 +4470,12 @@ function AcompanhamentoDiario({
   }
 
   return (
-    <div className="grid min-w-0 gap-3 lg:pt-16">
+    <div className="grid min-w-0 gap-3">
+      <BarraDash aba={aba} onAba={onAba}>
+        <span className="text-sm font-semibold text-muted">
+          {formatDateBR(state.date)} · {TURNO_LABEL[state.turno]}
+        </span>
+      </BarraDash>
       <DayControls state={state} today={today} offDay={offDay} onDate={onDate} />
       <TurnoPicker value={state.turno} onChange={onTurno} />
       {visiveis.length === 0 ? (
