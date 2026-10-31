@@ -4033,6 +4033,7 @@ function MaquinaDoDia({
   const paresMaquina = paresDasEntradas(mine);
   const piores = topProblems(lines);
   const [pedir, setPedir] = useState(false);
+  const [grade, setGrade] = useState(false);
   const editaveis = mine.filter((entry) => podeAlterarApontamento(entry));
   const estacoes = estacoesDoDia(state, machine, lines).filter((item) => item.pares > 0);
 
@@ -4064,6 +4065,16 @@ function MaquinaDoDia({
           <p className="mt-3 text-sm text-muted">Nenhuma perda passou de 2 solas.</p>
         )}
       </button>
+      <div className="px-3 pb-3">
+        <button
+          type="button"
+          onClick={() => setGrade((value) => !value)}
+          className="flex min-h-11 w-full items-center justify-center rounded-2xl bg-[#f3f6fb] text-sm font-semibold text-[#4682B4]"
+        >
+          {grade ? "Ocultar matrizaria" : "Ver matrizaria"}
+        </button>
+        {grade ? <GradeSomenteLeitura state={state} machine={machine} /> : null}
+      </div>
       {aberta ? (
         <div className="border-t border-[#f3f2f1] px-3 py-3">
           {estacoes.length === 0 ? (
