@@ -163,6 +163,23 @@ export function todayISO(now = new Date()): string {
   return partesFortaleza(now.getTime()).date;
 }
 
+function diaAnterior(iso: string): string {
+  const [year, month, day] = iso.split("-").map(Number);
+  if (!year || !month || !day) return iso;
+  const cursor = new Date(Date.UTC(year, month - 1, day));
+  cursor.setUTCDate(cursor.getUTCDate() - 1);
+  const mes = String(cursor.getUTCMonth() + 1).padStart(2, "0");
+  const dia = String(cursor.getUTCDate()).padStart(2, "0");
+  return `${cursor.getUTCFullYear()}-${mes}-${dia}`;
+}
+
+/** O 3º turno atravessa a meia-noite: de 23:00 até 06:00 é o mesmo dia de grade. */
+export function diaOperacional(turno: Turno, now = Date.now()): string {
+  const { date, minutes } = partesFortaleza(now);
+  if (turno === "3" && minutes < 6 * 60) return diaAnterior(date);
+  return date;
+}
+
 export function diasAte(ate: string, quantidade: number): string[] {
   const [year, month, day] = ate.split("-").map(Number);
   if (!year || !month || !day) return [];

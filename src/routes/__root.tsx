@@ -5,7 +5,7 @@ import { AuthProvider } from "@/lib/auth/provider";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import appCss from "../styles.css?url";
 
-const APP_NAME = "Estratificação das Perdas - EVA";
+const APP_NAME = "Injeção EVA (Sobral)";
 
 const requestHost = createIsomorphicFn()
   .server(() => getRequestHeader("x-forwarded-host") || getRequestHeader("host") || "")

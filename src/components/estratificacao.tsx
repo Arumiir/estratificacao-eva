@@ -45,6 +45,7 @@ import {
   stationKey,
   todayISO,
   turnoPeloRelogio,
+  diaOperacional,
   TURNO_LABEL,
   type Turno,
   diasAte,
@@ -62,7 +63,7 @@ import {
 import { downloadBlob, renderFichasDaMaquina, renderFichasPdf } from "@/lib/ficha-image";
 import { enviarPlanilha, pullApontamentos, pullHistorico, pushApontamentos } from "@/lib/apontamentos.functions";
 
-type Papel = "preparador" | "lider";
+type Papel = "preparador" | "lider" | "teste";
 type Sessao = { papel: Papel; turno: Turno | null };
 
 const SESSAO_KEY = "estratificacao-sessao-v3";
@@ -79,7 +80,7 @@ function loadSessao(): Sessao | null {
     const data: unknown = JSON.parse(raw);
     if (!data || typeof data !== "object") return null;
     const row = data as { papel?: unknown; turno?: unknown };
-    if (row.papel !== "preparador" && row.papel !== "lider") return null;
+    if (row.papel !== "preparador" && row.papel !== "lider" && row.papel !== "teste") return null;
     return { papel: row.papel, turno: turnoDaSessao(row.turno, row.papel) };
   } catch {
     return null;
@@ -102,12 +103,15 @@ type Screen =
   | { kind: "ask"; machine: MachineId }
   | { kind: "cor"; machine: MachineId }
   | { kind: "troca-cor"; machine: MachineId; corId: string }
-  | { kind: "matrices"; machine: MachineId; corId?: string }
+  | { kind: "matrices"; machine: MachineId; corId?: string; diaria?: boolean }
+  | { kind: "hub"; machine: MachineId }
   | { kind: "stations"; machine: MachineId; corId?: string }
   | { kind: "outros"; machine: MachineId }
   | { kind: "side"; machine: MachineId; station: number; outroId?: string; corId?: string }
   | { kind: "problems"; machine: MachineId; station: number; side: Side; outroId?: string; corId?: string }
-  | { kind: "sheet"; machine: MachineId | null };
+  | { kind: "sheet"; machine: MachineId | null }
+  | { kind: "teste" }
+  | { kind: "teste-maquina"; machine: MachineId };
 
 type Banner = {
   id: number;
@@ -493,7 +497,9 @@ function screenKey(screen: Screen): string {
     case "troca-cor":
       return `troca-cor-${screen.machine}-${screen.corId}`;
     case "matrices":
-      return `matrices-${screen.machine}-${screen.corId ?? ""}`;
+      return `matrices-${screen.machine}-${screen.corId ?? ""}-${screen.diaria ? "dia" : ""}`;
+    case "hub":
+      return `hub-${screen.machine}`;
     case "stations":
       return `stations-${screen.machine}-${screen.corId ?? ""}`;
     case "outros":
@@ -504,6 +510,10 @@ function screenKey(screen: Screen): string {
       return `problems-${screen.machine}-${screen.outroId || screen.station}-${screen.side}-${screen.corId ?? ""}`;
     case "sheet":
       return `sheet-${screen.machine ?? "all"}`;
+    case "teste":
+      return "teste";
+    case "teste-maquina":
+      return `teste-${screen.machine}`;
   }
 }
 
@@ -511,7 +521,8 @@ function machineFrom(screen: Screen): MachineId | null {
   if (
     screen.kind === "papel" ||
     screen.kind === "turnos" ||
-    screen.kind === "machines"
+    screen.kind === "machines" ||
+    screen.kind === "teste"
   ) {
     return null;
   }
@@ -576,7 +587,9 @@ export function EstratificacaoApp() {
         ? { kind: "machines" }
         : saved?.papel === "lider"
           ? { kind: "sheet", machine: null }
-          : { kind: "papel" };
+          : saved?.papel === "teste"
+            ? { kind: "teste" }
+            : { kind: "papel" };
     homeRef.current = home;
     stackRef.current = [home];
     setStack([home]);
@@ -658,7 +671,11 @@ export function EstratificacaoApp() {
       commit((current) => ({ ...current, turno: next.turno ?? "1" }));
     }
     const home: Screen =
-      next.papel === "lider" ? { kind: "sheet", machine: null } : { kind: "machines" };
+      next.papel === "lider"
+        ? { kind: "sheet", machine: null }
+        : next.papel === "teste"
+          ? { kind: "teste" }
+          : { kind: "machines" };
     homeRef.current = home;
     stackRef.current = [home];
     depthRef.current = 1;
@@ -730,6 +747,15 @@ export function EstratificacaoApp() {
   function openMachine(machine: MachineId) {
     const current = read();
     if (!current) return;
+    const turno = sessao?.turno ?? current.turno;
+    if (sessao?.papel === "preparador" && !gradeConfirmada(turno, machine)) {
+      push({ kind: "matrices", machine, diaria: true });
+      return;
+    }
+    if (sessao?.papel === "preparador") {
+      push({ kind: "hub", machine });
+      return;
+    }
     push(destinoDaMaquina(current, machine));
   }
 
@@ -762,6 +788,12 @@ export function EstratificacaoApp() {
       };
     });
     flash("Grade de matrizaria salva");
+    const topo = stackRef.current[stackRef.current.length - 1];
+    if (topo?.kind === "matrices" && topo.diaria && sessao?.papel === "preparador") {
+      marcarGradeDia(sessao.turno ?? "1", machine);
+      replaceTop({ kind: "hub", machine });
+      return;
+    }
     const dest: Screen = { kind: "stations", machine, corId: corId || undefined };
     if (sessao?.papel === "preparador") homeRef.current = dest;
     adoptStack([dest]);
@@ -1016,15 +1048,15 @@ export function EstratificacaoApp() {
             {screen.kind === "sheet" ? (
               <>
                 <h1 className="font-display text-2xl leading-none tracking-wide text-accent lg:text-4xl">
-                  {papel === "lider" ? "Dashboard geral" : "Lançamentos"}
+                  {papel === "lider" ? "Dashboard geral" : papel === "teste" ? "Página de teste" : "Lançamentos"}
                 </h1>
               </>
             ) : (
               <>
                 <h1 className="font-display text-3xl leading-none tracking-wide text-accent">
-                  Estratificação
+                  Injeção EVA
                 </h1>
-                <p className="font-display text-xl leading-none text-fg">das perdas - EVA</p>
+                <p className="font-display text-xl leading-none text-fg">(Sobral)</p>
                 {header.context ? (
                   <p className="mt-1 truncate text-sm font-semibold text-muted">{header.context}</p>
                 ) : null}
@@ -1100,10 +1132,30 @@ export function EstratificacaoApp() {
             dir === "forward" ? "enter-forward" : "enter-back",
           )}
         >
-          {screen.kind === "papel" ? <PortaScreen onPick={chooseSessao} /> : null}
+          {screen.kind === "papel" ? (
+            <PortaScreen
+              onPick={chooseSessao}
+              onTeste={() => chooseSessao({ papel: "teste", turno: null })}
+            />
+          ) : null}
 
           {papel === "preparador" && screen.kind === "machines" ? (
             <MachinesScreen state={state} onOpen={openMachine} />
+          ) : null}
+
+          {papel === "preparador" && screen.kind === "hub" ? (
+            <HubMaquina
+              machine={screen.machine}
+              onPerdas={() => push({ kind: "stations", machine: screen.machine })}
+            />
+          ) : null}
+
+          {papel === "teste" && screen.kind === "teste" ? (
+            <TesteMaquinas onOpen={(machine) => push({ kind: "teste-maquina", machine })} />
+          ) : null}
+
+          {papel === "teste" && screen.kind === "teste-maquina" ? (
+            <TesteProducao state={state} machine={screen.machine} />
           ) : null}
 
           {papel === "preparador" && screen.kind === "ask" ? (
@@ -1229,9 +1281,9 @@ function Loading() {
         <div className="h-1 bg-accent" />
         <div className="px-4 py-4">
           <h1 className="font-display text-3xl leading-none tracking-wide text-accent">
-            Estratificação
+            Injeção EVA
           </h1>
-          <p className="font-display text-xl leading-none text-fg">das perdas - EVA</p>
+          <p className="font-display text-xl leading-none text-fg">(Sobral)</p>
           <p className="mt-2 text-base text-muted">Carregando o turno…</p>
         </div>
       </header>
@@ -1253,6 +1305,8 @@ function headerFor(screen: Screen): { context: string } {
       return { context: `Máquina ${screen.machine} · troca de cor` };
     case "matrices":
       return { context: `Máquina ${screen.machine} · matrizes` };
+    case "hub":
+      return { context: `Máquina ${screen.machine}` };
     case "stations":
       return { context: `Máquina ${screen.machine}` };
     case "outros":
@@ -1271,6 +1325,10 @@ function headerFor(screen: Screen): { context: string } {
       };
     case "sheet":
       return { context: "Lançamentos" };
+    case "teste":
+      return { context: "Página de teste" };
+    case "teste-maquina":
+      return { context: `Teste · ${screen.machine}` };
     case "papel":
       return { context: "" };
   }
@@ -1311,7 +1369,23 @@ function Field({
   );
 }
 
-function PortaScreen({ onPick }: { onPick: (sessao: Sessao) => void }) {
+function PortaScreen({
+  onPick,
+  onTeste,
+}: {
+  onPick: (sessao: Sessao) => void;
+  onTeste: () => void;
+}) {
+  const segurando = useRef<number | null>(null);
+  const segurou = useRef(false);
+
+  function soltar() {
+    if (segurando.current !== null) {
+      window.clearTimeout(segurando.current);
+      segurando.current = null;
+    }
+  }
+
   return (
     <div className="mx-auto grid w-full max-w-md gap-3 lg:mt-8">
       <p className="text-base text-muted">Escolha o turno para apontar, ou abra o dashboard.</p>
@@ -1327,11 +1401,277 @@ function PortaScreen({ onPick }: { onPick: (sessao: Sessao) => void }) {
       ))}
       <button
         type="button"
-        onClick={() => onPick({ papel: "lider", turno: null })}
+        onContextMenu={(event) => event.preventDefault()}
+        onPointerDown={() => {
+          segurou.current = false;
+          soltar();
+          segurando.current = window.setTimeout(() => {
+            segurando.current = null;
+            segurou.current = true;
+            onTeste();
+          }, 600);
+        }}
+        onPointerUp={soltar}
+        onPointerCancel={soltar}
+        onClick={() => {
+          if (segurou.current) {
+            segurou.current = false;
+            return;
+          }
+          onPick({ papel: "lider", turno: null });
+        }}
         className="rounded-tile border border-line bg-surface py-5 font-display text-3xl leading-none text-fg"
       >
         Dashboard geral
       </button>
+      <p className="text-center text-sm text-muted">Segure o dashboard para a página de teste.</p>
+    </div>
+  );
+}
+
+const GRADE_DIA_KEY = "injecao-grade-dia-v1";
+const PRODUCAO_KEY = "injecao-producao-teste-v1";
+
+function chaveGradeDia(turno: Turno, machine: MachineId, now = Date.now()) {
+  return `${diaOperacional(turno, now)}|${turno}|${machine}`;
+}
+
+function gradeConfirmada(turno: Turno, machine: MachineId) {
+  try {
+    const raw = localStorage.getItem(GRADE_DIA_KEY);
+    const data: unknown = raw ? JSON.parse(raw) : {};
+    if (!data || typeof data !== "object") return false;
+    return Boolean((data as Record<string, unknown>)[chaveGradeDia(turno, machine)]);
+  } catch {
+    return false;
+  }
+}
+
+function marcarGradeDia(turno: Turno, machine: MachineId) {
+  try {
+    const raw = localStorage.getItem(GRADE_DIA_KEY);
+    const data: Record<string, number> =
+      raw && typeof JSON.parse(raw) === "object" ? (JSON.parse(raw) as Record<string, number>) : {};
+    data[chaveGradeDia(turno, machine)] = Date.now();
+    localStorage.setItem(GRADE_DIA_KEY, JSON.stringify(data));
+  } catch {
+    /* a confirmação vale só neste aparelho */
+  }
+}
+
+function HubMaquina({ machine, onPerdas }: { machine: MachineId; onPerdas: () => void }) {
+  return (
+    <div>
+      <p className="text-base text-muted">Matrizaria deste turno já definida.</p>
+      <h2 className="mt-2 font-display text-4xl leading-none">{machine}</h2>
+      <button
+        type="button"
+        onClick={onPerdas}
+        className="mt-6 w-full rounded-tile bg-accent py-5 font-display text-4xl leading-none text-accent-ink"
+      >
+        Perdas
+      </button>
+    </div>
+  );
+}
+
+type SlotProducao = {
+  id: string;
+  estacao: string;
+  lado: string;
+  numero: string;
+  referencia: string;
+};
+
+function slotsProducao(state: State, machine: MachineId, date: string, turno: Turno): SlotProducao[] {
+  const slots: SlotProducao[] = [];
+  for (const station of STATIONS) {
+    const config = state.stations[stationKey(machine, station)];
+    if (!config) continue;
+    if (config.ambos) {
+      const numero = config.numero.trim();
+      const referencia = config.referencia.trim();
+      if (!numero && !referencia) continue;
+      slots.push({
+        id: `${station}|ambos|${numero}|${referencia}`,
+        estacao: pad2(station),
+        lado: "Ambos",
+        numero,
+        referencia,
+      });
+      continue;
+    }
+    for (const side of SIDES) {
+      const slot = side === "esq" ? config.esq : config.dir;
+      const numero = slot.numero.trim();
+      const referencia = slot.referencia.trim();
+      if (!numero && !referencia) continue;
+      slots.push({
+        id: `${station}|${side}|${numero}|${referencia}`,
+        estacao: pad2(station),
+        lado: SIDE_LABEL[side],
+        numero,
+        referencia,
+      });
+    }
+  }
+  for (const outro of state.outros) {
+    if (!outroVivo(outro) || outro.machine !== machine || outro.date !== date || outro.turno !== turno) continue;
+    const numero = outro.numero.trim();
+    const referencia = outro.referencia.trim();
+    slots.push({
+      id: `troca|${outro.id}|${numero}|${referencia}`,
+      estacao: outro.station >= 1 ? `Troca ${pad2(outro.station)}` : "Troca",
+      lado: outro.ambos ? "Ambos" : SIDE_LABEL[outro.side],
+      numero,
+      referencia,
+    });
+  }
+  return slots;
+}
+
+function lerProducao(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(PRODUCAO_KEY);
+    const data: unknown = raw ? JSON.parse(raw) : {};
+    if (!data || typeof data !== "object") return {};
+    const saida: Record<string, number> = {};
+    for (const [chave, valor] of Object.entries(data as Record<string, unknown>)) {
+      const numero = typeof valor === "number" ? valor : Number(valor);
+      if (Number.isFinite(numero) && numero > 0) saida[chave] = Math.floor(numero);
+    }
+    return saida;
+  } catch {
+    return {};
+  }
+}
+
+function gravarPar(chave: string, pares: number) {
+  const atual = lerProducao();
+  if (pares > 0) atual[chave] = pares;
+  else delete atual[chave];
+  try {
+    localStorage.setItem(PRODUCAO_KEY, JSON.stringify(atual));
+  } catch {
+    /* o teste fica neste aparelho */
+  }
+}
+
+function TesteMaquinas({ onOpen }: { onOpen: (machine: MachineId) => void }) {
+  return (
+    <div>
+      <p className="mb-2 text-sm font-semibold text-accent">Página de teste</p>
+      <h2 className="font-display text-3xl leading-none">Qual máquina?</h2>
+      <p className="mb-3 mt-2 text-sm text-muted">A produção daqui ainda não entra no dashboard.</p>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+        {MACHINES.map((machine) => (
+          <button
+            key={machine}
+            type="button"
+            onClick={() => onOpen(machine)}
+            className="flex min-h-32 flex-col rounded-tile border border-line bg-surface p-4 text-left"
+          >
+            <span className="text-sm font-semibold text-muted">Máquina</span>
+            <span className="mt-1 font-display text-4xl leading-none">{machine}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TesteProducao({ state, machine }: { state: State; machine: MachineId }) {
+  const [turno, setTurno] = useState<Turno>(turnoPeloRelogio());
+  const date = todayISO();
+  const slots = slotsProducao(state, machine, date, turno);
+  const assinatura = slots.map((slot) => slot.id).join("|");
+  const [valores, setValores] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const salvos = lerProducao();
+    const proximo: Record<string, string> = {};
+    for (const slot of slots) {
+      const chave = `${date}|${turno}|${machine}|${slot.id}`;
+      const valor = salvos[chave];
+      if (valor) proximo[slot.id] = String(valor);
+    }
+    setValores(proximo);
+  }, [date, turno, machine, assinatura]);
+
+  const producao = slots.reduce((soma, slot) => soma + (Number(valores[slot.id]) || 0), 0);
+  const perdas = paresDasEntradas(
+    state.entries.filter((entry) => entry.date === date && entry.turno === turno && entry.machine === machine),
+  );
+  const base = perdas + producao;
+  const percentual = base > 0 ? (perdas / base) * 100 : null;
+
+  return (
+    <div className="grid gap-3">
+      <div>
+        <p className="text-sm font-semibold text-accent">Página de teste</p>
+        <h2 className="font-display text-4xl leading-none">{machine}</h2>
+        <p className="mt-1 text-sm text-muted">{formatDateBR(date)}</p>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        {(["1", "2", "3"] as const).map((item) => (
+          <button
+            key={item}
+            type="button"
+            onClick={() => setTurno(item)}
+            className={cx(
+              "rounded-tile py-3 text-sm font-semibold",
+              turno === item ? "bg-accent text-accent-ink" : "bg-surface text-fg",
+            )}
+          >
+            {TURNO_LABEL[item]}
+          </button>
+        ))}
+      </div>
+      <section className="grid grid-cols-3 gap-2 rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+        <div>
+          <p className="text-xs font-semibold text-muted">Produção</p>
+          <p className="font-display text-3xl leading-none tabular-nums">{producao}</p>
+        </div>
+        <div>
+          <p className="text-xs font-semibold text-muted">Perdas</p>
+          <p className="font-display text-3xl leading-none tabular-nums">{perdas}</p>
+        </div>
+        <div>
+          <p className="text-xs font-semibold text-muted">% perda</p>
+          <p className="font-display text-3xl leading-none tabular-nums">
+            {percentual === null ? "—" : percentual.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}
+          </p>
+        </div>
+      </section>
+      <p className="text-xs text-muted">Perdas vêm do apontamento. % = perda ÷ (perda + produção) × 100.</p>
+      {slots.length === 0 ? (
+        <p className="rounded-tile border border-dashed border-line bg-surface px-4 py-6 text-base text-muted">
+          Sem matrizaria nesta máquina. Defina a grade no turno antes de testar a produção.
+        </p>
+      ) : (
+        slots.map((slot) => (
+          <label key={slot.id} className="block rounded-3xl bg-white p-4 shadow-[0_8px_24px_rgba(47,84,150,0.06)]">
+            <span className="text-sm font-semibold text-muted">
+              Estação {slot.estacao} · {slot.lado}
+            </span>
+            <span className="mt-1 block text-base font-semibold">
+              Nº {slot.numero || "—"}
+              {slot.referencia ? ` · Ref. ${slot.referencia}` : ""}
+            </span>
+            <input
+              inputMode="numeric"
+              value={valores[slot.id] ?? ""}
+              placeholder="Pares produzidos"
+              onChange={(event) => {
+                const limpo = event.target.value.replace(/\D/g, "").slice(0, 6);
+                setValores((atual) => ({ ...atual, [slot.id]: limpo }));
+                gravarPar(`${date}|${turno}|${machine}|${slot.id}`, Number(limpo) || 0);
+              }}
+              className="mt-3 w-full rounded-tile border border-line bg-surface-2 px-3 py-3 text-lg font-semibold tabular-nums"
+            />
+          </label>
+        ))
+      )}
     </div>
   );
 }
