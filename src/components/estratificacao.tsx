@@ -24,6 +24,7 @@ import {
   coresDaMaquina,
   corViva,
   describeMatrix,
+  dentroDaJanela,
   emptyConfig,
   fichaLines,
   formatDateBR,
@@ -709,9 +710,9 @@ export function EstratificacaoApp() {
   }
 
   function avisoFechado(entry: Entry) {
-    if (apontamentoBloqueado(entry)) return "1º turno até 14:49 está bloqueado.";
-    if (entry.date !== todayISO()) return "Dia fechado. Só o dia de hoje pode ser alterado.";
-    return "Fora do horário. Esse turno não pode ser alterado agora.";
+    if (apontamentoBloqueado(entry)) return "Turno bloqueado.";
+    if (entry.date !== todayISO()) return "Dia fechado.";
+    return "Fora do horário.";
   }
 
   function removeEntry(id: string, label = "Lançamento apagado") {
@@ -789,8 +790,8 @@ export function EstratificacaoApp() {
     });
     flash("Grade de matrizaria salva");
     const topo = stackRef.current[stackRef.current.length - 1];
-    if (topo?.kind === "matrices" && topo.diaria && sessao?.papel === "preparador") {
-      marcarGradeDia(sessao.turno ?? "1", machine);
+    if (topo?.kind === "matrices" && sessao?.papel === "preparador") {
+      if (topo.diaria) marcarGradeDia(sessao.turno ?? "1", machine);
       replaceTop({ kind: "hub", machine });
       return;
     }
@@ -836,7 +837,7 @@ export function EstratificacaoApp() {
     const cor = current?.cores.find((item) => item.id === corId && corViva(item));
     if (!cor) return;
     if (current?.date !== todayISO() || cor.date !== todayISO()) {
-      flash("Dia fechado. Só o dia de hoje pode ser alterado.");
+      flash("Dia fechado.");
       return;
     }
     if (cor.nome === limpo) return;
@@ -868,13 +869,18 @@ export function EstratificacaoApp() {
       return;
     }
     if (read()?.date !== todayISO()) {
-      flash("Dia fechado. Só o dia de hoje pode ser alterado.");
+      flash("Dia fechado.");
+      return;
+    }
+    const turnoTroca = sessao?.turno ?? "1";
+    if (!dentroDaJanela(turnoTroca)) {
+      flash("Fora do horário.");
       return;
     }
     const item: OutroMatriz = {
       id: crypto.randomUUID(),
       date: todayISO(),
-      turno: sessao?.turno ?? "1",
+      turno: turnoTroca,
       machine,
       station,
       ambos,
@@ -899,7 +905,11 @@ export function EstratificacaoApp() {
     const item = current.outros.find((outro) => outro.id === id && outroVivo(outro));
     if (!item) return;
     if (current.date !== todayISO() || item.date !== todayISO()) {
-      flash("Dia fechado. Só o dia de hoje pode ser alterado.");
+      flash("Dia fechado.");
+      return;
+    }
+    if (!dentroDaJanela(item.turno)) {
+      flash("Fora do horário.");
       return;
     }
     const ligados = current.entries.filter((entry) => entry.outroId === id);
@@ -924,12 +934,16 @@ export function EstratificacaoApp() {
     const current = read();
     if (!current) return;
     if (current.date !== todayISO()) {
-      flash("Dia fechado. Só o dia de hoje pode ser alterado.");
+      flash("Dia fechado.");
+      return;
+    }
+    const at = Date.now();
+    const turno = sessao?.papel === "preparador" ? (sessao.turno ?? "1") : turnoPeloRelogio(at);
+    if (!dentroDaJanela(turno, at)) {
+      flash("Fora do horário.");
       return;
     }
     const id = crypto.randomUUID();
-    const at = Date.now();
-    const turno = sessao?.papel === "preparador" ? (sessao.turno ?? "1") : turnoPeloRelogio(at);
     let snapshot = { numero: "", referencia: "" };
     commit((stateNow) => {
       const outro = outroId ? stateNow.outros.find((item) => item.id === outroId) : undefined;
@@ -1009,7 +1023,7 @@ export function EstratificacaoApp() {
     const gone = current.entries.filter((entry) => ids.includes(entry.id) && podeAlterarApontamento(entry));
     if (gone.length === 0) {
       const fechado = current.entries.find((entry) => ids.includes(entry.id));
-      flash(fechado ? avisoFechado(fechado) : "Dia fechado. Só o dia de hoje pode ser alterado.");
+      flash(fechado ? avisoFechado(fechado) : "Dia fechado.");
       return;
     }
     holdRemovals(gone);
@@ -1147,6 +1161,8 @@ export function EstratificacaoApp() {
             <HubMaquina
               machine={screen.machine}
               onPerdas={() => push({ kind: "stations", machine: screen.machine })}
+              onEditar={() => push({ kind: "matrices", machine: screen.machine })}
+              onTrocar={() => push({ kind: "outros", machine: screen.machine })}
             />
           ) : null}
 
@@ -1181,8 +1197,6 @@ export function EstratificacaoApp() {
               machine={screen.machine}
               offDay={offDay}
               onOpen={(station) => push({ kind: "side", machine: screen.machine, station })}
-              onMatrices={() => push({ kind: "matrices", machine: screen.machine })}
-              onOutros={() => push({ kind: "outros", machine: screen.machine })}
               onOpenOutro={(outro) =>
                 outro.ambos
                   ? push({
@@ -1388,7 +1402,6 @@ function PortaScreen({
 
   return (
     <div className="mx-auto grid w-full max-w-md gap-3 lg:mt-8">
-      <p className="text-base text-muted">Escolha o turno para apontar, ou abra o dashboard.</p>
       {(["1", "2", "3"] as const).map((turno) => (
         <button
           key={turno}
@@ -1424,7 +1437,6 @@ function PortaScreen({
       >
         Dashboard geral
       </button>
-      <p className="text-center text-sm text-muted">Segure o dashboard para a página de teste.</p>
     </div>
   );
 }
@@ -1459,11 +1471,41 @@ function marcarGradeDia(turno: Turno, machine: MachineId) {
   }
 }
 
-function HubMaquina({ machine, onPerdas }: { machine: MachineId; onPerdas: () => void }) {
+function HubMaquina({
+  machine,
+  onPerdas,
+  onEditar,
+  onTrocar,
+}: {
+  machine: MachineId;
+  onPerdas: () => void;
+  onEditar: () => void;
+  onTrocar: () => void;
+}) {
   return (
     <div>
-      <p className="text-base text-muted">Matrizaria deste turno já definida.</p>
-      <h2 className="mt-2 font-display text-4xl leading-none">{machine}</h2>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="font-display text-4xl leading-none">{machine}</h2>
+        {/* Lápis abre a grade. Setas abrem a troca. Os dois ficam nesta tela, fora de Perdas. */}
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onEditar}
+            aria-label="Editar matrizes"
+            className="grid size-12 place-items-center rounded-tile border border-line bg-surface text-accent"
+          >
+            <IconeEditar />
+          </button>
+          <button
+            type="button"
+            onClick={onTrocar}
+            aria-label="Troca de matriz"
+            className="grid size-12 place-items-center rounded-tile border border-line bg-surface text-accent"
+          >
+            <IconeTroca />
+          </button>
+        </div>
+      </div>
       <button
         type="button"
         onClick={onPerdas}
@@ -1472,6 +1514,24 @@ function HubMaquina({ machine, onPerdas }: { machine: MachineId; onPerdas: () =>
         Perdas
       </button>
     </div>
+  );
+}
+
+function IconeEditar() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <path d="M4 20h4.2L19 9.2a2.1 2.1 0 0 0-3-3L5.2 17V20z" strokeLinejoin="round" />
+      <path d="M13.8 7.4l2.8 2.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconeTroca() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <path d="M7 7h11l-3.2-3.2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M17 17H6l3.2 3.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
 
@@ -1562,8 +1622,7 @@ function TesteMaquinas({ onOpen }: { onOpen: (machine: MachineId) => void }) {
     <div>
       <p className="mb-2 text-sm font-semibold text-accent">Página de teste</p>
       <h2 className="font-display text-3xl leading-none">Qual máquina?</h2>
-      <p className="mb-3 mt-2 text-sm text-muted">A produção daqui ainda não entra no dashboard.</p>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+      <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3">
         {MACHINES.map((machine) => (
           <button
             key={machine}
@@ -1643,10 +1702,9 @@ function TesteProducao({ state, machine }: { state: State; machine: MachineId })
           </p>
         </div>
       </section>
-      <p className="text-xs text-muted">Perdas vêm do apontamento. % = perda ÷ (perda + produção) × 100.</p>
       {slots.length === 0 ? (
         <p className="rounded-tile border border-dashed border-line bg-surface px-4 py-6 text-base text-muted">
-          Sem matrizaria nesta máquina. Defina a grade no turno antes de testar a produção.
+          Sem matrizaria.
         </p>
       ) : (
         slots.map((slot) => (
@@ -1775,8 +1833,7 @@ function CorScreen({ machine, onSave }: { machine: MachineId; onSave: (nome: str
   const [nome, setNome] = useState("");
   return (
     <div>
-      <p className="text-base text-muted">Máquina {machine}. Vale para o dia e para o seu turno.</p>
-      <h2 className="mt-2 font-display text-4xl leading-none">Qual a cor?</h2>
+      <h2 className="font-display text-4xl leading-none">{machine}</h2>
       <div className="mt-4">
         <Field label="Cor" value={nome} placeholder="Preto" onChange={setNome} />
       </div>
@@ -1831,10 +1888,7 @@ function TrocaCorScreen({
 
   return (
     <div>
-      <p className="text-base text-muted">
-        A cor {origem?.nome || "atual"} continua com o que já foi apontado. As estações marcadas abrem zeradas nesta cor nova.
-      </p>
-      <h2 className="mt-2 font-display text-4xl leading-none">Troca de cor</h2>
+      <h2 className="font-display text-4xl leading-none">Troca de cor</h2>
       <div className="mt-4">
         <Field label="Nome da cor" value={nome} placeholder="Azul" onChange={setNome} />
       </div>
@@ -1862,7 +1916,6 @@ function TrocaCorScreen({
         return (
           <div key={station} className="mt-4 rounded-tile border border-line bg-surface p-3">
             <p className="text-sm font-semibold">Estação {pad2(station)}</p>
-            <p className="mb-2 text-xs text-muted">O número pode continuar ou mudar.</p>
             {config.ambos ? (
               <NumberPair
                 numero={config.numero}
@@ -1912,8 +1965,6 @@ function StationsScreen({
   machine,
   offDay,
   onOpen,
-  onMatrices,
-  onOutros,
   onOpenOutro,
   onDeleteOutro,
   onTrocar,
@@ -1922,8 +1973,6 @@ function StationsScreen({
   machine: MachineId;
   offDay: boolean;
   onOpen: (station: number) => void;
-  onMatrices: () => void;
-  onOutros: () => void;
   onOpenOutro: (outro: OutroMatriz) => void;
   onDeleteOutro: (id: string) => void;
   onTrocar: () => void;
@@ -1946,22 +1995,6 @@ function StationsScreen({
         </span>
         <span className="text-sm font-semibold text-accent">Outra</span>
       </button>
-      <div className="mt-2 grid gap-2 sm:grid-cols-2">
-        <button
-          type="button"
-          onClick={onMatrices}
-          className="rounded-tile border border-line bg-surface px-4 py-3 text-left text-base font-semibold text-accent"
-        >
-          Editar matrizes
-        </button>
-        <button
-          type="button"
-          onClick={onOutros}
-          className="rounded-tile border border-line bg-surface px-4 py-3 text-left text-base font-semibold text-accent"
-        >
-          Troca de matriz
-        </button>
-      </div>
       <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
         {STATIONS.map((station) => {
           const config = state.stations[stationKey(machine, station)];
@@ -2070,7 +2103,7 @@ function OutrosScreen({
       <p className="text-base text-muted">
         Troca no meio do turno da Máquina {machine}. A matriz que já está na estação continua. As perdas novas entram só nesta.
       </p>
-      {offDay ? <p className="mt-2 text-sm font-semibold text-accent">Dia fechado. Só o dia de hoje pode ser alterado.</p> : null}
+      {offDay ? <p className="mt-2 text-sm font-semibold text-accent">Dia fechado.</p> : null}
       <p className="mt-4 text-sm font-semibold text-muted">Estação</p>
       <div className="mt-2 grid grid-cols-4 gap-2">
         {STATIONS.map((item) => (
@@ -2184,7 +2217,6 @@ function SideScreen({
   return (
     <div>
       <ContextLine state={state} offDay={offDay} />
-      {outro ? <p className="mt-3 text-sm text-muted">A numeração vale para os dois lados. Escolha onde apontar a perda.</p> : null}
       <div className="mt-4 grid gap-3 md:grid-cols-2">
         {SIDES.map((side) => {
           const count = rows.filter((entry) => entry.side === side).length;
@@ -2262,7 +2294,7 @@ function ProblemsScreen({
     <div>
       <ContextLine state={state} offDay={offDay} />
       {offDay ? (
-        <p className="mt-2 text-sm font-semibold text-accent">Dia fechado. Só o dia de hoje pode ser alterado.</p>
+        <p className="mt-2 text-sm font-semibold text-accent">Dia fechado.</p>
       ) : null}
       {matrix ? <p className="mt-2 text-base font-semibold">{matrix}</p> : null}
       <div className="mt-4 grid gap-2 lg:grid-cols-2">
@@ -2363,8 +2395,7 @@ function AskScreen({
 }) {
   return (
     <div>
-      <p className="text-base text-muted">A grade de matrizaria da Máquina {machine} está vazia.</p>
-      <h2 className="mt-2 font-display text-4xl leading-none">Editar a grade de matrizaria?</h2>
+      <h2 className="font-display text-4xl leading-none">{machine}</h2>
       <button
         type="button"
         onClick={onTrocar}
@@ -3094,11 +3125,7 @@ function PainelHistorico({
         <div className="min-w-0 flex-1">
           <h2 className="font-display text-3xl leading-none text-fg lg:text-4xl">Visão geral</h2>
           <p className="mt-2 text-sm text-muted">
-            {erro
-              ? "Não leu a nuvem. Mostrando o que este computador já tem."
-              : remoto === null
-                ? "Lendo o mês…"
-                : resumoFiltro}
+            {erro ? "Sem nuvem." : remoto === null ? "" : resumoFiltro}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -3288,7 +3315,6 @@ function PainelHistorico({
       <RankingBarras
         vertical
         titulo="Pares"
-        detalhe="24 horas, semana e mês. O mês inclui os outros."
         itens={[
           { id: "dia", nome: "24 horas", valor: paresDasEntradas(doDia) },
           { id: "semana", nome: "Semana", valor: paresDasEntradas(daSemana) },
@@ -3299,7 +3325,6 @@ function PainelHistorico({
       <div className="grid gap-4 xl:grid-cols-2">
         <GraficoCircular
           titulo="Piores máquinas"
-          detalhe={`${tituloJanela} · toque para ver só ela`}
           itens={porMaquina.map((item) => ({
             id: item.machine,
             nome: item.machine,
@@ -3310,7 +3335,6 @@ function PainelHistorico({
         />
         <GraficoCircular
           titulo="Piores turnos"
-          detalhe={`${tituloJanela} · toque para filtrar`}
           itens={[...turnos]
             .sort((a, b) => b.pares - a.pares || a.turno.localeCompare(b.turno))
             .filter((item) => item.pares > 0)
@@ -3326,7 +3350,6 @@ function PainelHistorico({
       <RankingBarras
         vertical
         titulo="Piores problemas"
-        detalhe="Nome completo · toque para filtrar"
         itens={porProblema.map((item) => ({
           id: item.id,
           nome: item.name,
@@ -3338,7 +3361,6 @@ function PainelHistorico({
       <RankingBarras
         vertical
         titulo="Piores números"
-        detalhe="Cada número fica na máquina dele"
         itens={rankingNumeros.map((item) => ({
           id: item.chave,
           nome: `${item.machine}\nNº ${item.numero}${item.referencia ? `\nRef. ${item.referencia}` : ""}`,
@@ -3357,7 +3379,6 @@ function PainelHistorico({
         <RankingBarras
           vertical
           titulo="Piores estações"
-          detalhe={`Dentro da ${maquina}`}
           itens={rankingEstacao}
           onPick={(id) => {
             const station = Number(id);
@@ -3373,12 +3394,10 @@ const CORES_FATIA = ["#e23b3b", "#f08a24", "#e2b423", "#2f9e6b", "#2aa0c7", "#3b
 
 function GraficoCircular({
   titulo,
-  detalhe,
   itens,
   onPick,
 }: {
   titulo: string;
-  detalhe: string;
   itens: { id: string; nome: string; valor: number; ativo?: boolean }[];
   onPick?: (id: string) => void;
 }) {
@@ -3398,7 +3417,6 @@ function GraficoCircular({
   return (
     <section className="min-w-0 max-w-full rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
       <h3 className="text-base font-semibold">{titulo}</h3>
-      <p className="text-xs text-muted">{detalhe}</p>
       {fatias.length === 0 || !frente ? (
         <p className="mt-3 text-sm text-muted">Sem apontamento neste recorte.</p>
       ) : (
@@ -3466,13 +3484,11 @@ function GraficoCircular({
 
 function RankingBarras({
   titulo,
-  detalhe,
   itens,
   onPick,
   vertical = false,
 }: {
   titulo: string;
-  detalhe: string;
   itens: { id: string; nome: string; valor: number; extra?: string; ativo?: boolean }[];
   onPick?: (id: string) => void;
   vertical?: boolean;
@@ -3482,7 +3498,6 @@ function RankingBarras({
   return (
     <section className="min-w-0 max-w-full rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
       <h3 className="text-base font-semibold">{titulo}</h3>
-      <p className="text-xs text-muted">{detalhe}</p>
       {itens.length === 0 || total === 0 ? (
         <p className="mt-3 text-sm text-muted">Sem apontamento neste recorte.</p>
       ) : vertical ? (
@@ -3574,12 +3589,10 @@ function RankingBarras({
 
 function RankingNumeros({
   titulo,
-  detalhe,
   entries,
   limite = 12,
 }: {
   titulo: string;
-  detalhe: string;
   entries: Entry[];
   limite?: number;
 }) {
@@ -3587,7 +3600,7 @@ function RankingNumeros({
   return (
     <section className="min-w-0 max-w-full rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
       <h3 className="text-sm font-semibold">{titulo}</h3>
-      <p className="text-xs text-muted">{detalhe} · {lista.reduce((soma, item) => soma + item.pares, 0)} pares</p>
+      <p className="text-xs text-muted">{lista.reduce((soma, item) => soma + item.pares, 0)} pares</p>
       {lista.length === 0 ? (
         <p className="mt-3 text-sm text-muted">Sem número apontado.</p>
       ) : (
@@ -3804,15 +3817,14 @@ function PainelMesa({
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Kpi tom="roxo" titulo="Pares" valor={String(totalPares)} detalhe="1 sola fecha 1 par" />
-          <Kpi tom="ciano" titulo="Máquinas" valor={String(recorte.length)} detalhe={foco ? "recorte ativo" : "com apontamento"} />
-          <Kpi tom="verde" titulo="Maior perda" valor={pior ? String(pior.solas) : "—"} detalhe={pior?.name ?? "sem perda neste turno"} />
+          <Kpi tom="roxo" titulo="Pares" valor={String(totalPares)} />
+          <Kpi tom="ciano" titulo="Máquinas" valor={String(recorte.length)} />
+          <Kpi tom="verde" titulo="Maior perda" valor={pior ? String(pior.solas) : "—"} detalhe={pior?.name} />
         </div>
 
         <div className="grid gap-4 xl:grid-cols-2">
           <section className="min-w-0 max-w-full rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
             <h3 className="text-base font-semibold">Pares por máquina</h3>
-            <p className="text-xs text-muted">Clique na barra para filtrar o relatório.</p>
             <Barras
               itens={porMaquina.map((item) => ({
                 nome: item.machine,
@@ -3825,7 +3837,6 @@ function PainelMesa({
           </section>
           <section className="min-w-0 max-w-full rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
             <h3 className="text-base font-semibold">Composição das perdas</h3>
-            <p className="text-xs text-muted">Esquerda e direita continuam separadas na tabela.</p>
             <div className="mt-2">
               <Rosca fatias={porProblema.map((item) => ({ nome: item.name, valor: item.solas }))} />
             </div>
@@ -3840,7 +3851,6 @@ function PainelMesa({
                 ? `Ranking da estação ${pad2(estacao)}`
                 : "Ranking do turno"
           }
-          detalhe="Número e referência que mais perderam neste turno"
           entries={recorte.flatMap((machine) =>
             shiftEntries(state, machine).filter((entry) => estacao === null || entry.station === estacao),
           )}
@@ -4006,7 +4016,7 @@ function Kpi({
 }: {
   titulo: string;
   valor: string;
-  detalhe: string;
+  detalhe?: string;
   tom: "roxo" | "azul" | "ciano" | "verde";
 }) {
   const fundo = {
@@ -4019,7 +4029,7 @@ function Kpi({
     <section className={cx("rounded-3xl px-4 py-4 text-white shadow-[0_12px_28px_rgba(47,84,150,0.16)]", fundo)}>
       <p className="text-sm font-semibold text-white/80">{titulo}</p>
       <p className="mt-2 font-display text-5xl leading-none tabular-nums">{valor}</p>
-      <p className="mt-2 line-clamp-2 text-xs leading-snug text-white/85">{detalhe}</p>
+      {detalhe ? <p className="mt-2 line-clamp-2 text-xs leading-snug text-white/85">{detalhe}</p> : null}
     </section>
   );
 }

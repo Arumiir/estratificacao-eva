@@ -149,6 +149,19 @@ export function turnoPeloRelogio(at = Date.now()): Turno {
   return "3";
 }
 
+/** Minutos do dia em que cada turno pode lançar ou apagar perda. Limites inclusivos. */
+const JANELA_MINUTOS: Record<Turno, readonly [number, number]> = {
+  "1": [6 * 60 + 30, 15 * 60],
+  "2": [15 * 60 + 30, 23 * 60 + 45],
+  "3": [0, 6 * 60 + 15],
+};
+
+export function dentroDaJanela(turno: Turno, now = Date.now()): boolean {
+  const { minutes } = partesFortaleza(now);
+  const [inicio, fim] = JANELA_MINUTOS[turno];
+  return minutes >= inicio && minutes <= fim;
+}
+
 export function podeAlterarApontamento(
   entry: { date: string; turno: string; at: number },
   now = Date.now(),
@@ -156,7 +169,8 @@ export function podeAlterarApontamento(
   if (apontamentoBloqueado(entry)) return false;
   const agora = partesFortaleza(now);
   if (entry.date !== agora.date) return false;
-  return true;
+  if (entry.turno !== "1" && entry.turno !== "2" && entry.turno !== "3") return false;
+  return dentroDaJanela(entry.turno, now);
 }
 
 export function todayISO(now = new Date()): string {
