@@ -1535,59 +1535,33 @@ function IconeTroca() {
   );
 }
 
-type SlotProducao = {
-  id: string;
-  estacao: string;
-  lado: string;
-  numero: string;
-  referencia: string;
-};
+type NumeroProducao = { id: string; numero: string };
 
-function slotsProducao(state: State, machine: MachineId, date: string, turno: Turno): SlotProducao[] {
-  const slots: SlotProducao[] = [];
+/** Um campo por numeração. Lado, estação e referência não abrem outro campo. */
+function numerosProducao(state: State, machine: MachineId, date: string, turno: Turno): NumeroProducao[] {
+  const vistos = new Set<string>();
+  const lista: NumeroProducao[] = [];
+  function incluir(numero: string) {
+    const limpo = numero.trim();
+    if (!limpo || vistos.has(limpo)) return;
+    vistos.add(limpo);
+    lista.push({ id: limpo, numero: limpo });
+  }
   for (const station of STATIONS) {
     const config = state.stations[stationKey(machine, station)];
     if (!config) continue;
     if (config.ambos) {
-      const numero = config.numero.trim();
-      const referencia = config.referencia.trim();
-      if (!numero && !referencia) continue;
-      slots.push({
-        id: `${station}|ambos|${numero}|${referencia}`,
-        estacao: pad2(station),
-        lado: "Ambos",
-        numero,
-        referencia,
-      });
+      incluir(config.numero);
       continue;
     }
-    for (const side of SIDES) {
-      const slot = side === "esq" ? config.esq : config.dir;
-      const numero = slot.numero.trim();
-      const referencia = slot.referencia.trim();
-      if (!numero && !referencia) continue;
-      slots.push({
-        id: `${station}|${side}|${numero}|${referencia}`,
-        estacao: pad2(station),
-        lado: SIDE_LABEL[side],
-        numero,
-        referencia,
-      });
-    }
+    incluir(config.esq.numero);
+    incluir(config.dir.numero);
   }
   for (const outro of state.outros) {
     if (!outroVivo(outro) || outro.machine !== machine || outro.date !== date || outro.turno !== turno) continue;
-    const numero = outro.numero.trim();
-    const referencia = outro.referencia.trim();
-    slots.push({
-      id: `troca|${outro.id}|${numero}|${referencia}`,
-      estacao: outro.station >= 1 ? `Troca ${pad2(outro.station)}` : "Troca",
-      lado: outro.ambos ? "Ambos" : SIDE_LABEL[outro.side],
-      numero,
-      referencia,
-    });
+    incluir(outro.numero);
   }
-  return slots;
+  return lista.sort((a, b) => a.numero.localeCompare(b.numero, "pt-BR", { numeric: true }));
 }
 
 function lerProducao(): Record<string, number> {
@@ -1642,22 +1616,22 @@ function TesteMaquinas({ onOpen }: { onOpen: (machine: MachineId) => void }) {
 function TesteProducao({ state, machine }: { state: State; machine: MachineId }) {
   const [turno, setTurno] = useState<Turno>(turnoPeloRelogio());
   const date = todayISO();
-  const slots = slotsProducao(state, machine, date, turno);
-  const assinatura = slots.map((slot) => slot.id).join("|");
+  const numeros = numerosProducao(state, machine, date, turno);
+  const assinatura = numeros.map((item) => item.id).join("|");
   const [valores, setValores] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const salvos = lerProducao();
     const proximo: Record<string, string> = {};
-    for (const slot of slots) {
-      const chave = `${date}|${turno}|${machine}|${slot.id}`;
+    for (const item of numeros) {
+      const chave = `${date}|${turno}|${machine}|${item.id}`;
       const valor = salvos[chave];
-      if (valor) proximo[slot.id] = String(valor);
+      if (valor) proximo[item.id] = String(valor);
     }
     setValores(proximo);
   }, [date, turno, machine, assinatura]);
 
-  const producao = slots.reduce((soma, slot) => soma + (Number(valores[slot.id]) || 0), 0);
+  const producao = numeros.reduce((soma, item) => soma + (Number(valores[item.id]) || 0), 0);
   const perdas = paresDasEntradas(
     state.entries.filter((entry) => entry.date === date && entry.turno === turno && entry.machine === machine),
   );
@@ -1667,7 +1641,6 @@ function TesteProducao({ state, machine }: { state: State; machine: MachineId })
   return (
     <div className="grid gap-3">
       <div>
-        <p className="text-sm font-semibold text-accent">Página de teste</p>
         <h2 className="font-display text-4xl leading-none">{machine}</h2>
         <p className="mt-1 text-sm text-muted">{formatDateBR(date)}</p>
       </div>
@@ -1702,33 +1675,33 @@ function TesteProducao({ state, machine }: { state: State; machine: MachineId })
           </p>
         </div>
       </section>
-      {slots.length === 0 ? (
+      {numeros.length === 0 ? (
         <p className="rounded-tile border border-dashed border-line bg-surface px-4 py-6 text-base text-muted">
           Sem matrizaria.
         </p>
       ) : (
-        slots.map((slot) => (
-          <label key={slot.id} className="block rounded-3xl bg-white p-4 shadow-[0_8px_24px_rgba(47,84,150,0.06)]">
-            <span className="text-sm font-semibold text-muted">
-              Estação {slot.estacao} · {slot.lado}
-            </span>
-            <span className="mt-1 block text-base font-semibold">
-              Nº {slot.numero || "—"}
-              {slot.referencia ? ` · Ref. ${slot.referencia}` : ""}
-            </span>
-            <input
-              inputMode="numeric"
-              value={valores[slot.id] ?? ""}
-              placeholder="Pares produzidos"
-              onChange={(event) => {
-                const limpo = event.target.value.replace(/\D/g, "").slice(0, 6);
-                setValores((atual) => ({ ...atual, [slot.id]: limpo }));
-                gravarPar(`${date}|${turno}|${machine}|${slot.id}`, Number(limpo) || 0);
-              }}
-              className="mt-3 w-full rounded-tile border border-line bg-surface-2 px-3 py-3 text-lg font-semibold tabular-nums"
-            />
-          </label>
-        ))
+        <div className="grid grid-cols-2 gap-3">
+          {numeros.map((item) => (
+            <label
+              key={item.id}
+              className="flex flex-col rounded-3xl bg-white p-4 shadow-[0_8px_24px_rgba(47,84,150,0.08)]"
+            >
+              <span className="font-display text-4xl leading-none">{item.numero}</span>
+              <input
+                inputMode="numeric"
+                value={valores[item.id] ?? ""}
+                aria-label={`Pares de ${item.numero}`}
+                placeholder="0"
+                onChange={(event) => {
+                  const limpo = event.target.value.replace(/\D/g, "").slice(0, 6);
+                  setValores((atual) => ({ ...atual, [item.id]: limpo }));
+                  gravarPar(`${date}|${turno}|${machine}|${item.id}`, Number(limpo) || 0);
+                }}
+                className="mt-4 w-full rounded-2xl border border-line bg-[#f7f9fd] px-3 py-3 text-center font-display text-3xl leading-none tabular-nums outline-none focus:border-[#4682B4]"
+              />
+            </label>
+          ))}
+        </div>
       )}
     </div>
   );
