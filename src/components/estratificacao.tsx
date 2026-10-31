@@ -2197,6 +2197,7 @@ function SheetScreen({
   const [abaLider, setAbaLider] = useState<"geral" | "diario">("geral");
   const [escolherFoto, setEscolherFoto] = useState(false);
   const [escolhidas, setEscolhidas] = useState<MachineId[]>([]);
+  const [aberta, setAberta] = useState<MachineId | null>(null);
   const view = state;
   const shown = MACHINES.filter((machine) => shiftEntries(view, machine).length > 0);
   const fileBase = `perdas-${state.date}-turno-${state.turno}`;
@@ -2300,47 +2301,19 @@ function SheetScreen({
           )}
         </>
       ) : (
-        <div>
-          <p className="mb-3 text-sm text-muted">Lançamentos deste turno.</p>
-          <DayControls state={state} today={today} offDay={offDay} onDate={onDate} />
-          <div className="mt-4">
-            {shown.length === 0 ? (
-              <p className="rounded-tile border border-dashed border-line bg-surface px-4 py-6 text-base text-muted">
-                Nenhuma máquina apontada neste turno.
-              </p>
-            ) : (
-              shown.map((machine) => (
-                <FichaSheet
-                  key={machine}
-                  state={view}
-                  machine={machine}
-                  force={false}
-                  onDelete={onDelete ? (entries) => onDelete(entries) : undefined}
-                />
-              ))
-            )}
-          </div>
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              disabled={busy !== null || shown.length === 0}
-              onClick={abrirSeletor}
-              className="flex items-center justify-center gap-2 rounded-tile bg-surface-2 py-3 font-semibold disabled:opacity-60"
-            >
-              <ImageDown className="size-5" />
-              {busy === "foto" ? "Gerando…" : "Baixar imagens"}
-            </button>
-            <button
-              type="button"
-              disabled={busy !== null || shown.length === 0}
-              onClick={() => void downloadPdf()}
-              className="flex items-center justify-center gap-2 rounded-tile bg-surface-2 py-3 font-semibold disabled:opacity-60"
-            >
-              <Download className="size-5" />
-              {busy === "pdf" ? "Gerando…" : "Baixar PDF"}
-            </button>
-          </div>
-        </div>
+        <LancamentosTurno
+          state={view}
+          today={today}
+          offDay={offDay}
+          onDate={onDate}
+          shown={shown}
+          aberta={aberta}
+          onToggle={(machine) => setAberta((atual) => (atual === machine ? null : machine))}
+          busy={busy}
+          onPhoto={abrirSeletor}
+          onPdf={() => void downloadPdf()}
+          onDelete={onDelete}
+        />
       )}
       {escolherFoto ? (
         <div className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center">
@@ -2391,6 +2364,108 @@ function SheetScreen({
         </div>
       ) : null}
     </>
+  );
+}
+
+function LancamentosTurno({
+  state,
+  today,
+  offDay,
+  onDate,
+  shown,
+  aberta,
+  onToggle,
+  busy,
+  onPhoto,
+  onPdf,
+  onDelete,
+}: {
+  state: State;
+  today: string;
+  offDay: boolean;
+  onDate: (date: string) => void;
+  shown: MachineId[];
+  aberta: MachineId | null;
+  onToggle: (machine: MachineId) => void;
+  busy: "foto" | "pdf" | null;
+  onPhoto: () => void;
+  onPdf: () => void;
+  onDelete?: (entries: Entry[]) => void;
+}) {
+  const doTurno = shiftEntries(state);
+  const total = paresDasEntradas(doTurno);
+  const barras = shown
+    .map((machine) => ({ machine, valor: paresDasEntradas(shiftEntries(state, machine)) }))
+    .sort((a, b) => b.valor - a.valor || a.machine.localeCompare(b.machine));
+  const maximo = Math.max(1, ...barras.map((item) => item.valor));
+
+  return (
+    <div className="grid gap-3">
+      <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+        <p className="text-xs font-semibold text-muted">
+          {TURNO_LABEL[state.turno]} · {formatDateBR(state.date)}
+        </p>
+        <p className="mt-2 font-display text-5xl leading-none tabular-nums">{total}</p>
+        <p className="mt-1 text-sm text-muted">{total === 1 ? "par neste turno" : "pares neste turno"}</p>
+        {barras.length === 0 ? (
+          <p className="mt-4 text-sm text-muted">Nenhuma máquina apontada neste turno.</p>
+        ) : (
+          <div className="mt-4 flex items-end gap-2 overflow-x-auto pb-1">
+            {barras.map((item) => {
+              const altura = Math.max(8, Math.round((item.valor / maximo) * 100));
+              return (
+                <button
+                  key={item.machine}
+                  type="button"
+                  onClick={() => onToggle(item.machine)}
+                  className="flex min-w-[4.5rem] flex-1 basis-[4.5rem] flex-col items-center"
+                >
+                  <span className="font-display text-2xl leading-none tabular-nums">{item.valor}</span>
+                  <span className="mt-2 flex h-28 w-full items-end">
+                    <span
+                      className="block w-full rounded-t-2xl bg-[#4682B4]"
+                      style={{ height: `${altura}%`, opacity: aberta && aberta !== item.machine ? 0.35 : 1 }}
+                    />
+                  </span>
+                  <span className="mt-2 text-center text-[11px] font-semibold">{item.machine}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </section>
+      <DayControls state={state} today={today} offDay={offDay} onDate={onDate} />
+      {barras.map((item) => (
+        <MaquinaDoDia
+          key={item.machine}
+          state={state}
+          machine={item.machine}
+          aberta={aberta === item.machine}
+          onToggle={() => onToggle(item.machine)}
+          onDelete={onDelete}
+        />
+      ))}
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          disabled={busy !== null || shown.length === 0}
+          onClick={onPhoto}
+          className="flex items-center justify-center gap-2 rounded-tile bg-surface-2 py-3 font-semibold disabled:opacity-60"
+        >
+          <ImageDown className="size-5" />
+          {busy === "foto" ? "Gerando…" : "Baixar imagens"}
+        </button>
+        <button
+          type="button"
+          disabled={busy !== null || shown.length === 0}
+          onClick={onPdf}
+          className="flex items-center justify-center gap-2 rounded-tile bg-surface-2 py-3 font-semibold disabled:opacity-60"
+        >
+          <Download className="size-5" />
+          {busy === "pdf" ? "Gerando…" : "Baixar PDF"}
+        </button>
+      </div>
+    </div>
   );
 }
 
