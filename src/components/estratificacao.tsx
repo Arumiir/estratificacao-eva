@@ -2587,7 +2587,6 @@ function SheetScreen({
 }) {
   const [busy, setBusy] = useState<"foto" | "pdf" | null>(null);
   const [abaLider, setAbaLider] = useState<"geral" | "diario">("geral");
-  const [rotuloPeriodo, setRotuloPeriodo] = useState("Mês");
   const [escolherFoto, setEscolherFoto] = useState(false);
   const [escolhidas, setEscolhidas] = useState<MachineId[]>([]);
   const view = state;
@@ -2654,11 +2653,11 @@ function SheetScreen({
   return (
     <>
       {papel === "lider" ? (
-        <>
-          <div className="mb-4 flex flex-wrap justify-center gap-2">
+        <div className="relative">
+          <div className="mb-3 flex justify-end gap-2 lg:pointer-events-none lg:absolute lg:inset-x-0 lg:top-0 lg:z-10 lg:mb-0">
             {(
               [
-                { id: "geral" as const, label: rotuloPeriodo },
+                { id: "geral" as const, label: "Visão geral" },
                 { id: "diario" as const, label: "Acompanhamento diário" },
               ]
             ).map((aba) => (
@@ -2667,7 +2666,7 @@ function SheetScreen({
                 type="button"
                 onClick={() => setAbaLider(aba.id)}
                 className={cx(
-                  "rounded-full px-4 py-2 text-sm font-semibold",
+                  "pointer-events-auto rounded-xl px-4 py-2.5 text-sm font-semibold lg:px-5 lg:py-3 lg:text-base",
                   abaLider === aba.id ? "bg-[#2457b8] text-white" : "bg-white text-fg shadow-[0_6px_16px_rgba(47,84,150,0.06)]",
                 )}
               >
@@ -2676,7 +2675,7 @@ function SheetScreen({
             ))}
           </div>
           {abaLider === "geral" ? (
-            <PainelHistorico state={state} today={today} onDate={onDate} onPeriodo={setRotuloPeriodo} />
+            <PainelHistorico state={state} today={today} onDate={onDate} />
           ) : (
             <AcompanhamentoDiario
               state={view}
@@ -2691,7 +2690,7 @@ function SheetScreen({
               onDelete={onDelete}
             />
           )}
-        </>
+        </div>
       ) : null}
       {escolherFoto ? (
         <div
@@ -2890,12 +2889,10 @@ function PainelHistorico({
   state,
   today,
   onDate,
-  onPeriodo,
 }: {
   state: State;
   today: string;
   onDate: (date: string) => void;
-  onPeriodo?: (rotulo: string) => void;
 }) {
   const [remoto, setRemoto] = useState<Entry[] | null>(null);
   const [producaoRemota, setProducaoRemota] = useState<ProducaoPares[]>([]);
@@ -3004,13 +3001,35 @@ function PainelHistorico({
   }
   const producaoPeriodo = totalProducao(diasJanela);
   const perdasPeriodo = paresDasEntradas(periodo);
-  const producaoMaquinas = MACHINES.map((machine) => ({
-    machine,
-    valor: producaoBase.reduce(
-      (soma, item) => (passaProducao(item, diasJanela) && item.machine === machine ? soma + item.pares : soma),
-      0,
-    ),
-  })).filter((item) => item.valor > 0);
+  const diasDia = [state.date];
+  const diasSemana = diasAte(state.date, 7);
+  const diasMes = datas;
+  function producaoRecorte(datasAlvo: string[], turno?: Turno, machine?: MachineId) {
+    return producaoBase.reduce((soma, item) => {
+      if (item.pares <= 0 || !datasAlvo.includes(item.date)) return soma;
+      if (turno && item.turno !== turno) return soma;
+      if (machine && item.machine !== machine) return soma;
+      if (maquina && item.machine !== maquina) return soma;
+      if (turnoFiltro && item.turno !== turnoFiltro) return soma;
+      if (numeroAtivo && item.numero !== numeroAtivo) return soma;
+      return soma;
+    }, 0);
+  }
+  const producaoColunas = [
+    { id: "dia", nome: "Dia", datas: diasDia },
+    { id: "semana", nome: "Semana", datas: diasSemana },
+    { id: "mes", nome: "Mês", datas: diasMes },
+  ];
+  const producaoTurnos = (["1", "2", "3"] as const).map((turno) => ({
+    id: turno,
+    nome: TURNO_LABEL[turno],
+    valores: producaoColunas.map((coluna) => producaoRecorte(coluna.datas, turno)),
+  }));
+  const producaoPorMaquina = MACHINES.map((machine) => ({
+    id: machine,
+    nome: machine,
+    valores: producaoColunas.map((coluna) => producaoRecorte(coluna.datas, undefined, machine)),
+  })).filter((item) => item.valores.some((valor) => valor > 0));
 
   const problemaNome = PROBLEMS.find((item) => item.id === problema)?.name ?? null;
   const filtrosAtivos = [
@@ -3036,10 +3055,6 @@ function PainelHistorico({
     .filter((item): item is string => Boolean(item))
     .join(" · ");
 
-  useEffect(() => {
-    onPeriodo?.(tituloJanela);
-  }, [tituloJanela, onPeriodo]);
-
   function limparFiltros() {
     setJanela("mes");
     setMaquina(null);
@@ -3052,29 +3067,17 @@ function PainelHistorico({
     if (state.date !== today) onDate(today);
   }
 
+  const chips = [tituloJanela, ...resumoFiltro.split(" · ").filter(Boolean)];
+
   return (
-    <div className="grid min-w-0 gap-4">
-      <div className="flex flex-wrap items-end justify-center gap-3 text-center">
-        <div className="min-w-0">
-          <h2 className="font-display text-3xl leading-none text-fg lg:text-4xl">{tituloJanela}</h2>
-          <p className="mt-2 text-sm text-muted">
-            {erro ? "Sem nuvem." : remoto === null ? "" : resumoFiltro}
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <button
-            type="button"
-            onClick={limparFiltros}
-            className="rounded-2xl bg-[#4682B4] px-4 py-3 text-sm font-semibold text-white shadow-[0_8px_24px_rgba(70,130,180,0.25)]"
-          >
-            Limpar filtro
-          </button>
-          <button
-            type="button"
-            onClick={() => setFiltrosAbertos(true)}
-            aria-label="Abrir filtros"
-            className="relative grid size-12 place-items-center rounded-2xl bg-white text-[#4682B4] shadow-[0_8px_24px_rgba(47,84,150,0.08)]"
-          >
+    <div className="grid min-w-0 gap-4 lg:pt-1">
+      <div className="flex items-center gap-3 lg:pr-[28rem]">
+        <button
+          type="button"
+          onClick={() => setFiltrosAbertos(true)}
+          aria-label="Abrir filtros"
+          className="relative grid size-12 shrink-0 place-items-center rounded-2xl bg-white text-[#4682B4] shadow-[0_8px_24px_rgba(47,84,150,0.08)]"
+        >
           <svg viewBox="0 0 24 24" className="size-6" aria-hidden="true">
             <path
               d="M4 5h16l-6.2 7.1V19l-3.6 1.4v-8.3L4 5z"
@@ -3089,7 +3092,14 @@ function PainelHistorico({
               {filtrosAtivos}
             </span>
           ) : null}
-          </button>
+        </button>
+        <div className="ml-auto flex min-w-0 flex-wrap justify-end gap-1.5">
+          {erro ? <span className="text-sm font-semibold text-muted">Sem nuvem.</span> : null}
+          {chips.map((chip) => (
+            <span key={chip} className="rounded-full bg-white px-3 py-1.5 text-sm font-semibold text-fg shadow-[0_4px_12px_rgba(47,84,150,0.06)]">
+              {chip}
+            </span>
+          ))}
         </div>
       </div>
 
@@ -3262,17 +3272,7 @@ function PainelHistorico({
         </div>
       ) : null}
 
-      <RankingBarras
-        vertical
-        titulo="Produção"
-        itens={producaoMaquinas.map((item) => ({
-          id: item.machine,
-          nome: item.machine,
-          valor: item.valor,
-          ativo: maquina === null ? undefined : maquina === item.machine,
-        }))}
-        onPick={(id) => setMaquina((atual) => (atual === id ? null : (id as MachineId)))}
-      />
+      <TabelaProducao colunas={producaoColunas.map((coluna) => coluna.nome)} turnos={producaoTurnos} maquinas={producaoPorMaquina} />
 
       <RankingBarras
         vertical
@@ -3353,6 +3353,77 @@ function PainelHistorico({
 }
 
 const CORES_FATIA = ["#e23b3b", "#f08a24", "#e2b423", "#2f9e6b", "#2aa0c7", "#3b6fe0", "#7a4fd4", "#d4538a", "#6b7280", "#8b5a2b", "#1f7a4d"];
+
+function TabelaProducao({
+  colunas,
+  turnos,
+  maquinas,
+}: {
+  colunas: string[];
+  turnos: { id: string; nome: string; valores: number[] }[];
+  maquinas: { id: string; nome: string; valores: number[] }[];
+}) {
+  const totais = colunas.map((_, index) => turnos.reduce((soma, linha) => soma + (linha.valores[index] ?? 0), 0));
+  return (
+    <section className="min-w-0 overflow-hidden rounded-3xl bg-white shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+      <div className="border-b border-[#eef1f6] px-4 py-3">
+        <h3 className="text-sm font-semibold">Produção em pares</h3>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[32rem] border-collapse text-sm">
+          <thead>
+            <tr className="text-xs font-semibold text-muted">
+              <th className="px-4 py-2 text-left font-semibold"> </th>
+              {colunas.map((coluna) => (
+                <th key={coluna} className="px-3 py-2 text-right font-semibold">
+                  {coluna}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <LinhaProducao nome="Total" valores={totais} forte />
+            <tr>
+              <td colSpan={colunas.length + 1} className="bg-[#f7f9fc] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                Turno
+              </td>
+            </tr>
+            {turnos.map((linha) => (
+              <LinhaProducao key={linha.id} nome={linha.nome} valores={linha.valores} />
+            ))}
+            <tr>
+              <td colSpan={colunas.length + 1} className="bg-[#f7f9fc] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                Máquina
+              </td>
+            </tr>
+            {maquinas.length === 0 ? (
+              <tr>
+                <td colSpan={colunas.length + 1} className="px-4 py-3 text-sm text-muted">
+                  Sem produção neste recorte.
+                </td>
+              </tr>
+            ) : (
+              maquinas.map((linha) => <LinhaProducao key={linha.id} nome={linha.nome} valores={linha.valores} />)
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function LinhaProducao({ nome, valores, forte = false }: { nome: string; valores: number[]; forte?: boolean }) {
+  return (
+    <tr className={cx("border-t border-[#eef1f6]", forte && "font-semibold")}>
+      <td className="px-4 py-2">{nome}</td>
+      {valores.map((valor, index) => (
+        <td key={index} className="px-3 py-2 text-right tabular-nums">
+          {valor}
+        </td>
+      ))}
+    </tr>
+  );
+}
 
 function GraficoCircular({
   titulo,
@@ -3463,31 +3534,29 @@ function RankingBarras({
       {itens.length === 0 || total === 0 ? (
         <p className="mt-3 text-sm text-muted">Sem apontamento neste recorte.</p>
       ) : vertical ? (
-        <div className="mt-4 flex w-full min-w-0 max-w-full items-start gap-2 overflow-x-auto pb-1">
+        <div className="mt-4 flex items-end justify-center gap-4 overflow-x-auto pb-1">
           {itens.map((item, index) => {
-            const altura = item.valor <= 0 ? 0 : Math.max(8, Math.round((item.valor / maximo) * 100));
+            const altura = item.valor <= 0 ? 0 : Math.max(4, Math.round((item.valor / maximo) * 112));
             const corpo = (
               <>
-                <span className="font-display text-2xl leading-none tabular-nums">{item.valor}</span>
-                <span className="mt-1 text-[10px] font-semibold text-muted">{item.valor === 1 ? "par" : "pares"}</span>
-                <span className="mt-2 flex h-40 w-full items-end border-b-2 border-[#d5dee8]">
+                <span className="text-xs font-semibold tabular-nums">{item.valor}</span>
+                <span className="mt-1 flex h-28 w-8 items-end">
                   <span
-                    className="block w-full rounded-t-2xl"
+                    className="block w-8 rounded-t-sm"
                     style={{
-                      height: `${altura}%`,
+                      height: `${altura}px`,
                       background: CORES_FATIA[index % CORES_FATIA.length],
                       opacity: item.ativo === false ? 0.35 : 1,
                     }}
                   />
                 </span>
-                <span className="mt-2 w-full break-words whitespace-pre-line text-center text-[11px] font-semibold leading-tight">
-                  <span style={{ color: CORES_FATIA[index % CORES_FATIA.length] }}>{index + 1} </span>
+                <span className="mt-2 w-16 break-words whitespace-pre-line text-center text-[11px] font-medium leading-tight text-[#3b4250]">
                   {item.nome}
                 </span>
-                {item.extra ? <span className="mt-1 text-center text-[10px] text-muted">{item.extra}</span> : null}
+                {item.extra ? <span className="mt-1 w-16 text-center text-[10px] text-muted">{item.extra}</span> : null}
               </>
             );
-            const classe = "flex min-w-[5.5rem] flex-1 basis-[5.5rem] flex-col items-center";
+            const classe = "flex w-16 shrink-0 flex-col items-center";
             if (!onPick) {
               return (
                 <div key={item.id} className={classe}>
@@ -3511,7 +3580,7 @@ function RankingBarras({
               <>
                 <div className="flex items-start justify-between gap-3">
                   <p className="min-w-0 text-sm font-semibold leading-snug">
-                    <span className="mr-2 font-display text-xl leading-none" style={{ color: CORES_FATIA[index % CORES_FATIA.length] }}>
+                    <span className="mr-2 text-sm font-semibold tabular-nums" style={{ color: CORES_FATIA[index % CORES_FATIA.length] }}>
                       {index + 1}
                     </span>
                     {item.nome}
@@ -3521,7 +3590,7 @@ function RankingBarras({
                     <span className="block text-muted">{percentual}%</span>
                   </p>
                 </div>
-                <span className="mt-1.5 block h-2.5 overflow-hidden rounded-full bg-[#e7eef5]">
+                <span className="mt-1 block h-1.5 overflow-hidden rounded-sm bg-[#e7eef5]">
                   <span
                     className="block h-full rounded-full"
                     style={{
@@ -4312,7 +4381,7 @@ function AcompanhamentoDiario({
   }
 
   return (
-    <div className="grid min-w-0 gap-3">
+    <div className="grid min-w-0 gap-3 lg:pt-16">
       <DayControls state={state} today={today} offDay={offDay} onDate={onDate} />
       <TurnoPicker value={state.turno} onChange={onTurno} />
       {visiveis.length === 0 ? (
