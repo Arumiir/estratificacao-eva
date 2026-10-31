@@ -3969,7 +3969,17 @@ function AcompanhamentoDiario({
   onPdf: () => void;
   onDelete?: (entries: Entry[]) => void;
 }) {
-  const [aberta, setAberta] = useState<MachineId | null>(null);
+  const [painel, setPainel] = useState<{ machine: MachineId; tipo: "apontamentos" | "matrizaria" } | null>(null);
+  const [pedir, setPedir] = useState(false);
+  const aberta = painel ? shown.find((machine) => machine === painel.machine) ?? null : null;
+  const linhas = aberta ? fichaLines(state, aberta) : [];
+  const estacoes = aberta ? estacoesDoDia(state, aberta, linhas).filter((item) => item.pares > 0) : [];
+  const editaveis = aberta ? shiftEntries(state, aberta).filter((entry) => podeAlterarApontamento(entry)) : [];
+
+  function abrir(machine: MachineId, tipo: "apontamentos" | "matrizaria") {
+    setPedir(false);
+    setPainel({ machine, tipo });
+  }
 
   return (
     <div className="grid gap-3">
@@ -3980,17 +3990,124 @@ function AcompanhamentoDiario({
           Nenhuma máquina apontada neste turno.
         </p>
       ) : (
-        shown.map((machine) => (
-          <MaquinaDoDia
-            key={machine}
-            state={state}
-            machine={machine}
-            aberta={aberta === machine}
-            onToggle={() => setAberta((atual) => (atual === machine ? null : machine))}
-            onDelete={onDelete}
-          />
-        ))
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-3">
+          {shown.map((machine) => {
+            const linhasCard = fichaLines(state, machine);
+            const paresMaquina = paresDasEntradas(shiftEntries(state, machine));
+            const piores = topProblems(linhasCard);
+            return (
+              <article key={machine} className="flex flex-col rounded-3xl bg-white p-3 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+                <h3 className="font-display text-3xl leading-none">{machine}</h3>
+                <p className="mt-1 text-sm text-muted">
+                  {paresMaquina} {paresMaquina === 1 ? "par" : "pares"}
+                </p>
+                {piores.length > 0 ? (
+                  <ol className="mt-3 grid gap-1.5">
+                    {piores.map((item, index) => (
+                      <li key={item.name} className="flex items-start gap-2">
+                        <span className="w-4 shrink-0 font-display text-lg leading-none text-accent">{index + 1}</span>
+                        <span className="min-w-0 flex-1 text-sm font-semibold leading-snug">{item.name}</span>
+                        <span className="shrink-0 text-xs font-semibold tabular-nums">{item.pares}</span>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <p className="mt-3 text-sm text-muted">Nenhuma perda passou de 2 solas.</p>
+                )}
+                <div className="mt-auto grid gap-2 pt-3">
+                  <button
+                    type="button"
+                    onClick={() => abrir(machine, "apontamentos")}
+                    className="rounded-2xl bg-[#4682B4] py-2.5 text-sm font-semibold text-white"
+                  >
+                    Apontamentos
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => abrir(machine, "matrizaria")}
+                    className="rounded-2xl bg-[#f3f6fb] py-2.5 text-sm font-semibold text-[#4682B4]"
+                  >
+                    Matrizaria
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
       )}
+      {painel && aberta ? (
+        <div className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center">
+          <div className="flex max-h-[85dvh] w-full max-w-lg flex-col rounded-3xl bg-white shadow-xl">
+            <div className="flex items-center justify-between gap-3 border-b border-[#f3f2f1] px-4 py-3">
+              <h3 className="font-display text-3xl leading-none">
+                {aberta}
+                <span className="ml-2 text-base font-semibold text-muted">
+                  {painel.tipo === "matrizaria" ? "Matrizaria" : "Apontamentos"}
+                </span>
+              </h3>
+              <button type="button" onClick={() => setPainel(null)} className="text-sm font-semibold text-muted">
+                Fechar
+              </button>
+            </div>
+            <div className="overflow-y-auto px-4 py-4">
+              {painel.tipo === "matrizaria" ? (
+                <GradeSomenteLeitura state={state} machine={aberta} />
+              ) : estacoes.length === 0 ? (
+                <p className="text-sm text-muted">Sem estação apontada.</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  {estacoes.map((item) => (
+                    <article key={item.chave} className="rounded-2xl bg-[#f7f9fd] p-3">
+                      <h4 className="font-display text-2xl leading-none">
+                        {item.troca ? "Troca " : ""}
+                        {item.titulo}
+                      </h4>
+                      <div className="mt-2 grid gap-2">
+                        {item.lados.map((lado) => (
+                          <div key={lado.lado}>
+                            <p className="text-xs font-semibold text-muted">{lado.lado}</p>
+                            <p className="text-sm font-semibold leading-snug">{lado.texto}</p>
+                            <p className="text-sm tabular-nums">
+                              {lado.pares} {lado.pares === 1 ? "par" : "pares"}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+              {painel.tipo === "apontamentos" && onDelete && editaveis.length > 0 ? (
+                pedir ? (
+                  <div className="mt-3 flex items-center gap-2 rounded-2xl bg-[#f7f9fd] px-3 py-2">
+                    <span className="min-w-0 flex-1 text-sm font-semibold">
+                      Excluir {editaveis.length} apontamento{editaveis.length === 1 ? "" : "s"} desta máquina?
+                    </span>
+                    <button type="button" onClick={() => setPedir(false)} className="text-sm font-semibold text-muted">
+                      Não
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPedir(false);
+                        setPainel(null);
+                        onDelete(editaveis);
+                      }}
+                      className="rounded-xl bg-[#9b3a34] px-3 py-2 text-sm font-semibold text-white"
+                    >
+                      Excluir
+                    </button>
+                  </div>
+                ) : (
+                  <button type="button" onClick={() => setPedir(true)} className="mt-3 text-sm font-semibold text-[#9b3a34]">
+                    Excluir apontamentos
+                  </button>
+                )
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
       <div className="grid grid-cols-2 gap-2">
         <button
           type="button"
