@@ -59,13 +59,13 @@ export function UpdateNotice() {
   if (!aberto) return null;
 
   return (
-    <div className="fixed inset-x-0 top-0 z-50 px-3 pt-3">
-      <div className="mx-auto flex w-full max-w-6xl items-center gap-3 rounded-tile bg-accent px-4 py-3 text-accent-ink shadow-lg">
-        <p className="min-w-0 flex-1 text-sm font-semibold">Nova versão disponível.</p>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-6">
+      <div className="w-full max-w-sm rounded-3xl bg-white px-6 py-6 text-center shadow-xl">
+        <p className="text-base font-semibold text-[#1c1c1c]">Nova versão disponível.</p>
         <button
           type="button"
           onClick={() => window.location.reload()}
-          className="shrink-0 rounded-tile bg-accent-ink/15 px-3 py-2 text-sm font-semibold"
+          className="mt-5 w-full rounded-2xl bg-[#4682B4] py-3 text-base font-semibold text-white"
         >
           Atualizar
         </button>

@@ -2329,7 +2329,6 @@ function ProblemsScreen({
   outroId?: string;
   corId?: string;
 }) {
-  const [tirar, setTirar] = useState<Record<string, number>>({});
   const outro = state.outros.find((item) => item.id === outroId);
   const cor = state.cores.find((item) => item.id === corId);
   const config = cor?.grades[String(station)] ?? state.stations[stationKey(machine, station)];
@@ -2361,20 +2360,14 @@ function ProblemsScreen({
       <div className="mt-4 grid gap-2 lg:grid-cols-2">
         {PROBLEMS.map((problem) => {
           const count = rows.filter((entry) => entry.problem === problem.id).length;
-          const pendente = Math.min(tirar[problem.id] ?? 0, count);
           return (
             <div key={problem.id} className="rounded-tile border border-line bg-surface p-2">
               <div className="flex items-center gap-2">
               <button
                 type="button"
-                disabled={count === 0 || pendente >= count}
-                aria-label={`Marcar exclusão de ${problem.name}`}
-                onClick={() =>
-                  setTirar((atual) => ({
-                    ...atual,
-                    [problem.id]: Math.min(count, (atual[problem.id] ?? 0) + 1),
-                  }))
-                }
+                disabled={offDay || count === 0}
+                aria-label={`Diminuir ${problem.name}`}
+                onClick={() => onRemove(problem.id, 1)}
                 className="grid size-14 shrink-0 place-items-center rounded-tile bg-surface-2 touch-manipulation disabled:opacity-30"
               >
                 <Minus className="size-6" />
@@ -2400,41 +2393,6 @@ function ProblemsScreen({
                 <Plus className="size-7" />
               </button>
               </div>
-              {pendente > 0 ? (
-                <div className="mt-2 flex items-center gap-2 rounded-tile bg-surface-2 px-3 py-2">
-                  <span className="min-w-0 flex-1 text-sm font-semibold">
-                    Excluir {pendente} {pendente === 1 ? "sola" : "solas"}?
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setTirar((atual) => {
-                        const next = { ...atual };
-                        delete next[problem.id];
-                        return next;
-                      })
-                    }
-                    className="shrink-0 rounded-tile px-3 py-2 text-sm font-semibold text-muted"
-                  >
-                    Não
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const n = pendente;
-                      setTirar((atual) => {
-                        const next = { ...atual };
-                        delete next[problem.id];
-                        return next;
-                      });
-                      onRemove(problem.id, n);
-                    }}
-                    className="shrink-0 rounded-tile bg-[#9b3a34] px-3 py-2 text-sm font-semibold text-white"
-                  >
-                    Excluir
-                  </button>
-                </div>
-              ) : null}
             </div>
           );
         })}
