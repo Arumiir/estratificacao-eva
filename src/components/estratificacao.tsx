@@ -3003,16 +3003,18 @@ function PainelHistorico({
           setNumero(numeroItem || null);
         }}
       />
-      <RankingBarras
-        vertical
-        titulo="Piores estações"
-        detalhe={maquina ? `Dentro da ${maquina}` : "Nas máquinas do recorte"}
-        itens={rankingEstacao}
-        onPick={(id) => {
-          const station = Number(id);
-          setEstacao((atual) => (atual === station ? null : station));
-        }}
-      />
+      {maquina ? (
+        <RankingBarras
+          vertical
+          titulo="Piores estações"
+          detalhe={`Dentro da ${maquina}`}
+          itens={rankingEstacao}
+          onPick={(id) => {
+            const station = Number(id);
+            setEstacao((atual) => (atual === station ? null : station));
+          }}
+        />
+      ) : null}
     </div>
   );
 }
