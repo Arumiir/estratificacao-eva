@@ -2411,8 +2411,9 @@ function LancamentosTurno({
           <p className="mt-4 text-sm text-muted">Nenhuma máquina apontada neste turno.</p>
         ) : (
           <div className="mt-4 flex items-end gap-2 overflow-x-auto pb-1">
-            {barras.map((item) => {
+            {barras.map((item, index) => {
               const altura = Math.max(8, Math.round((item.valor / maximo) * 100));
+              const cor = CORES_FATIA[index % CORES_FATIA.length];
               return (
                 <button
                   key={item.machine}
@@ -2423,11 +2424,13 @@ function LancamentosTurno({
                   <span className="font-display text-2xl leading-none tabular-nums">{item.valor}</span>
                   <span className="mt-2 flex h-28 w-full items-end">
                     <span
-                      className="block w-full rounded-t-2xl bg-[#4682B4]"
-                      style={{ height: `${altura}%`, opacity: aberta && aberta !== item.machine ? 0.35 : 1 }}
+                      className="block w-full rounded-t-2xl"
+                      style={{ height: `${altura}%`, background: cor, opacity: aberta && aberta !== item.machine ? 0.35 : 1 }}
                     />
                   </span>
-                  <span className="mt-2 text-center text-[11px] font-semibold">{item.machine}</span>
+                  <span className="mt-2 text-center text-[11px] font-semibold" style={{ color: cor }}>
+                    {item.machine}
+                  </span>
                 </button>
               );
             })}
@@ -3014,7 +3017,7 @@ function PainelHistorico({
   );
 }
 
-const CORES_FATIA = ["#4682B4", "#2a5270", "#7eb0d4", "#1c3d55", "#b7d0e4", "#5c89a8"];
+const CORES_FATIA = ["#e23b3b", "#f08a24", "#e2b423", "#2f9e6b", "#2aa0c7", "#3b6fe0", "#7a4fd4", "#d4538a", "#6b7280", "#8b5a2b", "#1f7a4d"];
 
 function GraficoCircular({
   titulo,
@@ -3071,7 +3074,9 @@ function GraficoCircular({
               <p className="font-display text-4xl leading-none tabular-nums">{frente.valor}</p>
               <p className="mt-1 text-[11px] font-semibold text-muted">{frente.valor === 1 ? "par" : "pares"}</p>
               <p className="mt-2 text-sm font-semibold leading-tight">{frente.nome}</p>
-              <p className="text-xs font-semibold text-[#4682B4]">{Math.round(frente.parte * 100)}%</p>
+              <p className="text-xs font-semibold" style={{ color: frente.cor }}>
+                {Math.round(frente.parte * 100)}%
+              </p>
             </div>
           </div>
           <ul className="mt-3 grid gap-1.5">
@@ -3138,12 +3143,16 @@ function RankingBarras({
                 <span className="mt-1 text-[10px] font-semibold text-muted">{item.valor === 1 ? "par" : "pares"}</span>
                 <span className="mt-2 flex h-36 w-full items-end">
                   <span
-                    className="block w-full rounded-t-2xl bg-[#4682B4]"
-                    style={{ height: `${altura}%`, opacity: item.ativo === false ? 0.35 : 1 }}
+                    className="block w-full rounded-t-2xl"
+                    style={{
+                      height: `${altura}%`,
+                      background: CORES_FATIA[index % CORES_FATIA.length],
+                      opacity: item.ativo === false ? 0.35 : 1,
+                    }}
                   />
                 </span>
                 <span className="mt-2 w-full whitespace-pre-line text-center text-[11px] font-semibold leading-tight">
-                  <span className="text-[#4682B4]">{index + 1} </span>
+                  <span style={{ color: CORES_FATIA[index % CORES_FATIA.length] }}>{index + 1} </span>
                   {item.nome}
                 </span>
                 {item.extra ? <span className="mt-1 text-center text-[10px] text-muted">{item.extra}</span> : null}
@@ -3173,7 +3182,9 @@ function RankingBarras({
               <>
                 <div className="flex items-start justify-between gap-3">
                   <p className="min-w-0 text-sm font-semibold leading-snug">
-                    <span className="mr-2 font-display text-xl leading-none text-[#4682B4]">{index + 1}</span>
+                    <span className="mr-2 font-display text-xl leading-none" style={{ color: CORES_FATIA[index % CORES_FATIA.length] }}>
+                      {index + 1}
+                    </span>
                     {item.nome}
                   </p>
                   <p className="shrink-0 text-right text-xs font-semibold tabular-nums">
@@ -3183,8 +3194,12 @@ function RankingBarras({
                 </div>
                 <span className="mt-1.5 block h-2.5 overflow-hidden rounded-full bg-[#e7eef5]">
                   <span
-                    className="block h-full rounded-full bg-[#4682B4]"
-                    style={{ width: `${largura}%`, opacity: item.ativo === false ? 0.35 : 1 }}
+                    className="block h-full rounded-full"
+                    style={{
+                      width: `${largura}%`,
+                      background: CORES_FATIA[index % CORES_FATIA.length],
+                      opacity: item.ativo === false ? 0.35 : 1,
+                    }}
                   />
                 </span>
                 {item.extra ? <p className="mt-1 text-xs text-muted">{item.extra}</p> : null}
