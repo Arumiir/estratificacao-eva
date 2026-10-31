@@ -3134,14 +3134,14 @@ function RankingBarras({
       {itens.length === 0 || total === 0 ? (
         <p className="mt-3 text-sm text-muted">Sem apontamento neste recorte.</p>
       ) : vertical ? (
-        <div className="mt-4 flex items-end gap-2 overflow-x-auto pb-1">
+        <div className="mt-4 flex items-start gap-2 overflow-x-auto pb-1">
           {itens.map((item, index) => {
             const altura = item.valor <= 0 ? 0 : Math.max(8, Math.round((item.valor / maximo) * 100));
             const corpo = (
               <>
                 <span className="font-display text-2xl leading-none tabular-nums">{item.valor}</span>
                 <span className="mt-1 text-[10px] font-semibold text-muted">{item.valor === 1 ? "par" : "pares"}</span>
-                <span className="mt-2 flex h-36 w-full items-end">
+                <span className="mt-2 flex h-40 w-full items-end border-b-2 border-[#d5dee8]">
                   <span
                     className="block w-full rounded-t-2xl"
                     style={{
@@ -3151,7 +3151,7 @@ function RankingBarras({
                     }}
                   />
                 </span>
-                <span className="mt-2 w-full whitespace-pre-line text-center text-[11px] font-semibold leading-tight">
+                <span className="mt-2 w-full break-words whitespace-pre-line text-center text-[11px] font-semibold leading-tight">
                   <span style={{ color: CORES_FATIA[index % CORES_FATIA.length] }}>{index + 1} </span>
                   {item.nome}
                 </span>
