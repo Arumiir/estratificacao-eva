@@ -17,11 +17,12 @@ const H = 1180;
 /** Mesmo quadro, mais pixels. 3× deixa o zoom nítido; 2× se o celular recusar o canvas. */
 const SCALES = [3, 2];
 
-/** Papel e faixa da ficha: 1º preto, 2º azul, 3º vermelho. */
+/** Só a faixa muda: 1º preto, 2º azul, 3º vermelho. O restante fica branco. */
+const BRANCO = "#ffffff";
 const FICHA_TURNO: Record<Turno, { papel: string; faixa: string; tabela: string; cabeca: string; zebra: string; tinta: string }> = {
-  "1": { papel: "#1c1c1c", faixa: "#111111", tabela: "#222222", cabeca: "#2a2a2a", zebra: "#262626", tinta: "#f2f2f2" },
-  "2": { papel: "#e7f0f8", faixa: "#1f5f99", tabela: "#f4f8fc", cabeca: "#d5e4f2", zebra: "#c9dced", tinta: "#1c3348" },
-  "3": { papel: "#f8eeee", faixa: "#9b2c2c", tabela: "#fdf7f7", cabeca: "#f3dede", zebra: "#edd3d3", tinta: "#3d2424" },
+  "1": { papel: BRANCO, faixa: "#2a2a2a", tabela: BRANCO, cabeca: BRANCO, zebra: "#f4f4f4", tinta: "#1c1c1c" },
+  "2": { papel: BRANCO, faixa: "#1f5f99", tabela: BRANCO, cabeca: BRANCO, zebra: "#f4f4f4", tinta: "#1c1c1c" },
+  "3": { papel: BRANCO, faixa: "#9b2c2c", tabela: BRANCO, cabeca: BRANCO, zebra: "#f4f4f4", tinta: "#1c1c1c" },
 };
 
 export async function renderFichasDaMaquina(
