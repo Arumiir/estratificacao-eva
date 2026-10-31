@@ -2962,7 +2962,7 @@ function PainelHistorico({
     .filter((item) => item.total > 0)
     .sort((a, b) => b.total - a.total);
   const tituloJanela = janela === "dia" ? "24 horas" : janela === "semana" ? "Semana" : "Mês";
-  const rankingNumeros = rankNumeros(periodo, 8);
+  const rankingNumeros = rankNumeros(periodo, 5);
   const rankingEstacao = STATIONS.map((station) => ({
     id: String(station),
     nome: `Estação ${pad2(station)}`,
@@ -3311,34 +3311,36 @@ function PainelHistorico({
           onPick={(id) => setTurnoFiltro((atual) => (atual === id ? null : (id as Turno)))}
         />
       </div>
-      <RankingBarras
-        vertical
-        titulo="Piores problemas"
-        itens={porProblema.map((item) => ({
-          id: item.id,
-          nome: item.name,
-          valor: item.total,
-          ativo: problema === null ? undefined : problema === item.id,
-        }))}
-        onPick={(id) => setProblema((atual) => (atual === id ? null : id))}
-      />
-      <RankingBarras
-        vertical
-        titulo="Piores números"
-        itens={rankingNumeros.map((item) => ({
-          id: item.chave,
-          nome: `${item.machine}\nNº ${item.numero}${item.referencia ? `\nRef. ${item.referencia}` : ""}`,
-          valor: item.pares,
-          extra: item.estacoes ? `Est. ${item.estacoes}` : undefined,
-        }))}
-        onPick={(id) => {
-          const [machine, numeroItem] = id.split("||");
-          const escolhida = parseMachine(machine);
-          if (!escolhida) return;
-          setMaquina(escolhida);
-          setNumero(numeroItem || null);
-        }}
-      />
+      <div className="grid gap-4 lg:grid-cols-2">
+        <RankingBarras
+          vertical
+          titulo="Piores problemas"
+          itens={porProblema.slice(0, 5).map((item) => ({
+            id: item.id,
+            nome: item.name,
+            valor: item.total,
+            ativo: problema === null ? undefined : problema === item.id,
+          }))}
+          onPick={(id) => setProblema((atual) => (atual === id ? null : id))}
+        />
+        <RankingBarras
+          vertical
+          titulo="Piores números"
+          itens={rankingNumeros.map((item) => ({
+            id: item.chave,
+            nome: `${item.machine}\nNº ${item.numero}${item.referencia ? `\nRef. ${item.referencia}` : ""}`,
+            valor: item.pares,
+            extra: item.estacoes ? `Est. ${item.estacoes}` : undefined,
+          }))}
+          onPick={(id) => {
+            const [machine, numeroItem] = id.split("||");
+            const escolhida = parseMachine(machine);
+            if (!escolhida) return;
+            setMaquina(escolhida);
+            setNumero(numeroItem || null);
+          }}
+        />
+      </div>
       {maquina ? (
         <RankingBarras
           vertical
