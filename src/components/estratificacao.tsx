@@ -4,7 +4,6 @@ import { UpdateNotice } from "@/components/update-notice";
 import {
   ChevronLeft,
   ChevronDown,
-  ClipboardList,
   Download,
   ImageDown,
   Minus,
@@ -32,6 +31,7 @@ import {
   loadState,
   machineHasFicha,
   machineHasMatrices,
+  numeroLimpo,
   mergeOutros,
   mergeCores,
   mergeFechamentos,
@@ -745,6 +745,28 @@ export function EstratificacaoApp() {
     commit((current) => ({ ...current, turno }));
   }
 
+  async function baixarFicha(machine: MachineId) {
+    const current = read();
+    if (!current) return;
+    try {
+      const grupos = await renderFichasDaMaquina(current, machine);
+      if (grupos.length === 0) {
+        flash("Nenhuma ficha nesta máquina.");
+        return;
+      }
+      const base = `perdas-${current.date}-turno-${current.turno}`;
+      grupos.forEach((grupo, index) => {
+        const sufixo = grupo.nome
+          ? `-${grupo.nome.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "")}`
+          : "";
+        window.setTimeout(() => downloadBlob(`${base}-maquina-${machine}${sufixo}.png`, grupo.blob), index * 400);
+      });
+      flash(grupos.length === 1 ? "Imagem baixada." : `${grupos.length} imagens baixadas.`);
+    } catch {
+      flash("Não foi possível gerar a imagem.");
+    }
+  }
+
   function openMachine(machine: MachineId) {
     const current = read();
     if (!current) return;
@@ -955,8 +977,8 @@ export function EstratificacaoApp() {
             side,
           );
       snapshot = {
-        numero: slot?.numero.trim() ?? "",
-        referencia: slot?.referencia.trim() ?? "",
+        numero: numeroLimpo(slot?.numero ?? ""),
+        referencia: numeroLimpo(slot?.numero ?? "") ? (slot?.referencia.trim() ?? "") : "",
       };
       const entry: Entry = {
         id,
@@ -1088,16 +1110,6 @@ export function EstratificacaoApp() {
               </p>
             ) : null}
           </div>
-          {papel === "preparador" && screen.kind !== "sheet" ? (
-            <button
-              type="button"
-              onClick={() => push({ kind: "sheet", machine: null })}
-              aria-label="Lançamentos"
-              className="grid size-11 shrink-0 place-items-center rounded-tile bg-accent text-accent-ink"
-            >
-              <ClipboardList className="size-6" />
-            </button>
-          ) : null}
           {papel ? (
             <button
               type="button"
@@ -1196,6 +1208,7 @@ export function EstratificacaoApp() {
               state={state}
               machine={screen.machine}
               offDay={offDay}
+              onDownload={() => void baixarFicha(screen.machine)}
               onOpen={(station) => push({ kind: "side", machine: screen.machine, station })}
               onOpenOutro={(outro) =>
                 outro.ambos
@@ -1551,15 +1564,15 @@ function numerosProducao(state: State, machine: MachineId, date: string, turno: 
     const config = state.stations[stationKey(machine, station)];
     if (!config) continue;
     if (config.ambos) {
-      incluir(config.numero);
+      incluir(numeroLimpo(config.numero));
       continue;
     }
-    incluir(config.esq.numero);
-    incluir(config.dir.numero);
+    incluir(numeroLimpo(config.esq.numero));
+    incluir(numeroLimpo(config.dir.numero));
   }
   for (const outro of state.outros) {
     if (!outroVivo(outro) || outro.machine !== machine || outro.date !== date || outro.turno !== turno) continue;
-    incluir(outro.numero);
+    incluir(numeroLimpo(outro.numero));
   }
   return lista.sort((a, b) => a.numero.localeCompare(b.numero, "pt-BR", { numeric: true }));
 }
@@ -1937,6 +1950,7 @@ function StationsScreen({
   state,
   machine,
   offDay,
+  onDownload,
   onOpen,
   onOpenOutro,
   onDeleteOutro,
@@ -1945,6 +1959,7 @@ function StationsScreen({
   state: State;
   machine: MachineId;
   offDay: boolean;
+  onDownload: () => void;
   onOpen: (station: number) => void;
   onOpenOutro: (outro: OutroMatriz) => void;
   onDeleteOutro: (id: string) => void;
@@ -1967,6 +1982,14 @@ function StationsScreen({
           <span className="font-display text-3xl leading-none">{machine}</span>
         </span>
         <span className="text-sm font-semibold text-accent">Outra</span>
+      </button>
+      <button
+        type="button"
+        onClick={onDownload}
+        aria-label="Baixar imagem"
+        className="mt-2 grid size-12 place-items-center rounded-tile bg-accent text-accent-ink"
+      >
+        <ImageDown className="size-6" />
       </button>
       <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
         {STATIONS.map((station) => {
@@ -2013,7 +2036,7 @@ function StationsScreen({
                     <span className="text-sm font-semibold text-accent">Troca</span>
                     <span className="mt-1 font-display text-3xl leading-none">{lugar}</span>
                     <span className="mt-1 text-base font-semibold leading-snug">
-                      {outro.numero || "sem nº"}
+                      {numeroLimpo(outro.numero) || "—"}
                       {outro.referencia ? ` · ${outro.referencia}` : ""}
                     </span>
                     <span className="text-sm text-muted">{lado}</span>
@@ -2535,28 +2558,15 @@ function SheetScreen({
 }) {
   const [busy, setBusy] = useState<"foto" | "pdf" | null>(null);
   const [abaLider, setAbaLider] = useState<"geral" | "diario">("geral");
-  const [escolherFoto, setEscolherFoto] = useState(false);
-  const [escolhidas, setEscolhidas] = useState<MachineId[]>([]);
-  const [aberta, setAberta] = useState<MachineId | null>(null);
   const view = state;
   const shown = MACHINES.filter((machine) => shiftEntries(view, machine).length > 0);
   const fileBase = `perdas-${state.date}-turno-${state.turno}`;
-
-  function abrirSeletor() {
-    if (shown.length === 0) {
-      onNotice("Nenhuma ficha neste turno.");
-      return;
-    }
-    setEscolhidas(shown);
-    setEscolherFoto(true);
-  }
 
   async function baixarImagens(machines: MachineId[]) {
     if (machines.length === 0) {
       onNotice("Escolha ao menos uma máquina.");
       return;
     }
-    setEscolherFoto(false);
     setBusy("foto");
     try {
       const files: { name: string; blob: Blob }[] = [];
@@ -2634,186 +2644,14 @@ function SheetScreen({
               onTurno={onTurno}
               shown={shown}
               busy={busy}
-              onPhoto={abrirSeletor}
+              onPhoto={() => void baixarImagens(shown)}
               onPdf={() => void downloadPdf()}
               onDelete={onDelete}
             />
           )}
         </>
-      ) : (
-        <LancamentosTurno
-          state={view}
-          today={today}
-          offDay={offDay}
-          onDate={onDate}
-          shown={shown}
-          aberta={aberta}
-          onToggle={(machine) => setAberta((atual) => (atual === machine ? null : machine))}
-          busy={busy}
-          onPhoto={abrirSeletor}
-          onPdf={() => void downloadPdf()}
-          onDelete={onDelete}
-        />
-      )}
-      {escolherFoto ? (
-        <div
-          className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) setEscolherFoto(false);
-          }}
-        >
-          <div className="w-full max-w-md rounded-3xl bg-white p-4 shadow-xl">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="text-base font-semibold">Quais máquinas baixar?</h3>
-              <button type="button" onClick={() => setEscolherFoto(false)} className="text-sm font-semibold text-muted">
-                Fechar
-              </button>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => setEscolhidas(escolhidas.length === shown.length ? [] : shown)}
-                className="rounded-full bg-[#f3f6fb] px-3 py-2 text-sm font-semibold"
-              >
-                {escolhidas.length === shown.length ? "Limpar" : "Todas"}
-              </button>
-              {shown.map((machine) => {
-                const ligada = escolhidas.includes(machine);
-                return (
-                  <button
-                    key={machine}
-                    type="button"
-                    aria-pressed={ligada}
-                    onClick={() =>
-                      setEscolhidas((atual) => (atual.includes(machine) ? atual.filter((item) => item !== machine) : [...atual, machine]))
-                    }
-                    className={cx(
-                      "rounded-full px-3 py-2 text-sm font-semibold",
-                      ligada ? "bg-[#2457b8] text-white" : "bg-[#f3f6fb] text-fg",
-                    )}
-                  >
-                    {machine}
-                  </button>
-                );
-              })}
-            </div>
-            <button
-              type="button"
-              disabled={busy !== null || escolhidas.length === 0}
-              onClick={() => void baixarImagens(escolhidas)}
-              className="mt-4 w-full rounded-2xl bg-[#2457b8] py-3 font-semibold text-white disabled:opacity-50"
-            >
-              {busy === "foto" ? "Gerando…" : `Baixar ${escolhidas.length === 1 ? "imagem" : `${escolhidas.length} imagens`}`}
-            </button>
-          </div>
-        </div>
       ) : null}
     </>
-  );
-}
-
-function LancamentosTurno({
-  state,
-  today,
-  offDay,
-  onDate,
-  shown,
-  aberta,
-  onToggle,
-  busy,
-  onPhoto,
-  onPdf,
-  onDelete,
-}: {
-  state: State;
-  today: string;
-  offDay: boolean;
-  onDate: (date: string) => void;
-  shown: MachineId[];
-  aberta: MachineId | null;
-  onToggle: (machine: MachineId) => void;
-  busy: "foto" | "pdf" | null;
-  onPhoto: () => void;
-  onPdf: () => void;
-  onDelete?: (entries: Entry[]) => void;
-}) {
-  const doTurno = shiftEntries(state);
-  const total = paresDasEntradas(doTurno);
-  const barras = shown
-    .map((machine) => ({ machine, valor: paresDasEntradas(shiftEntries(state, machine)) }))
-    .sort((a, b) => b.valor - a.valor || a.machine.localeCompare(b.machine));
-  const maximo = Math.max(1, ...barras.map((item) => item.valor));
-
-  return (
-    <div className="grid gap-3">
-      <section className="min-w-0 max-w-full rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
-        <p className="text-xs font-semibold text-muted">
-          {TURNO_LABEL[state.turno]} · {formatDateBR(state.date)}
-        </p>
-        <p className="mt-2 font-display text-5xl leading-none tabular-nums">{total}</p>
-        <p className="mt-1 text-sm text-muted">{total === 1 ? "par neste turno" : "pares neste turno"}</p>
-        {barras.length === 0 ? (
-          <p className="mt-4 text-sm text-muted">Nenhuma máquina apontada neste turno.</p>
-        ) : (
-          <div className="mt-4 flex items-end gap-2 overflow-x-auto pb-1">
-            {barras.map((item, index) => {
-              const altura = Math.max(8, Math.round((item.valor / maximo) * 100));
-              const cor = CORES_FATIA[index % CORES_FATIA.length];
-              return (
-                <button
-                  key={item.machine}
-                  type="button"
-                  onClick={() => onToggle(item.machine)}
-                  className="flex min-w-[4.5rem] flex-1 basis-[4.5rem] flex-col items-center"
-                >
-                  <span className="font-display text-2xl leading-none tabular-nums">{item.valor}</span>
-                  <span className="mt-2 flex h-28 w-full items-end">
-                    <span
-                      className="block w-full rounded-t-2xl"
-                      style={{ height: `${altura}%`, background: cor, opacity: aberta && aberta !== item.machine ? 0.35 : 1 }}
-                    />
-                  </span>
-                  <span className="mt-2 text-center text-[11px] font-semibold" style={{ color: cor }}>
-                    {item.machine}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </section>
-      <DayControls state={state} today={today} offDay={offDay} onDate={onDate} />
-      {barras.map((item) => (
-        <MaquinaDoDia
-          key={item.machine}
-          state={state}
-          machine={item.machine}
-          aberta={aberta === item.machine}
-          onToggle={() => onToggle(item.machine)}
-          onDelete={onDelete}
-        />
-      ))}
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          disabled={busy !== null || shown.length === 0}
-          onClick={onPhoto}
-          className="flex items-center justify-center gap-2 rounded-tile bg-surface-2 py-3 font-semibold disabled:opacity-60"
-        >
-          <ImageDown className="size-5" />
-          {busy === "foto" ? "Gerando…" : "Baixar imagens"}
-        </button>
-        <button
-          type="button"
-          disabled={busy !== null || shown.length === 0}
-          onClick={onPdf}
-          className="flex items-center justify-center gap-2 rounded-tile bg-surface-2 py-3 font-semibold disabled:opacity-60"
-        >
-          <Download className="size-5" />
-          {busy === "pdf" ? "Gerando…" : "Baixar PDF"}
-        </button>
-      </div>
-    </div>
   );
 }
 
@@ -3001,8 +2839,8 @@ function PainelHistorico({
     if (estacao !== null && entry.station !== estacao) return false;
     return true;
   });
-  const numerosJanela = [...new Set(recorteLista.map((entry) => entry.matrizNumero.trim() || "sem nº"))].sort((a, b) =>
-    a.localeCompare(b, "pt-BR"),
+  const numerosJanela = [...new Set(recorteLista.map((entry) => numeroLimpo(entry.matrizNumero)).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, "pt-BR", { numeric: true }),
   );
   const referenciasJanela = [...new Set(recorteLista.map((entry) => entry.matrizRel.trim() || "sem ref."))].sort((a, b) =>
     a.localeCompare(b, "pt-BR"),
@@ -3012,7 +2850,7 @@ function PainelHistorico({
   function passaRecorte(entry: Entry) {
     if (maquina && entry.machine !== maquina) return false;
     if (estacao !== null && entry.station !== estacao) return false;
-    if (numeroAtivo !== null && (entry.matrizNumero.trim() || "sem nº") !== numeroAtivo) return false;
+    if (numeroAtivo !== null && numeroLimpo(entry.matrizNumero) !== numeroAtivo) return false;
     if (refAtiva !== null && (entry.matrizRel.trim() || "sem ref.") !== refAtiva) return false;
     if (lado && entry.side !== lado) return false;
     if (turnoFiltro && entry.turno !== turnoFiltro) return false;
@@ -3606,7 +3444,8 @@ function juntarHistorico(remoto: Entry[], local: Entry[], datas: Set<string>): E
 function rankNumeros(entries: Entry[], limite = 12) {
   const grupos = new Map<string, { machine: string; numero: string; referencia: string; stations: Map<number, number>; itens: Entry[] }>();
   for (const entry of entries) {
-    const numero = entry.matrizNumero.trim();
+    const numero = numeroLimpo(entry.matrizNumero);
+    if (!numero) continue;
     const referencia = entry.matrizRel.trim();
     const chave = `${entry.machine}||${numero}||${referencia}`;
     const atual = grupos.get(chave) ?? {
@@ -3678,7 +3517,8 @@ function PainelMesa({
     ...new Set(
       baseLinhas
         .filter((linha) => estacao === null || linha.station === estacao)
-        .map((linha) => linha.numero || "sem nº"),
+        .map((linha) => linha.numero)
+        .filter((item) => item.length > 0),
     ),
   ].sort((a, b) => a.localeCompare(b, "pt-BR"));
   const numeroAtivo = numero && numerosMesa.includes(numero) ? numero : null;
@@ -4266,7 +4106,7 @@ function GradeSomenteLeitura({ state, machine }: { state: State; machine: Machin
               {item.station >= 1 ? `Troca · Estação ${pad2(item.station)}` : "Troca de matriz"}
             </p>
             <p className="mt-1 text-sm font-semibold leading-snug">
-              {item.ambos ? "Ambos os lados" : SIDE_LABEL[item.side]} · {item.numero || "sem nº"}
+              {item.ambos ? "Ambos os lados" : SIDE_LABEL[item.side]} · {numeroLimpo(item.numero) || "—"}
               {item.referencia ? ` · ${item.referencia}` : ""}
             </p>
           </div>

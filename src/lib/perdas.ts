@@ -291,6 +291,13 @@ export function problemName(id: string): string {
   return problemById(id)?.name ?? id;
 }
 
+/** Mantém só dígitos e barra. "37 (nova)" vira "37". "sem" ou "vazio" vira vazio. */
+export function numeroLimpo(valor: string): string {
+  const bruto = valor.replace(/[^\d/]/g, "");
+  const limpo = bruto.replace(/\/{2,}/g, "/").replace(/^\/+|\/+$/g, "");
+  return /\d/.test(limpo) ? limpo : "";
+}
+
 export function activeMatrix(
   config: StationConfig | undefined,
   side: Side,
@@ -301,8 +308,9 @@ export function activeMatrix(
     : side === "esq"
       ? config.esq
       : config.dir;
-  if (!slot.numero.trim() && !slot.referencia.trim()) return null;
-  return slot;
+  const numero = numeroLimpo(slot.numero);
+  if (!numero) return null;
+  return { numero, referencia: slot.referencia.trim() };
 }
 
 export function describeMatrix(config: StationConfig | undefined, side: Side): string {
@@ -591,8 +599,8 @@ export function gradeDaCor(state: State, corId: string, station: number): Statio
 }
 
 function aplicarSlot(entry: Entry, slot: { numero: string; referencia: string } | null | undefined, corNome?: string): Entry {
-  const numero = slot?.numero.trim() ?? entry.matrizNumero;
-  const referencia = slot?.referencia.trim() ?? entry.matrizRel;
+  const numero = numeroLimpo(slot?.numero ?? entry.matrizNumero);
+  const referencia = numero ? (slot?.referencia.trim() ?? entry.matrizRel) : "";
   const nome = corNome ?? entry.corNome;
   if (entry.matrizNumero === numero && entry.matrizRel === referencia && entry.corNome === nome) return entry;
   return { ...entry, matrizNumero: numero, matrizRel: referencia, corNome: nome };
@@ -731,15 +739,13 @@ export function fichaLines(state: State, machine: MachineId): FichaLine[] {
           const shared = Boolean(config?.ambos);
           return SIDES.map((side) => {
             const slot = activeMatrix(config, side);
-            let numero = slot?.numero.trim() ?? "";
-            let referencia = slot?.referencia.trim() ?? "";
+            let numero = slot?.numero ?? "";
+            let referencia = slot ? slot.referencia.trim() : "";
             const doLado = entries.filter((entry) => entry.station === station && entry.side === side);
-            if (!numero && !referencia) {
+            if (!numero) {
               const latest = [...doLado].sort((a, b) => b.at - a.at)[0];
-              if (latest) {
-                numero = latest.matrizNumero.trim();
-                referencia = latest.matrizRel.trim();
-              }
+              numero = numeroLimpo(latest?.matrizNumero ?? "");
+              referencia = numero ? (latest?.matrizRel.trim() ?? "") : "";
             }
             const counts = PROBLEMS.map(
               (problem) => doLado.filter((entry) => entry.problem === problem.id).length,
@@ -758,12 +764,13 @@ export function fichaLines(state: State, machine: MachineId): FichaLine[] {
         const counts = PROBLEMS.map(
           (problem) => doItem.filter((entry) => entry.problem === problem.id).length,
         );
+        const numero = numeroLimpo(item.numero);
         return {
           machine,
           station: item.station,
           side,
-          numero: item.numero,
-          referencia: item.referencia,
+          numero,
+          referencia: numero ? item.referencia.trim() : "",
           shared: item.ambos,
           counts,
           outroId: item.id,
