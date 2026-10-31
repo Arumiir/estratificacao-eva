@@ -1680,7 +1680,7 @@ function TesteProducao({ state, machine }: { state: State; machine: MachineId })
           Sem matrizaria.
         </p>
       ) : (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {numeros.map((item) => (
             <label
               key={item.id}
@@ -2058,7 +2058,6 @@ function StationsScreen({
 }
 
 function OutrosScreen({
-  machine,
   offDay,
   onSave,
 }: {
@@ -2073,10 +2072,7 @@ function OutrosScreen({
   const [referencia, setReferencia] = useState("");
   return (
     <div>
-      <p className="text-base text-muted">
-        Troca no meio do turno da Máquina {machine}. A matriz que já está na estação continua. As perdas novas entram só nesta.
-      </p>
-      {offDay ? <p className="mt-2 text-sm font-semibold text-accent">Dia fechado.</p> : null}
+      {offDay ? <p className="mb-2 text-sm font-semibold text-accent">Dia fechado.</p> : null}
       <p className="mt-4 text-sm font-semibold text-muted">Estação</p>
       <div className="mt-2 grid grid-cols-4 gap-2">
         {STATIONS.map((item) => (
