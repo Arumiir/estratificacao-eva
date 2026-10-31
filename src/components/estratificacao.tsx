@@ -2612,15 +2612,27 @@ function SheetScreen({
 }) {
   const [busy, setBusy] = useState<"foto" | "pdf" | null>(null);
   const [abaLider, setAbaLider] = useState<"geral" | "diario">("geral");
+  const [escolherFoto, setEscolherFoto] = useState(false);
+  const [escolhidas, setEscolhidas] = useState<MachineId[]>([]);
   const view = state;
   const shown = MACHINES.filter((machine) => shiftEntries(view, machine).length > 0);
   const fileBase = `perdas-${state.date}-turno-${state.turno}`;
+
+  function abrirSeletor() {
+    if (shown.length === 0) {
+      onNotice("Nenhuma ficha neste turno.");
+      return;
+    }
+    setEscolhidas([]);
+    setEscolherFoto(true);
+  }
 
   async function baixarImagens(machines: MachineId[]) {
     if (machines.length === 0) {
       onNotice("Escolha ao menos uma máquina.");
       return;
     }
+    setEscolherFoto(false);
     setBusy("foto");
     try {
       const files: { name: string; blob: Blob }[] = [];
@@ -2698,12 +2710,65 @@ function SheetScreen({
               onTurno={onTurno}
               shown={shown}
               busy={busy}
-              onPhoto={() => void baixarImagens(shown)}
+              onPhoto={abrirSeletor}
               onPdf={() => void downloadPdf()}
               onDelete={onDelete}
             />
           )}
         </>
+      ) : null}
+      {escolherFoto ? (
+        <div
+          className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setEscolherFoto(false);
+          }}
+        >
+          <div className="w-full max-w-md rounded-3xl bg-white p-4 shadow-xl">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-base font-semibold">Quais máquinas baixar?</h3>
+              <button type="button" onClick={() => setEscolherFoto(false)} className="text-sm font-semibold text-muted">
+                Fechar
+              </button>
+            </div>
+            <div className="mt-3 flex flex-wrap justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => setEscolhidas(escolhidas.length === shown.length ? [] : shown)}
+                className="rounded-full bg-[#f3f6fb] px-3 py-2 text-sm font-semibold"
+              >
+                {escolhidas.length === shown.length ? "Limpar" : "Todas"}
+              </button>
+              {shown.map((machine) => {
+                const ligada = escolhidas.includes(machine);
+                return (
+                  <button
+                    key={machine}
+                    type="button"
+                    aria-pressed={ligada}
+                    onClick={() =>
+                      setEscolhidas((atual) => (atual.includes(machine) ? atual.filter((item) => item !== machine) : [...atual, machine]))
+                    }
+                    className={cx(
+                      "rounded-full px-3 py-2 text-sm font-semibold",
+                      ligada ? "bg-[#2457b8] text-white" : "bg-[#f3f6fb] text-fg",
+                    )}
+                  >
+                    {machine}
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              disabled={busy !== null || escolhidas.length === 0}
+              onClick={() => void baixarImagens(escolhidas)}
+              className="mt-4 w-full rounded-2xl bg-[#2457b8] py-3 font-semibold text-white disabled:opacity-50"
+            >
+              {busy === "foto" ? "Gerando…" : escolhidas.length === 0 ? "Escolha as máquinas" : `Baixar ${escolhidas.length === 1 ? "imagem" : `${escolhidas.length} imagens`}`}
+            </button>
+          </div>
+        </div>
       ) : null}
     </>
   );
