@@ -2604,11 +2604,9 @@ function PainelHistorico({
     const lista = periodo.filter((entry) => entry.turno === turno);
     return { turno, lista, solas: lista.length, pares: paresDasEntradas(lista) };
   });
-  const totalPares = turnos.reduce((soma, item) => soma + item.pares, 0);
-  const maior = Math.max(0, ...turnos.map((item) => item.pares));
-  const piorTurno = [...turnos].sort((a, b) => b.pares - a.pares)[0];
   const porProblema = PROBLEMS.map((problem) => ({
     name: problem.name,
+    id: problem.id,
     total: paresDasEntradas(periodo.filter((entry) => entry.problem === problem.id)),
   }))
     .filter((item) => item.total > 0)
@@ -2619,47 +2617,24 @@ function PainelHistorico({
   }))
     .filter((item) => item.total > 0)
     .sort((a, b) => b.total - a.total);
-  const serie = (["1", "2", "3"] as const).map((turno) => ({
-    nome: TURNO_LABEL[turno],
-    cor: turno === "1" ? "#6a4cff" : turno === "2" ? "#2457d6" : "#129a78",
-    valores: diasJanela.map((dia) =>
-      paresDasEntradas(base.filter((entry) => entry.date === dia && entry.turno === turno && passaRecorte(entry))),
-    ),
-  }));
   const tituloJanela = janela === "dia" ? "24 horas" : janela === "semana" ? "Semana" : "Mês";
-  const janelaNumero = base.filter(
-    (entry) =>
-      diasJanela.includes(entry.date) &&
-      (estacao === null || entry.station === estacao),
-  );
-  const janelaEstacao = base.filter(
-    (entry) =>
-      diasJanela.includes(entry.date) &&
-      (!maquina || entry.machine === maquina) &&
-      (numeroAtivo === null || (entry.matrizNumero.trim() || "sem nº") === numeroAtivo),
-  );
-  const porEstacao = STATIONS.map((station) => ({
-    nome: pad2(station),
-    valor: paresDasEntradas(janelaEstacao.filter((entry) => entry.station === station)),
+  const rankingNumeros = rankNumeros(periodo, 8);
+  const rankingEstacao = STATIONS.map((station) => ({
+    id: String(station),
+    nome: `Estação ${pad2(station)}`,
+    valor: paresDasEntradas(periodo.filter((entry) => entry.station === station)),
     ativo: estacao === null ? undefined : estacao === station,
-  }));
-  const porNumeroGraf = numerosJanela.map((item) => ({
-    nome: item,
-    valor: janelaNumero.filter((entry) => (entry.matrizNumero.trim() || "sem nº") === item).length,
-    ativo: numeroAtivo === null ? undefined : numeroAtivo === item,
-  }));
-  const porLado = SIDES.map((side) => ({
-    nome: SIDE_SHORT[side],
-    valor: periodo.filter((entry) => entry.side === side).length,
-  }));
-  const refs = new Map<string, number>();
-  for (const entry of periodo) {
-    const chave = entry.matrizRel.trim() || "sem ref.";
-    refs.set(chave, (refs.get(chave) ?? 0) + 1);
-  }
-  const porRef = [...refs.entries()]
-    .map(([nome, valor]) => ({ nome, valor }))
-    .sort((a, b) => b.valor - a.valor || a.nome.localeCompare(b.nome, "pt-BR"));
+  }))
+    .filter((item) => item.valor > 0)
+    .sort((a, b) => b.valor - a.valor);
+  const rankingLado = SIDES.map((side) => ({
+    id: side,
+    nome: SIDE_LABEL[side],
+    valor: paresDasEntradas(periodo.filter((entry) => entry.side === side)),
+    ativo: lado === null ? undefined : lado === side,
+  }))
+    .filter((item) => item.valor > 0)
+    .sort((a, b) => b.valor - a.valor);
 
   const problemaNome = PROBLEMS.find((item) => item.id === problema)?.name ?? null;
   const filtrosAtivos = [
@@ -2881,95 +2856,181 @@ function PainelHistorico({
         </div>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        {turnos.map((item) => (
-          <Kpi
-            key={item.turno}
-            tom={item.turno === "1" ? "roxo" : item.turno === "2" ? "azul" : "verde"}
-            titulo={TURNO_LABEL[item.turno]}
-            valor={String(item.pares)}
-            detalhe={
-              item.pares === 0
-                ? "sem apontamento neste período"
-                : `${totalPares > 0 ? Math.round((item.pares / totalPares) * 100) : 0}% do período${maior > 0 && item.pares === maior ? " · perde mais" : ""}`
-            }
-          />
-        ))}
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Kpi tom="ciano" titulo="24 horas" valor={String(paresDasEntradas(doDia))} detalhe={`${formatDateBR(state.date)} · os 3 turnos`} />
-        <Kpi tom="azul" titulo="Semana" valor={String(paresDasEntradas(daSemana))} detalhe="7 dias · os 3 turnos" />
-        <Kpi tom="verde" titulo="Mês" valor={String(paresDasEntradas(doMes))} detalhe="31 dias · os 3 turnos" />
-      </div>
-
-      {piorTurno && piorTurno.solas > 0 ? (
-        <p className="rounded-2xl bg-white px-4 py-3 text-sm text-fg shadow-[0_8px_24px_rgba(47,84,150,0.06)]">
-          Em {tituloJanela.toLowerCase()}, quem mais perde é o {TURNO_LABEL[piorTurno.turno]}: {piorTurno.pares} {piorTurno.pares === 1 ? "par" : "pares"}.
-          {turnos.filter((item) => item.solas === 0).length > 0
-            ? ` ${turnos
-                .filter((item) => item.solas === 0)
-                .map((item) => TURNO_LABEL[item.turno])
-                .join(" e ")} ainda sem lançamento.`
-            : ""}
-        </p>
-      ) : null}
-
-      <RankingNumeros
-        titulo={
-          numeroAtivo
-            ? `Nº ${numeroAtivo} em cada máquina`
-            : maquina
-              ? `Ranking da ${maquina}${estacao ? ` · Estação ${pad2(estacao)}` : ""}`
-              : estacao
-                ? `Ranking da estação ${pad2(estacao)}`
-                : "Ranking geral"
-        }
-        detalhe={
-          numeroAtivo
-            ? "O mesmo número em outra máquina é outra matriz"
-            : `${tituloJanela} · cada número fica na máquina dele`
-        }
-        entries={periodo}
-        limite={numeroAtivo ? 40 : 12}
+      <RankingBarras
+        vertical
+        titulo="Pares"
+        detalhe="24 horas, semana e mês. O mês inclui os outros."
+        itens={[
+          { id: "dia", nome: "24 horas", valor: paresDasEntradas(doDia) },
+          { id: "semana", nome: "Semana", valor: paresDasEntradas(daSemana) },
+          { id: "mes", nome: "Mês", valor: paresDasEntradas(doMes) },
+        ]}
       />
 
-      {maquina ? (
-        <div className="grid gap-4 xl:grid-cols-2">
-          <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
-            <h3 className="text-base font-semibold">Perdas na {maquina}</h3>
-            <p className="text-xs text-muted">O tipo que mais saiu nesta máquina.</p>
-            <Barras
-              largo
-              itens={porProblema.map((item) => ({ nome: item.name, valor: item.total }))}
-              maximo={Math.max(1, ...porProblema.map((item) => item.total))}
-            />
-          </section>
-          <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
-            <h3 className="text-base font-semibold">Estação</h3>
-            <p className="text-xs text-muted">Onde a perda está, dentro da {maquina}.</p>
-            <Barras
-              itens={porEstacao.filter((item) => item.valor > 0)}
-              maximo={Math.max(1, ...porEstacao.map((item) => item.valor))}
-              onPick={(nome) => {
-                const station = Number(nome);
-                setEstacao((atual) => (atual === station ? null : station));
-              }}
-            />
-          </section>
+      <RankingBarras
+        titulo="Piores máquinas"
+        detalhe={`${tituloJanela} · toque para ver só ela`}
+        itens={porMaquina.map((item) => ({
+          id: item.machine,
+          nome: item.machine,
+          valor: item.total,
+          ativo: maquina === null ? undefined : maquina === item.machine,
+        }))}
+        onPick={(id) => setMaquina((atual) => (atual === id ? null : (id as MachineId)))}
+      />
+      <RankingBarras
+        titulo="Piores turnos"
+        detalhe={`${tituloJanela} · toque para filtrar`}
+        itens={[...turnos]
+          .sort((a, b) => b.pares - a.pares || a.turno.localeCompare(b.turno))
+          .map((item) => ({
+            id: item.turno,
+            nome: TURNO_LABEL[item.turno],
+            valor: item.pares,
+            ativo: turnoFiltro === null ? undefined : turnoFiltro === item.turno,
+          }))}
+        onPick={(id) => setTurnoFiltro((atual) => (atual === id ? null : (id as Turno)))}
+      />
+      <RankingBarras
+        titulo="Piores problemas"
+        detalhe="Nome completo · toque para filtrar"
+        itens={porProblema.map((item) => ({
+          id: item.id,
+          nome: item.name,
+          valor: item.total,
+          ativo: problema === null ? undefined : problema === item.id,
+        }))}
+        onPick={(id) => setProblema((atual) => (atual === id ? null : id))}
+      />
+      <RankingBarras
+        vertical
+        titulo="Piores números"
+        detalhe="Cada número fica na máquina dele"
+        itens={rankingNumeros.map((item) => ({
+          id: item.chave,
+          nome: `${item.machine}\nNº ${item.numero}${item.referencia ? `\nRef. ${item.referencia}` : ""}`,
+          valor: item.pares,
+          extra: item.estacoes ? `Est. ${item.estacoes}` : undefined,
+        }))}
+        onPick={(id) => {
+          const [machine, numeroItem] = id.split("||");
+          const escolhida = parseMachine(machine);
+          if (!escolhida) return;
+          setMaquina(escolhida);
+          setNumero(numeroItem || null);
+        }}
+      />
+      <div className="grid gap-4 xl:grid-cols-2">
+        <RankingBarras
+          titulo="Piores estações"
+          detalhe={maquina ? `Dentro da ${maquina}` : "Nas máquinas do recorte"}
+          itens={rankingEstacao}
+          onPick={(id) => {
+            const station = Number(id);
+            setEstacao((atual) => (atual === station ? null : station));
+          }}
+        />
+        <RankingBarras titulo="Lado" detalhe="Esquerda e direita não se somam" itens={rankingLado} />
+      </div>
+    </div>
+  );
+}
+
+function RankingBarras({
+  titulo,
+  detalhe,
+  itens,
+  onPick,
+  vertical = false,
+}: {
+  titulo: string;
+  detalhe: string;
+  itens: { id: string; nome: string; valor: number; extra?: string; ativo?: boolean }[];
+  onPick?: (id: string) => void;
+  vertical?: boolean;
+}) {
+  const maximo = Math.max(1, ...itens.map((item) => item.valor));
+  const total = itens.reduce((soma, item) => soma + item.valor, 0);
+  return (
+    <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+      <h3 className="text-base font-semibold">{titulo}</h3>
+      <p className="text-xs text-muted">{detalhe}</p>
+      {itens.length === 0 || total === 0 ? (
+        <p className="mt-3 text-sm text-muted">Sem apontamento neste recorte.</p>
+      ) : vertical ? (
+        <div className="mt-4 flex items-end gap-2 overflow-x-auto pb-1">
+          {itens.map((item, index) => {
+            const altura = item.valor <= 0 ? 0 : Math.max(8, Math.round((item.valor / maximo) * 100));
+            const corpo = (
+              <>
+                <span className="font-display text-2xl leading-none tabular-nums">{item.valor}</span>
+                <span className="mt-1 text-[10px] font-semibold text-muted">{item.valor === 1 ? "par" : "pares"}</span>
+                <span className="mt-2 flex h-36 w-full items-end">
+                  <span
+                    className="block w-full rounded-t-2xl bg-[#4682B4]"
+                    style={{ height: `${altura}%`, opacity: item.ativo === false ? 0.35 : 1 }}
+                  />
+                </span>
+                <span className="mt-2 w-full whitespace-pre-line text-center text-[11px] font-semibold leading-tight">
+                  <span className="text-[#4682B4]">{index + 1} </span>
+                  {item.nome}
+                </span>
+                {item.extra ? <span className="mt-1 text-center text-[10px] text-muted">{item.extra}</span> : null}
+              </>
+            );
+            const classe = "flex min-w-[5.5rem] flex-1 basis-[5.5rem] flex-col items-center";
+            if (!onPick) {
+              return (
+                <div key={item.id} className={classe}>
+                  {corpo}
+                </div>
+              );
+            }
+            return (
+              <button key={item.id} type="button" onClick={() => onPick(item.id)} className={classe}>
+                {corpo}
+              </button>
+            );
+          })}
         </div>
       ) : (
-        <section className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
-          <h3 className="text-base font-semibold">Máquinas</h3>
-          <p className="text-xs text-muted">Toque numa máquina para estratificar só ela.</p>
-          <Barras
-            itens={porMaquina.map((item) => ({ nome: item.machine, valor: item.total }))}
-            maximo={Math.max(1, ...porMaquina.map((item) => item.total))}
-            onPick={(nome) => setMaquina(nome as MachineId)}
-          />
-        </section>
+        <ol className="mt-3 grid gap-3">
+          {itens.map((item, index) => {
+            const largura = item.valor <= 0 ? 0 : Math.max(8, Math.round((item.valor / maximo) * 100));
+            const percentual = total > 0 ? Math.round((item.valor / total) * 100) : 0;
+            const corpo = (
+              <>
+                <div className="flex items-start justify-between gap-3">
+                  <p className="min-w-0 text-sm font-semibold leading-snug">
+                    <span className="mr-2 font-display text-xl leading-none text-[#4682B4]">{index + 1}</span>
+                    {item.nome}
+                  </p>
+                  <p className="shrink-0 text-right text-xs font-semibold tabular-nums">
+                    {item.valor} {item.valor === 1 ? "par" : "pares"}
+                    <span className="block text-muted">{percentual}%</span>
+                  </p>
+                </div>
+                <span className="mt-1.5 block h-2.5 overflow-hidden rounded-full bg-[#e7eef5]">
+                  <span
+                    className="block h-full rounded-full bg-[#4682B4]"
+                    style={{ width: `${largura}%`, opacity: item.ativo === false ? 0.35 : 1 }}
+                  />
+                </span>
+                {item.extra ? <p className="mt-1 text-xs text-muted">{item.extra}</p> : null}
+              </>
+            );
+            if (!onPick) return <li key={item.id}>{corpo}</li>;
+            return (
+              <li key={item.id}>
+                <button type="button" onClick={() => onPick(item.id)} className="w-full text-left">
+                  {corpo}
+                </button>
+              </li>
+            );
+          })}
+        </ol>
       )}
-    </div>
+    </section>
   );
 }
 
