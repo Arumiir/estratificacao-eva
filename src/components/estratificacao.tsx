@@ -95,32 +95,6 @@ function saveSessao(sessao: Sessao | null) {
   }
 }
 
-const POSTO_KEY = "estratificacao-posto-v1";
-
-type Posto = { date: string; turno: Turno; machine: MachineId };
-
-function loadPosto(date: string, turno: Turno): MachineId | null {
-  try {
-    const raw = localStorage.getItem(POSTO_KEY);
-    if (!raw) return null;
-    const data: unknown = JSON.parse(raw);
-    if (!data || typeof data !== "object") return null;
-    const row = data as Posto;
-    if (row.date !== date || row.turno !== turno) return null;
-    return parseMachine(row.machine);
-  } catch {
-    return null;
-  }
-}
-
-function savePosto(posto: Posto) {
-  try {
-    localStorage.setItem(POSTO_KEY, JSON.stringify(posto));
-  } catch {
-    /* a escolha vale só neste aparelho */
-  }
-}
-
 type Screen =
   | { kind: "papel" }
   | { kind: "turnos" }
@@ -630,24 +604,6 @@ export function EstratificacaoApp() {
     };
   }, [sessao?.papel, sessao?.turno]);
 
-  const postoDia = useRef("");
-  useEffect(() => {
-    if (!state || sessao?.papel !== "preparador") return;
-    const turno = sessao.turno ?? "1";
-    const hoje = todayISO();
-    const chave = `${hoje}|${turno}`;
-    if (postoDia.current === chave) return;
-    postoDia.current = chave;
-    const machine = loadPosto(hoje, turno);
-    const home: Screen = machine ? destinoDaMaquina(state, machine) : { kind: "machines" };
-    homeRef.current = home;
-    stackRef.current = [home];
-    depthRef.current = 1;
-    setDir("forward");
-    setStack([home]);
-    window.history.replaceState(stampDepth(1), "");
-  }, [Boolean(state), sessao?.papel, sessao?.turno, state?.date]);
-
   useEffect(() => {
     scroller.current?.scrollTo(0, 0);
   }, [key]);
@@ -696,7 +652,6 @@ export function EstratificacaoApp() {
   }
 
   function chooseSessao(next: Sessao) {
-    postoDia.current = "";
     saveSessao(next);
     setSessao(next);
     if (next.papel === "preparador") {
@@ -713,7 +668,6 @@ export function EstratificacaoApp() {
   }
 
   function leavePapel() {
-    postoDia.current = "";
     saveSessao(null);
     setSessao(null);
     const home: Screen = { kind: "papel" };
@@ -776,12 +730,7 @@ export function EstratificacaoApp() {
   function openMachine(machine: MachineId) {
     const current = read();
     if (!current) return;
-    if (sessao?.papel === "preparador") {
-      savePosto({ date: today, turno: sessao.turno ?? current.turno, machine });
-    }
-    const dest = destinoDaMaquina(current, machine);
-    if (sessao?.papel === "preparador") homeRef.current = dest;
-    adoptStack([dest]);
+    push(destinoDaMaquina(current, machine));
   }
 
   function saveGrade(machine: MachineId, configs: StationConfig[], corId = "") {
@@ -1154,11 +1103,7 @@ export function EstratificacaoApp() {
           {screen.kind === "papel" ? <PortaScreen onPick={chooseSessao} /> : null}
 
           {papel === "preparador" && screen.kind === "machines" ? (
-            <MachinesScreen
-              state={state}
-              atual={loadPosto(today, sessao?.turno ?? state.turno)}
-              onOpen={openMachine}
-            />
+            <MachinesScreen state={state} onOpen={openMachine} />
           ) : null}
 
           {papel === "preparador" && screen.kind === "ask" ? (
@@ -1262,8 +1207,6 @@ export function EstratificacaoApp() {
               onDate={setDate}
               onTurno={setTurno}
               papel={papel}
-              posto={sessao?.papel === "preparador" ? loadPosto(today, sessao.turno ?? state.turno) : null}
-              onTrocar={sessao?.papel === "preparador" ? () => push({ kind: "machines" }) : undefined}
               onDelete={(entries) =>
                 removeMany(
                   entries.map((entry) => entry.id),
@@ -1450,37 +1393,27 @@ function DayControls({
 
 function MachinesScreen({
   state,
-  atual,
   onOpen,
 }: {
   state: State;
-  atual: MachineId | null;
   onOpen: (machine: MachineId) => void;
 }) {
   return (
     <div>
       <p className="mb-2 font-display text-4xl leading-none text-accent">{TURNO_LABEL[state.turno]}</p>
-      <h2 className="font-display text-3xl leading-none">
-        {atual ? "Trocar de máquina?" : "Qual máquina você vai cuidar?"}
-      </h2>
-      <p className="mb-3 mt-2 text-sm text-muted">
-        {formatDateBR(state.date)} · só o seu turno. Amanhã a escolha começa de novo.
-      </p>
+      <h2 className="font-display text-3xl leading-none">Qual máquina?</h2>
+      <p className="mb-3 mt-2 text-sm text-muted">{formatDateBR(state.date)}</p>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
         {MACHINES.map((machine) => {
           const count = shiftEntries(state, machine).length;
-          const ativa = atual === machine;
           return (
             <button
               key={machine}
               type="button"
               onClick={() => onOpen(machine)}
-              className={cx(
-                "flex min-h-32 flex-col rounded-tile border bg-surface p-4 text-left",
-                ativa ? "border-accent" : "border-line",
-              )}
+              className="flex min-h-32 flex-col rounded-tile border border-line bg-surface p-4 text-left"
             >
-              <span className="text-sm font-semibold text-muted">{ativa ? "Sua máquina" : "Máquina"}</span>
+              <span className="text-sm font-semibold text-muted">Máquina</span>
               <span className="mt-1 font-display text-4xl leading-none">{machine}</span>
               <span
                 className={cx(
@@ -1668,10 +1601,10 @@ function StationsScreen({
         className="mt-3 flex w-full items-center justify-between rounded-tile border border-line bg-surface px-4 py-3 text-left"
       >
         <span>
-          <span className="block text-sm text-muted">Sua máquina neste turno</span>
+          <span className="block text-sm text-muted">Máquina</span>
           <span className="font-display text-3xl leading-none">{machine}</span>
         </span>
-        <span className="text-sm font-semibold text-accent">Trocar</span>
+        <span className="text-sm font-semibold text-accent">Outra</span>
       </button>
       <div className="mt-2 grid gap-2 sm:grid-cols-2">
         <button
@@ -2248,8 +2181,6 @@ function SheetScreen({
   onDate,
   onTurno,
   papel,
-  posto,
-  onTrocar,
   onDelete,
   onNotice,
 }: {
@@ -2259,8 +2190,6 @@ function SheetScreen({
   onDate: (date: string) => void;
   onTurno: (turno: Turno) => void;
   papel: Papel;
-  posto?: MachineId | null;
-  onTrocar?: () => void;
   onDelete?: (entries: Entry[]) => void;
   onNotice: (text: string) => void;
 }) {
@@ -2373,24 +2302,11 @@ function SheetScreen({
       ) : (
         <div>
           <p className="mb-3 text-sm text-muted">Lançamentos deste turno.</p>
-          {onTrocar ? (
-            <button
-              type="button"
-              onClick={onTrocar}
-              className="mb-3 flex w-full items-center justify-between rounded-tile border border-line bg-surface px-4 py-3 text-left"
-            >
-              <span>
-                <span className="block text-sm text-muted">Sua máquina neste turno</span>
-                <span className="font-display text-3xl leading-none">{posto ?? "Escolher"}</span>
-              </span>
-              <span className="text-sm font-semibold text-accent">{posto ? "Trocar" : "Escolher"}</span>
-            </button>
-          ) : null}
           <DayControls state={state} today={today} offDay={offDay} onDate={onDate} />
           <div className="mt-4">
             {shown.length === 0 ? (
               <p className="rounded-tile border border-dashed border-line bg-surface px-4 py-6 text-base text-muted">
-                Você ainda não apontou máquina neste turno.
+                Nenhuma máquina apontada neste turno.
               </p>
             ) : (
               shown.map((machine) => (
@@ -2398,7 +2314,7 @@ function SheetScreen({
                   key={machine}
                   state={view}
                   machine={machine}
-                  force={machine === posto}
+                  force={false}
                   onDelete={onDelete ? (entries) => onDelete(entries) : undefined}
                 />
               ))
