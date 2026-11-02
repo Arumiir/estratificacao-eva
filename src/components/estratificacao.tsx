@@ -54,6 +54,8 @@ import {
   TURNO_LABEL,
   type Turno,
   diasAte,
+  diasDoMes,
+  nomeMes,
   gradeHasNumbers,
   type Entry,
   type Cor,
@@ -2979,9 +2981,9 @@ function PainelHistorico({
   const [turnoFiltro, setTurnoFiltro] = useState<Turno | null>(salvos.turno);
   const [problema, setProblema] = useState<string | null>(salvos.problema);
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
-  const datas = diasAte(state.date, 31);
-  const semana = new Set(diasAte(state.date, 7));
-  const mes = new Set(datas);
+  const diasMes = diasDoMes(state.date);
+  const diasSemana = diasAte(state.date, 7);
+  const cobertura = new Set([...diasMes, ...diasSemana, state.date]);
 
   useEffect(() => {
     let ativo = true;
@@ -3020,8 +3022,8 @@ function PainelHistorico({
     }
   }, [janela, maquina, estacao, numero, referencia, lado, turnoFiltro, problema]);
 
-  const base = juntarHistorico(remoto ?? [], state.entries, mes);
-  const diasJanela = janela === "dia" ? [state.date] : janela === "semana" ? diasAte(state.date, 7) : datas;
+  const base = juntarHistorico(remoto ?? [], state.entries, cobertura);
+  const diasJanela = janela === "dia" ? [state.date] : janela === "semana" ? diasSemana : diasMes;
   const recorteLista = base.filter((entry) => {
     if (!diasJanela.includes(entry.date)) return false;
     if (maquina && entry.machine !== maquina) return false;
@@ -3048,8 +3050,8 @@ function PainelHistorico({
   }
   const periodo = base.filter((entry) => diasJanela.includes(entry.date) && passaRecorte(entry));
   const doDia = base.filter((entry) => entry.date === state.date && passaRecorte(entry));
-  const daSemana = base.filter((entry) => semana.has(entry.date) && passaRecorte(entry));
-  const doMes = base.filter((entry) => passaRecorte(entry));
+  const daSemana = base.filter((entry) => diasSemana.includes(entry.date) && passaRecorte(entry));
+  const doMes = base.filter((entry) => diasMes.includes(entry.date) && passaRecorte(entry));
   const turnos = (["1", "2", "3"] as const).map((turno) => {
     const lista = periodo.filter((entry) => entry.turno === turno);
     return { turno, lista, solas: lista.length, pares: paresDasEntradas(lista) };
@@ -3067,7 +3069,8 @@ function PainelHistorico({
   }))
     .filter((item) => item.total > 0)
     .sort((a, b) => b.total - a.total);
-  const tituloJanela = janela === "dia" ? "24 horas" : janela === "semana" ? "Semana" : "Mês";
+  const nomeDoMes = nomeMes(state.date);
+  const tituloJanela = janela === "dia" ? "24 horas" : janela === "semana" ? "Semana" : nomeDoMes;
   const rankingNumeros = rankNumeros(periodo, 5);
   const rankingEstacao = STATIONS.map((station) => ({
     id: String(station),
@@ -3081,8 +3084,6 @@ function PainelHistorico({
   const producaoBase = unirProducao(producaoRemota, state.producao ?? []);
   const perdasPeriodo = paresDasEntradas(periodo);
   const diasDia = [state.date];
-  const diasSemana = diasAte(state.date, 7);
-  const diasMes = datas;
   function somaProducao(datasAlvo: string[], turno?: Turno) {
     return producaoBase.reduce((soma, item) => {
       const data = item.date.slice(0, 10);
@@ -3132,7 +3133,7 @@ function PainelHistorico({
   const resumoPeriodos = [
     { nome: "Dia", producao: somaProducao(diasDia), perdas: paresDasEntradas(doDia) },
     { nome: "Semana", producao: somaProducao(diasSemana), perdas: paresDasEntradas(daSemana) },
-    { nome: "Mês", producao: somaProducao(diasMes), perdas: paresDasEntradas(doMes) },
+    { nome: nomeDoMes, producao: somaProducao(diasMes), perdas: paresDasEntradas(doMes) },
   ];
 
   return (
@@ -3184,7 +3185,7 @@ function PainelHistorico({
           titulo="Produção"
           unidade="pares"
           valor={somaProducao(diasMes)}
-          periodo="Mês"
+          periodo={nomeDoMes}
           tom="azul"
           linhas={resumoPeriodos.map((item) => ({ nome: item.nome, valor: item.producao }))}
         />
@@ -3229,7 +3230,7 @@ function PainelHistorico({
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {(
                     [
-                      ["mes", "Mês"],
+                      ["mes", nomeDoMes],
                       ["semana", "Semana"],
                       ["dia", "24 horas"],
                     ] as const
@@ -3374,7 +3375,7 @@ function PainelHistorico({
           grupos={[
             { id: "dia", nome: "24 horas", producao: somaProducao(diasDia), perdas: paresDasEntradas(doDia) },
             { id: "semana", nome: "Semana", producao: somaProducao(diasSemana), perdas: paresDasEntradas(daSemana) },
-            { id: "mes", nome: "Mês", producao: somaProducao(diasMes), perdas: paresDasEntradas(doMes) },
+            { id: "mes", nome: nomeDoMes, producao: somaProducao(diasMes), perdas: paresDasEntradas(doMes) },
           ]}
         />
         <BarrasDuplas

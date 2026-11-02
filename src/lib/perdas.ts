@@ -221,6 +221,38 @@ export function diasAte(ate: string, quantidade: number): string[] {
   return dias;
 }
 
+const NOMES_MES = [
+  "Janeiro",
+  "Fevereiro",
+  "Março",
+  "Abril",
+  "Maio",
+  "Junho",
+  "Julho",
+  "Agosto",
+  "Setembro",
+  "Outubro",
+  "Novembro",
+  "Dezembro",
+];
+
+/** Do dia 1 do mês até a data. Novembro não puxa outubro. */
+export function diasDoMes(ate: string): string[] {
+  const [year, month, day] = ate.split("-").map(Number);
+  if (!year || !month || !day) return [];
+  const mes = String(month).padStart(2, "0");
+  const dias: string[] = [];
+  for (let dia = 1; dia <= day; dia += 1) {
+    dias.push(`${year}-${mes}-${String(dia).padStart(2, "0")}`);
+  }
+  return dias;
+}
+
+export function nomeMes(ate: string): string {
+  const month = Number(ate.slice(5, 7));
+  return NOMES_MES[month - 1] ?? "Mês";
+}
+
 export function formatDateBR(iso: string): string {
   const [y, m, d] = iso.split("-");
   if (!y || !m || !d) return iso;
