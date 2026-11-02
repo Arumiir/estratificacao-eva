@@ -2970,7 +2970,7 @@ function PainelHistorico({
     let ativo = true;
     setRemoto(null);
     setErro(false);
-    pullHistorico({ data: { ate: state.date, dias: 31 } })
+    pullHistorico({ data: { ate: state.date, desde: diasDoMes(state.date)[0] ?? state.date } })
       .then((resultado) => {
         if (ativo) {
           setRemoto(resultado.entries);
@@ -3072,7 +3072,11 @@ function PainelHistorico({
     .filter((item) => item.valor > 0)
     .sort((a, b) => b.valor - a.valor);
 
-  const producaoBase = unirProducao(producaoRemota, state.producao ?? []);
+  const inicioMes = diasMes[0] ?? state.date;
+  const producaoBase = unirProducao(
+    producaoRemota.filter((item) => item.date >= inicioMes && item.date <= state.date),
+    (state.producao ?? []).filter((item) => item.date >= inicioMes && item.date <= state.date),
+  );
   const perdasPeriodo = paresDasEntradas(periodo);
   const diasDia = [state.date];
   function somaProducao(datasAlvo: string[], turno?: Turno) {
@@ -3171,7 +3175,28 @@ function PainelHistorico({
         </div>
       </BarraDash>
 
-      <section className="grid gap-3 lg:grid-cols-3">
+      <nav className="flex flex-wrap gap-1.5">
+        {(
+          [
+            ["resumo", "Resumo"],
+            ["producao", "Produção e perdas"],
+            ["ranking", "Ranking"],
+            ["graficos", "Gráficos"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            className="rounded-lg border border-[#d5dee8] bg-white px-3 py-2 text-sm font-semibold text-[#1e3a5f]"
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      <BlocoDash id="resumo" titulo="Resumo">
+        <div className="grid gap-3 lg:grid-cols-3">
         <CartaoResumo
           titulo="Produção"
           unidade="pares"
@@ -3199,7 +3224,8 @@ function PainelHistorico({
             valor: textoPercentual(percentualPerda(item.perdas, item.producao)),
           }))}
         />
-      </section>
+        </div>
+      </BlocoDash>
 
       {filtrosAbertos ? (
         <div
@@ -3360,7 +3386,8 @@ function PainelHistorico({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-3">
+      <BlocoDash id="producao" titulo="Produção e perdas">
+        <div className="grid grid-cols-2 gap-3">
         <BarrasDuplas
           titulo="Produção e perdas"
           grupos={[
@@ -3378,10 +3405,14 @@ function PainelHistorico({
             perdas: paresDasEntradas(doDia.filter((entry) => entry.turno === turno)),
           }))}
         />
-      </div>
+        </div>
+      </BlocoDash>
 
-      <RankingDoDia entries={doDiaRanking} data={state.date} />
+      <BlocoDash id="ranking" titulo="Ranking">
+        <RankingDoDia entries={doDiaRanking} data={state.date} />
+      </BlocoDash>
 
+      <BlocoDash id="graficos" titulo="Gráficos">
       <div className="grid gap-4 xl:grid-cols-2">
         <GraficoCircular
           titulo="Piores máquinas"
@@ -3448,7 +3479,17 @@ function PainelHistorico({
           }}
         />
       ) : null}
+      </BlocoDash>
     </div>
+  );
+}
+
+function BlocoDash({ id, titulo, children }: { id: string; titulo: string; children: ReactNode }) {
+  return (
+    <section id={id} className="grid scroll-mt-4 gap-3 rounded-3xl border border-[#d5dee8] bg-[#f7f9fc] p-3">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-[#1e3a5f]">{titulo}</h2>
+      {children}
+    </section>
   );
 }
 

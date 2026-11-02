@@ -319,14 +319,15 @@ export const pullApontamentos = createServerFn({ method: "POST" })
   });
 
 export const pullHistorico = createServerFn({ method: "POST" })
-  .validator((data: { ate?: unknown; dias?: unknown }) => {
+  .validator((data: { ate?: unknown; dias?: unknown; desde?: unknown }) => {
     const ate = typeof data?.ate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(data.ate) ? data.ate : "";
+    const desde = typeof data?.desde === "string" && /^\d{4}-\d{2}-\d{2}$/.test(data.desde) ? data.desde : "";
     const dias = typeof data?.dias === "number" && Number.isFinite(data.dias) ? data.dias : 31;
-    return { ate, dias: Math.min(31, Math.max(1, Math.floor(dias))) };
+    return { ate, desde, dias: Math.min(31, Math.max(1, Math.floor(dias))) };
   })
   .handler(async ({ data }): Promise<{ entries: Entry[]; producao: ProducaoPares[]; cloud: boolean }> => {
     if (!data.ate) return { entries: [], producao: [], cloud: cloudOn() };
-    const datas = diasAte(data.ate, data.dias);
+    const datas = data.desde && data.desde <= data.ate ? intervaloDias(data.desde, data.ate) : diasAte(data.ate, data.dias);
     const inicio = datas[0] ?? data.ate;
     if (usesBlob()) {
       const days = await Promise.all(datas.map((date) => pullDay(date)));
@@ -357,7 +358,7 @@ export const pullHistorico = createServerFn({ method: "POST" })
       entries: rows.flatMap((row) => {
         const entry = coerceEntry({
           id: row.id,
-          date: row.date,
+          date: String(row.date).slice(0, 10),
           turno: row.turno,
           machine: row.machine,
           station: Number(row.station),
@@ -373,12 +374,33 @@ export const pullHistorico = createServerFn({ method: "POST" })
         });
         return entry ? [entry] : [];
       }),
-      producao: (await sql<{ config: unknown }>`
-        select config from grades
-        where key = ${"__producao__"}
-      `)
-        .flatMap((row) => readProducao(row.config))
-        .filter((item) => item.date >= inicio && item.date <= data.ate),
+      producao: (
+        await sql<{ date: string; config: unknown }>`
+          select date, config from grades
+          where key = ${"__producao__"} and date >= ${inicio} and date <= ${data.ate}
+        `
+      ).flatMap((row) => {
+        const dia = String(row.date).slice(0, 10);
+        return readProducao(row.config)
+          .filter((item) => item.date === dia)
+          .map((item) => ({ ...item, date: dia }));
+      }),
       cloud: cloudOn(),
     };
   });
+
+function intervaloDias(desde: string, ate: string): string[] {
+  const [year, month, day] = desde.split("-").map(Number);
+  if (!year || !month || !day) return [ate];
+  const cursor = new Date(Date.UTC(year, month - 1, day));
+  const dias: string[] = [];
+  for (let index = 0; index < 31; index += 1) {
+    const mes = String(cursor.getUTCMonth() + 1).padStart(2, "0");
+    const dia = String(cursor.getUTCDate()).padStart(2, "0");
+    const iso = `${cursor.getUTCFullYear()}-${mes}-${dia}`;
+    dias.push(iso);
+    if (iso >= ate) break;
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dias;
+}
