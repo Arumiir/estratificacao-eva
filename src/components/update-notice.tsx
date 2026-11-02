@@ -2,31 +2,23 @@ import { useEffect, useState } from "react";
 
 const RELOAD_KEY = "perdas-reload-for";
 
-function bundleAtual() {
-  return [...document.scripts]
-    .map((script) => script.src)
-    .filter((src) => /\/assets\/(?:index|routes)-[^/]+\.js$/.test(src))
+function nomesDe(lista: string[]) {
+  return [...new Set(lista.map((item) => item.split("?")[0]?.split("/").pop() ?? "").filter((item) => /^(?:index|routes)-.+\.js$/.test(item)))]
     .sort()
     .join("|");
+}
+
+function bundleAtual() {
+  const links = [...document.querySelectorAll('link[rel="modulepreload"]')].map((link) => (link as HTMLLinkElement).href);
+  const scripts = [...document.scripts].map((script) => script.src);
+  return nomesDe([...links, ...scripts]);
 }
 
 async function bundleRemoto() {
   const resposta = await fetch("/", { cache: "no-store", headers: { accept: "text/html" } });
   if (!resposta.ok) return "";
   const html = await resposta.text();
-  return [...html.matchAll(/\/assets\/(?:index|routes)-[^"]+\.js/g)]
-    .map((item) => item[0])
-    .sort()
-    .join("|");
-}
-
-function nomes(lista: string) {
-  return lista
-    .split("|")
-    .map((item) => item.split("/").pop() ?? "")
-    .filter(Boolean)
-    .sort()
-    .join("|");
+  return nomesDe([...html.matchAll(/\/assets\/(?:index|routes)-[^"]+\.js/g)].map((item) => item[0]));
 }
 
 export function UpdateNotice() {
@@ -46,12 +38,8 @@ export function UpdateNotice() {
       } catch {
         return;
       }
-      if (parado || !remoto || nomes(atual) === nomes(remoto)) return;
-      if (document.visibilityState === "hidden" && sessionStorage.getItem(RELOAD_KEY) !== remoto) {
-        sessionStorage.setItem(RELOAD_KEY, remoto);
-        window.location.reload();
-        return;
-      }
+      if (parado || !remoto || atual === remoto) return;
+      if (sessionStorage.getItem(RELOAD_KEY) === remoto) return;
       setAberto(true);
     }
 
