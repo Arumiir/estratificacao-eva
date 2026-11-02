@@ -1212,6 +1212,7 @@ export function EstratificacaoApp() {
           {papel === "preparador" && screen.kind === "hub" ? (
             <HubMaquina
               machine={screen.machine}
+              turno={sessao?.turno ?? state.turno}
               onProducao={() => push({ kind: "producao", machine: screen.machine })}
               onPerdas={() => push({ kind: "stations", machine: screen.machine })}
               onGrade={() => push({ kind: "matrices", machine: screen.machine })}
@@ -1509,6 +1510,17 @@ function chaveGradeDia(turno: Turno, machine: MachineId, now = Date.now()) {
   return `${diaOperacional(turno, now)}|${turno}|${machine}`;
 }
 
+function gradePerguntada(turno: Turno, machine: MachineId) {
+  try {
+    const raw = localStorage.getItem(GRADE_DIA_KEY);
+    const data: unknown = raw ? JSON.parse(raw) : {};
+    if (!data || typeof data !== "object") return false;
+    return Boolean((data as Record<string, unknown>)[chaveGradeDia(turno, machine)]);
+  } catch {
+    return false;
+  }
+}
+
 function marcarGradeDia(turno: Turno, machine: MachineId) {
   try {
     const raw = localStorage.getItem(GRADE_DIA_KEY);
@@ -1523,16 +1535,31 @@ function marcarGradeDia(turno: Turno, machine: MachineId) {
 
 function HubMaquina({
   machine,
+  turno,
   onProducao,
   onPerdas,
   onGrade,
 }: {
   machine: MachineId;
+  turno: Turno;
   onProducao: () => void;
   onPerdas: () => void;
   onGrade: () => void;
 }) {
   const [perguntar, setPerguntar] = useState(false);
+  function abrirPerdas() {
+    if (gradePerguntada(turno, machine)) {
+      onPerdas();
+      return;
+    }
+    setPerguntar(true);
+  }
+  function responder(atualizar: boolean) {
+    marcarGradeDia(turno, machine);
+    setPerguntar(false);
+    if (atualizar) onGrade();
+    else onPerdas();
+  }
   return (
     <div className="w-full max-w-sm">
       <p className="text-center text-xs font-semibold tracking-[0.22em] text-muted">MÁQUINA</p>
@@ -1547,7 +1574,7 @@ function HubMaquina({
         </button>
         <button
           type="button"
-          onClick={() => setPerguntar(true)}
+          onClick={abrirPerdas}
           className="rounded-3xl bg-accent py-7 text-center font-display text-4xl leading-none text-accent-ink"
         >
           Perdas
@@ -1563,10 +1590,10 @@ function HubMaquina({
           <div className="w-full max-w-sm rounded-3xl bg-white p-5 shadow-xl">
             <p className="text-center text-lg font-semibold">Deseja atualizar a grade de matrizes?</p>
             <div className="mt-5 grid grid-cols-2 gap-2">
-              <button type="button" onClick={onGrade} className="rounded-2xl bg-[#2457b8] py-3 text-sm font-semibold text-white">
+              <button type="button" onClick={() => responder(true)} className="rounded-2xl bg-[#2457b8] py-3 text-sm font-semibold text-white">
                 Sim
               </button>
-              <button type="button" onClick={onPerdas} className="rounded-2xl bg-[#f3f6fb] py-3 text-sm font-semibold">
+              <button type="button" onClick={() => responder(false)} className="rounded-2xl bg-[#f3f6fb] py-3 text-sm font-semibold">
                 Não
               </button>
             </div>
@@ -2873,6 +2900,56 @@ function GrupoFiltro({ titulo, children }: { titulo: string; children: ReactNode
   );
 }
 
+const FILTROS_KEY = "injecao-filtros-dash-v1";
+
+type FiltrosDash = {
+  janela: "dia" | "semana" | "mes";
+  maquina: MachineId | null;
+  estacao: number | null;
+  numero: string | null;
+  referencia: string | null;
+  lado: Side | null;
+  turno: Turno | null;
+  problema: string | null;
+};
+
+function lerFiltros(): FiltrosDash {
+  const vazio: FiltrosDash = {
+    janela: "mes",
+    maquina: null,
+    estacao: null,
+    numero: null,
+    referencia: null,
+    lado: null,
+    turno: null,
+    problema: null,
+  };
+  try {
+    const raw = localStorage.getItem(FILTROS_KEY);
+    if (!raw) return vazio;
+    const data: unknown = JSON.parse(raw);
+    if (!data || typeof data !== "object") return vazio;
+    const item = data as Partial<FiltrosDash>;
+    const maquina = MACHINES.find((machine) => machine === item.maquina) ?? null;
+    const estacao = STATIONS.find((station) => station === item.estacao) ?? null;
+    const lado = item.lado === "esq" || item.lado === "dir" ? item.lado : null;
+    const turno = item.turno === "1" || item.turno === "2" || item.turno === "3" ? item.turno : null;
+    const problema = PROBLEMS.some((problem) => problem.id === item.problema) ? (item.problema ?? null) : null;
+    return {
+      janela: item.janela === "dia" || item.janela === "semana" || item.janela === "mes" ? item.janela : "mes",
+      maquina,
+      estacao,
+      numero: typeof item.numero === "string" && item.numero ? item.numero : null,
+      referencia: typeof item.referencia === "string" && item.referencia ? item.referencia : null,
+      lado,
+      turno,
+      problema,
+    };
+  } catch {
+    return vazio;
+  }
+}
+
 function PainelHistorico({
   state,
   today,
@@ -2886,17 +2963,18 @@ function PainelHistorico({
   aba: "geral" | "diario";
   onAba: (aba: "geral" | "diario") => void;
 }) {
+  const salvos = lerFiltros();
   const [remoto, setRemoto] = useState<Entry[] | null>(null);
   const [producaoRemota, setProducaoRemota] = useState<ProducaoPares[]>([]);
   const [erro, setErro] = useState(false);
-  const [janela, setJanela] = useState<"dia" | "semana" | "mes">("mes");
-  const [maquina, setMaquina] = useState<MachineId | null>(null);
-  const [estacao, setEstacao] = useState<number | null>(null);
-  const [numero, setNumero] = useState<string | null>(null);
-  const [referencia, setReferencia] = useState<string | null>(null);
-  const [lado, setLado] = useState<Side | null>(null);
-  const [turnoFiltro, setTurnoFiltro] = useState<Turno | null>(null);
-  const [problema, setProblema] = useState<string | null>(null);
+  const [janela, setJanela] = useState(salvos.janela);
+  const [maquina, setMaquina] = useState<MachineId | null>(salvos.maquina);
+  const [estacao, setEstacao] = useState<number | null>(salvos.estacao);
+  const [numero, setNumero] = useState<string | null>(salvos.numero);
+  const [referencia, setReferencia] = useState<string | null>(salvos.referencia);
+  const [lado, setLado] = useState<Side | null>(salvos.lado);
+  const [turnoFiltro, setTurnoFiltro] = useState<Turno | null>(salvos.turno);
+  const [problema, setProblema] = useState<string | null>(salvos.problema);
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
   const datas = diasAte(state.date, 31);
   const semana = new Set(diasAte(state.date, 7));
@@ -2920,6 +2998,24 @@ function PainelHistorico({
       ativo = false;
     };
   }, [state.date]);
+
+  useEffect(() => {
+    const salvo: FiltrosDash = {
+      janela,
+      maquina,
+      estacao,
+      numero,
+      referencia,
+      lado,
+      turno: turnoFiltro,
+      problema,
+    };
+    try {
+      localStorage.setItem(FILTROS_KEY, JSON.stringify(salvo));
+    } catch {
+      /* o filtro continua só nesta tela */
+    }
+  }, [janela, maquina, estacao, numero, referencia, lado, turnoFiltro, problema]);
 
   const base = juntarHistorico(remoto ?? [], state.entries, mes);
   const diasJanela = janela === "dia" ? [state.date] : janela === "semana" ? diasAte(state.date, 7) : datas;
@@ -3059,6 +3155,16 @@ function PainelHistorico({
             </span>
           ) : null}
         </button>
+        {filtrosAtivos > 0 ? (
+          <button
+            type="button"
+            onClick={limparFiltros}
+            aria-label="Limpar filtros"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[#d5dee8] bg-[#f7f9fc] text-fg"
+          >
+            <IconeLimpar />
+          </button>
+        ) : null}
         <div className="flex min-w-0 flex-1 flex-wrap justify-end gap-1.5">
           {erro ? <span className="self-center text-sm text-muted">Sem nuvem.</span> : null}
           {chips.map((chip) => (
@@ -3235,14 +3341,21 @@ function PainelHistorico({
                 ))}
               </GrupoFiltro>
             </div>
-            <div className="grid grid-cols-2 gap-2 border-t border-[#f3f2f1] px-4 py-3">
-              <button type="button" onClick={limparFiltros} className="rounded-2xl bg-[#f3f6fb] py-3 text-sm font-semibold">
-                Limpar
-              </button>
+            <div className="flex gap-2 border-t border-[#f3f2f1] px-4 py-3">
+              {filtrosAtivos > 0 ? (
+                <button
+                  type="button"
+                  onClick={limparFiltros}
+                  aria-label="Limpar filtros"
+                  className="grid size-12 shrink-0 place-items-center rounded-2xl bg-[#f3f6fb]"
+                >
+                  <IconeLimpar />
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => setFiltrosAbertos(false)}
-                className="rounded-2xl bg-[#2457b8] py-3 text-sm font-semibold text-white"
+                className="flex-1 rounded-2xl bg-[#2457b8] py-3 text-sm font-semibold text-white"
               >
                 Ver resultado
               </button>
@@ -3417,6 +3530,17 @@ function CartaoResumo({
         ))}
       </div>
     </article>
+  );
+}
+
+function IconeLimpar() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <path d="M4 19.5h7.2" strokeLinecap="round" />
+      <path d="M14.2 4.8l5 5" strokeLinecap="round" />
+      <path d="M9.2 19.5c.4-2.2 1.2-3.6 3.4-5.2l4.4-4.4a1.6 1.6 0 0 0-2.3-2.3l-4.4 4.4c-1.6 2.2-3 3-5.2 3.4" strokeLinejoin="round" />
+      <path d="M5.2 15.4l3.4 3.4" strokeLinecap="round" />
+    </svg>
   );
 }
 
