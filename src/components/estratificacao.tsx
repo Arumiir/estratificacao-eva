@@ -288,7 +288,7 @@ function usePerdas() {
     const outros = state.outros.filter((item) => item.date === state.date);
     const cores = state.cores.filter((item) => item.date === state.date);
     const fechamentos = (state.fechamentos ?? []).filter((item) => item.date === state.date);
-    const producao = (state.producao ?? []).filter((item) => item.date === state.date);
+    const producao = state.producao ?? [];
     const outrosMudou = JSON.stringify(outros) !== lastOutros.current;
     const coresMudou = JSON.stringify(cores) !== lastCores.current;
     const fechamentosMudou = JSON.stringify(fechamentos) !== lastFechamentos.current;
@@ -411,7 +411,7 @@ function usePerdas() {
         const outros = current.outros.filter((item) => item.date === current.date);
         const cores = current.cores.filter((item) => item.date === current.date);
         const fechamentos = (current.fechamentos ?? []).filter((item) => item.date === current.date);
-        const producao = (current.producao ?? []).filter((item) => item.date === current.date);
+        const producao = current.producao ?? [];
         const outrosMudou = JSON.stringify(outros) !== lastOutros.current;
         const coresMudou = JSON.stringify(cores) !== lastCores.current;
         const fechamentosMudou = JSON.stringify(fechamentos) !== lastFechamentos.current;
@@ -3256,20 +3256,25 @@ function PainelHistorico({
         </div>
       ) : null}
 
-      <BarrasDuplas
-        titulo="Produção e perdas"
-        grupos={[
-          { id: "dia", nome: "24 horas", producao: somaProducao(diasDia), perdas: paresDasEntradas(doDia) },
-          { id: "semana", nome: "Semana", producao: somaProducao(diasSemana), perdas: paresDasEntradas(daSemana) },
-          { id: "mes", nome: "Mês", producao: somaProducao(diasMes), perdas: paresDasEntradas(doMes) },
-          ...(["1", "2", "3"] as const).map((turno) => ({
+      <div className="grid grid-cols-2 gap-3">
+        <BarrasDuplas
+          titulo="Produção e perdas"
+          grupos={[
+            { id: "dia", nome: "24 horas", producao: somaProducao(diasDia), perdas: paresDasEntradas(doDia) },
+            { id: "semana", nome: "Semana", producao: somaProducao(diasSemana), perdas: paresDasEntradas(daSemana) },
+            { id: "mes", nome: "Mês", producao: somaProducao(diasMes), perdas: paresDasEntradas(doMes) },
+          ]}
+        />
+        <BarrasDuplas
+          titulo="Por turno"
+          grupos={(["1", "2", "3"] as const).map((turno) => ({
             id: turno,
             nome: TURNO_LABEL[turno].replace(" TURNO", ""),
             producao: somaProducao(diasJanela, turno),
             perdas: turnos.find((item) => item.turno === turno)?.pares ?? 0,
-          })),
-        ]}
-      />
+          }))}
+        />
+      </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
         <GraficoCircular
@@ -3450,18 +3455,18 @@ function BarrasDuplas({
       {vazio ? (
         <p className="mt-3 text-sm text-muted">Sem apontamento neste recorte.</p>
       ) : (
-        <div className="mt-4 overflow-x-auto">
-          <div className="flex min-w-max items-end gap-6 border-b border-[#c5d0dc] px-1">
+        <div className="mt-4">
+          <div className="flex items-end gap-1 border-b border-[#c5d0dc]">
             {grupos.map((item) => (
-              <div key={item.id} className="flex w-[5.5rem] items-end justify-center gap-1.5">
+              <div key={item.id} className="flex min-w-0 flex-1 items-end justify-center gap-1">
                 <BarraValor valor={item.producao} maximo={maximo} cor={COR_PRODUCAO} />
                 <BarraValor valor={item.perdas} maximo={maximo} cor={COR_PERDA} />
               </div>
             ))}
           </div>
-          <div className="mt-2 flex min-w-max gap-6 px-1">
+          <div className="mt-2 flex gap-1">
             {grupos.map((item) => (
-              <span key={item.id} className="w-[5.5rem] text-center text-xs font-medium leading-tight text-[#3b4250]">
+              <span key={item.id} className="min-w-0 flex-1 text-center text-[11px] font-medium leading-tight text-[#3b4250]">
                 {item.nome}
               </span>
             ))}
@@ -3475,11 +3480,11 @@ function BarrasDuplas({
 function BarraValor({ valor, maximo, cor }: { valor: number; maximo: number; cor: string }) {
   const altura = valor <= 0 ? 0 : Math.max(10, Math.round((valor / maximo) * 168));
   return (
-    <span className="flex w-9 flex-col items-center justify-end">
-      <span className="mb-1 text-xs font-semibold tabular-nums" style={{ color: cor }}>
+    <span className="flex w-full max-w-7 flex-col items-center justify-end">
+      <span className="mb-1 text-[11px] font-semibold tabular-nums" style={{ color: cor }}>
         {valor}
       </span>
-      <span className="block w-9 rounded-t-md" style={{ height: `${altura}px`, background: cor }} />
+      <span className="block w-full rounded-t-md" style={{ height: `${altura}px`, background: cor }} />
     </span>
   );
 }
@@ -3595,15 +3600,15 @@ function RankingBarras({
       {itens.length === 0 || total === 0 ? (
         <p className="mt-3 text-sm text-muted">Sem apontamento neste recorte.</p>
       ) : vertical ? (
-        <div className="mt-4 overflow-x-auto">
-          <div className="flex min-w-max items-end gap-5 border-b border-[#c5d0dc] px-2">
+        <div className="mt-4">
+          <div className="flex items-end gap-1 border-b border-[#c5d0dc]">
             {itens.map((item, index) => {
               const altura = item.valor <= 0 ? 0 : Math.max(6, Math.round((item.valor / maximo) * 132));
               const corpo = (
                 <>
                   <span className="mb-1 text-xs font-semibold tabular-nums">{item.valor}</span>
                   <span
-                    className="block w-9 rounded-t-md"
+                    className="block w-full max-w-8 rounded-t-md"
                     style={{
                       height: `${altura}px`,
                       background: CORES_FATIA[index % CORES_FATIA.length],
@@ -3612,7 +3617,7 @@ function RankingBarras({
                   />
                 </>
               );
-              const classe = "flex w-16 flex-col items-center justify-end";
+              const classe = "flex min-w-0 flex-1 flex-col items-center justify-end";
               if (!onPick) {
                 return (
                   <div key={item.id} className={classe}>
@@ -3627,9 +3632,9 @@ function RankingBarras({
               );
             })}
           </div>
-          <div className="mt-2 flex min-w-max gap-5 px-2">
+          <div className="mt-2 flex gap-1">
             {itens.map((item) => (
-              <span key={item.id} className="w-16 break-words whitespace-pre-line text-center text-[11px] font-medium leading-tight text-[#3b4250]">
+              <span key={item.id} className="min-w-0 flex-1 break-words whitespace-pre-line text-center text-[11px] font-medium leading-tight text-[#3b4250]">
                 {item.nome}
                 {item.extra ? <span className="mt-1 block text-[10px] font-normal text-muted">{item.extra}</span> : null}
               </span>

@@ -223,15 +223,23 @@ export const pushApontamentos = createServerFn({ method: "POST" })
         `;
       }
       if (data.producao.length > 0) {
-        const existingProducao = await sql<{ config: unknown }>`
-          select config from grades where date = ${data.date} and key = ${"__producao__"}
-        `;
-        const producao = mergeProducao(readProducao(existingProducao[0]?.config), data.producao);
-        await sql`
-          insert into grades (date, key, config)
-          values (${data.date}, ${"__producao__"}, ${JSON.stringify(producao)}::jsonb)
-          on conflict (date, key) do update set config = excluded.config
-        `;
+        const porData = new Map<string, ProducaoPares[]>();
+        for (const item of data.producao) {
+          const lista = porData.get(item.date) ?? [];
+          lista.push(item);
+          porData.set(item.date, lista);
+        }
+        for (const [date, itens] of porData) {
+          const existingProducao = await sql<{ config: unknown }>`
+            select config from grades where date = ${date} and key = ${"__producao__"}
+          `;
+          const producao = mergeProducao(readProducao(existingProducao[0]?.config), itens);
+          await sql`
+            insert into grades (date, key, config)
+            values (${date}, ${"__producao__"}, ${JSON.stringify(producao)}::jsonb)
+            on conflict (date, key) do update set config = excluded.config
+          `;
+        }
       }
     }
     return { ok: true as const, cloud: cloudOn() };
@@ -365,8 +373,10 @@ export const pullHistorico = createServerFn({ method: "POST" })
       }),
       producao: (await sql<{ config: unknown }>`
         select config from grades
-        where key = ${"__producao__"} and date >= ${inicio} and date <= ${data.ate}
-      `).flatMap((row) => readProducao(row.config)),
+        where key = ${"__producao__"}
+      `)
+        .flatMap((row) => readProducao(row.config))
+        .filter((item) => item.date >= inicio && item.date <= data.ate),
       cloud: cloudOn(),
     };
   });
