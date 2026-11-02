@@ -11,11 +11,8 @@ type SyncResult = {
   cores: Cor[];
   fechamentos: Fechamento[];
   producao: ProducaoPares[];
-  producaoGeracao: string;
   cloud: boolean;
 };
-
-const PRODUCAO_ZERO = "2026-11-02-b";
 
 function usesBlob() {
   return dbSource !== "neon" && Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim());
@@ -23,21 +20,6 @@ function usesBlob() {
 
 function cloudOn() {
   return dbSource === "neon" || Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim());
-}
-
-async function zerarProducaoAntiga() {
-  if (usesBlob() || dbSource !== "neon") return;
-  const sql = await getSql();
-  const marca = await sql<{ key: string }>`
-    select key from grades where key = ${"__purga_producao__"} and date = ${PRODUCAO_ZERO} limit 1
-  `;
-  if (marca.length > 0) return;
-  await sql`delete from grades where key = ${"__producao__"}`;
-  await sql`
-    insert into grades (date, key, config)
-    values (${PRODUCAO_ZERO}, ${"__purga_producao__"}, ${JSON.stringify({ em: Date.now() })}::jsonb)
-    on conflict (date, key) do nothing
-  `;
 }
 
 function excelUrl() {
@@ -114,7 +96,7 @@ function cleanEntries(value: unknown): Entry[] {
 }
 
 export const pushApontamentos = createServerFn({ method: "POST" })
-  .validator((data: { upserts?: unknown; removed?: unknown; grades?: unknown; date?: unknown; outros?: unknown; cores?: unknown; fechamentos?: unknown; producao?: unknown; producaoGeracao?: unknown; revives?: unknown }) => ({
+  .validator((data: { upserts?: unknown; removed?: unknown; grades?: unknown; date?: unknown; outros?: unknown; cores?: unknown; fechamentos?: unknown; producao?: unknown; revives?: unknown }) => ({
     upserts: cleanEntries(data?.upserts),
     removed: cleanRemoved(data?.removed),
     grades: readGrades(data?.grades),
@@ -123,7 +105,6 @@ export const pushApontamentos = createServerFn({ method: "POST" })
     cores: readCores(data?.cores),
     fechamentos: readFechamentos(data?.fechamentos),
     producao: readProducao(data?.producao),
-    producaoGeracao: data?.producaoGeracao === PRODUCAO_ZERO ? PRODUCAO_ZERO : "",
     revives: Array.isArray(data?.revives) ? data.revives.filter((id): id is string => typeof id === "string").slice(0, 2000) : [],
   }))
   .handler(async ({ data }) => {
@@ -137,7 +118,6 @@ export const pushApontamentos = createServerFn({ method: "POST" })
       return { ok: true as const, cloud: true };
     }
     const sql = await getSql();
-    await zerarProducaoAntiga();
     for (const item of data.removed) {
       const existing = await sql<{ date: string; turno: string; at: number }>`
         select date, turno, at from apontamentos where id = ${item.id}
@@ -242,7 +222,7 @@ export const pushApontamentos = createServerFn({ method: "POST" })
           on conflict (date, key) do update set config = excluded.config
         `;
       }
-      if (data.producaoGeracao === PRODUCAO_ZERO && data.producao.length > 0) {
+      if (data.producao.length > 0) {
         const porData = new Map<string, ProducaoPares[]>();
         for (const item of data.producao) {
           const lista = porData.get(item.date) ?? [];
@@ -271,12 +251,11 @@ export const pullApontamentos = createServerFn({ method: "POST" })
     return { date };
   })
   .handler(async ({ data }): Promise<SyncResult> => {
-    if (!data.date) return { entries: [], removed: [], grades: {}, outros: [], cores: [], fechamentos: [], producao: [], producaoGeracao: PRODUCAO_ZERO, cloud: cloudOn() };
+    if (!data.date) return { entries: [], removed: [], grades: {}, outros: [], cores: [], fechamentos: [], producao: [], cloud: cloudOn() };
     if (usesBlob()) {
       const day = await pullDay(data.date);
-      return { entries: day.entries, removed: day.removed, grades: day.grades, outros: day.outros, cores: [], fechamentos: [], producao: [], producaoGeracao: PRODUCAO_ZERO, cloud: true };
+      return { entries: day.entries, removed: day.removed, grades: day.grades, outros: day.outros, cores: [], fechamentos: [], producao: [], cloud: true };
     }
-    await zerarProducaoAntiga();
     const sql = await getSql();
     const rows = await sql<{
       id: string;
@@ -336,7 +315,7 @@ export const pullApontamentos = createServerFn({ method: "POST" })
           .map((row) => [row.key, row.config]),
       ),
     );
-    return { entries, removed: removedRows.map((row) => row.id), grades, outros, cores, fechamentos, producao, producaoGeracao: PRODUCAO_ZERO, cloud: cloudOn() };
+    return { entries, removed: removedRows.map((row) => row.id), grades, outros, cores, fechamentos, producao, cloud: cloudOn() };
   });
 
 export const pullHistorico = createServerFn({ method: "POST" })
@@ -346,15 +325,14 @@ export const pullHistorico = createServerFn({ method: "POST" })
     const dias = typeof data?.dias === "number" && Number.isFinite(data.dias) ? data.dias : 31;
     return { ate, desde, dias: Math.min(31, Math.max(1, Math.floor(dias))) };
   })
-  .handler(async ({ data }): Promise<{ entries: Entry[]; producao: ProducaoPares[]; producaoGeracao: string; cloud: boolean }> => {
-    if (!data.ate) return { entries: [], producao: [], producaoGeracao: PRODUCAO_ZERO, cloud: cloudOn() };
+  .handler(async ({ data }): Promise<{ entries: Entry[]; producao: ProducaoPares[]; cloud: boolean }> => {
+    if (!data.ate) return { entries: [], producao: [], cloud: cloudOn() };
     const datas = data.desde && data.desde <= data.ate ? intervaloDias(data.desde, data.ate) : diasAte(data.ate, data.dias);
     const inicio = datas[0] ?? data.ate;
     if (usesBlob()) {
       const days = await Promise.all(datas.map((date) => pullDay(date)));
-      return { entries: days.flatMap((day) => day.entries), producao: [], producaoGeracao: PRODUCAO_ZERO, cloud: true };
+      return { entries: days.flatMap((day) => day.entries), producao: [], cloud: true };
     }
-    await zerarProducaoAntiga();
     const sql = await getSql();
     const rows = await sql<{
       id: string;
@@ -404,7 +382,6 @@ export const pullHistorico = createServerFn({ method: "POST" })
       )
         .flatMap((row) => readProducao(row.config))
         .filter((item) => item.date >= inicio && item.date <= data.ate),
-      producaoGeracao: PRODUCAO_ZERO,
       cloud: cloudOn(),
     };
   });
