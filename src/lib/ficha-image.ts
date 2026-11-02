@@ -120,7 +120,7 @@ export async function renderRankingPng(ficha: RankingImagem): Promise<Blob> {
   const width = margin * 2 + n * colW + (n - 1) * gap;
   const maxRows = Math.max(1, ...ficha.maquinas.map((item) => item.linhas.length));
   const height = 28 + 92 + 18 + 34 + 30 + maxRows * 26 + 12 + 86 + 24;
-  const surface = createSurfaceSized(width, height);
+  const surface = createSurfaceSized(width, height, [4, 3, 2]);
   if (!surface) throw new Error("Não foi possível gerar a ficha.");
   drawRanking(surface.ctx, ficha, width, height);
   return canvasToBlob(surface.canvas);
@@ -220,8 +220,12 @@ function createSurface(): { canvas: HTMLCanvasElement; ctx: CanvasRenderingConte
   return createSurfaceSized(W, H);
 }
 
-function createSurfaceSized(width: number, height: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null {
-  for (const scale of SCALES) {
+function createSurfaceSized(
+  width: number,
+  height: number,
+  scales: number[] = SCALES,
+): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null {
+  for (const scale of scales) {
     try {
       const canvas = document.createElement("canvas");
       canvas.width = Math.round(width * scale);

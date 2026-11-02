@@ -3621,13 +3621,13 @@ function RankingDoDia({ entries, data }: { entries: Entry[]; data: string }) {
       ) : (
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           {maquinas.map((item) => (
-            <article key={item.machine} className="overflow-hidden rounded-2xl border border-[#d5dee8] bg-white">
+            <article key={item.machine} className="min-w-0 overflow-hidden rounded-2xl border border-[#d5dee8] bg-white">
               <div className="h-1" style={{ background: FAIXA_MAQUINA[item.machine] }} />
               <header className="flex items-center justify-between gap-3 bg-[#f7f9fc] px-3 py-2">
                 <h4 className="text-sm font-semibold">{item.machine}</h4>
                 <p className="text-sm font-semibold tabular-nums">{item.total} pares</p>
               </header>
-              <div className="grid grid-cols-[0.55rem_8.5rem_2.4rem_3.2rem] gap-x-2 bg-[#e8eef5] px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-[#1e3a5f]">
+              <div className="grid w-full grid-cols-[0.55rem_minmax(0,1fr)_2.6rem_3.5rem] gap-x-2 bg-[#e8eef5] px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-[#1e3a5f]">
                 <span />
                 <span>Número</span>
                 <span className="text-right">Pares</span>
@@ -3637,7 +3637,7 @@ function RankingDoDia({ entries, data }: { entries: Entry[]; data: string }) {
                 {item.linhas.map((linha, index) => (
                   <li
                     key={`${linha.numero}-${linha.referencia}`}
-                    className="grid grid-cols-[0.55rem_8.5rem_2.4rem_3.2rem] items-center gap-x-2 border-b border-[#f4f6f8] px-3 py-1 text-sm last:border-b-0"
+                    className="grid w-full grid-cols-[0.55rem_minmax(0,1fr)_2.6rem_3.5rem] items-center gap-x-2 border-b border-[#f4f6f8] px-3 py-1 text-sm last:border-b-0"
                   >
                     <span
                       className="size-2 rounded-full"
@@ -3653,7 +3653,7 @@ function RankingDoDia({ entries, data }: { entries: Entry[]; data: string }) {
               </ol>
               <footer className="border-t border-[#e6ebf2] bg-[#f7f9fc] px-3 py-2">
                 <p className="text-xs font-bold uppercase tracking-wide text-[#1e3a5f]">Principais motivos</p>
-                <p className="mt-0.5 text-sm font-semibold leading-snug text-fg">{fraseMotivos(item.motivos) || "Sem motivo."}</p>
+                <p className="mt-0.5 whitespace-normal break-words text-sm font-semibold leading-snug text-fg">{fraseMotivos(item.motivos) || "Sem motivo."}</p>
               </footer>
             </article>
           ))}
