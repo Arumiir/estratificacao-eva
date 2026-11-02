@@ -15,7 +15,7 @@ type SyncResult = {
   cloud: boolean;
 };
 
-const PRODUCAO_ZERO = "2026-11-02";
+const PRODUCAO_ZERO = "2026-11-02-b";
 
 function usesBlob() {
   return dbSource !== "neon" && Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim());

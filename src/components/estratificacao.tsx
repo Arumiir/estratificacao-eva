@@ -144,7 +144,7 @@ function loadExcelSent() {
   }
 }
 
-const PRODUCAO_ZERO = "2026-11-02";
+const PRODUCAO_ZERO = "2026-11-02-b";
 const PRODUCAO_FLAG = "eva-producao-geracao";
 
 function producaoConfirmada(atual: ProducaoPares[], remota: ProducaoPares[], geracao?: string) {
@@ -3105,11 +3105,12 @@ function PainelHistorico({
   const producaoBase = juntarProducao(producaoRemota, state.producao ?? [], new Set(diasMes));
   const perdasPeriodo = paresDasEntradas(periodo);
   const diasDia = [state.date];
-  function somaProducao(datasAlvo: string[], turno?: Turno) {
+  function somaProducao(datasAlvo: string[], turno: Turno | null = turnoFiltro) {
     const permitidas = new Set(datasAlvo);
     return producaoBase.reduce((soma, item) => {
       if (item.pares <= 0 || !permitidas.has(item.date)) return soma;
       if (turno && item.turno !== turno) return soma;
+      if (maquina && item.machine !== maquina) return soma;
       return soma + item.pares;
     }, 0);
   }
@@ -3427,8 +3428,10 @@ function PainelHistorico({
           grupos={(["1", "2", "3"] as const).map((turno) => ({
             id: turno,
             nome: TURNO_LABEL[turno].replace(" TURNO", ""),
-            producao: somaProducao(diasDia, turno),
-            perdas: paresDasEntradas(doDia.filter((entry) => entry.turno === turno)),
+            producao: somaProducao(diasJanela, turno),
+            perdas: paresDasEntradas(
+              base.filter((entry) => diasJanela.includes(entry.date) && entry.turno === turno && (!maquina || entry.machine === maquina)),
+            ),
           }))}
         />
         </div>
