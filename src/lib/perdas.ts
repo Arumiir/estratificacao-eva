@@ -600,16 +600,8 @@ export function mergeFechamentos(local: Fechamento[], remote: Fechamento[]): Fec
 }
 
 export function readProducao(value: unknown): ProducaoPares[] {
-  let bruto = value;
-  if (typeof bruto === "string") {
-    try {
-      bruto = JSON.parse(bruto);
-    } catch {
-      return [];
-    }
-  }
-  if (!Array.isArray(bruto)) return [];
-  return bruto.flatMap((item) => {
+  const lista = comoLista(value);
+  return lista.flatMap((item) => {
     if (!isRecord(item)) return [];
     const machine = parseMachine(item.machine);
     const turnoBruto = typeof item.turno === "number" ? String(item.turno) : item.turno;
@@ -631,6 +623,34 @@ export function readProducao(value: unknown): ProducaoPares[] {
       },
     ];
   });
+}
+
+function comoLista(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") {
+    try {
+      return comoLista(JSON.parse(value));
+    } catch {
+      return [];
+    }
+  }
+  if (!value || typeof value !== "object") return [];
+  const registro = value as Record<string, unknown>;
+  if (Array.isArray(registro.producao)) return registro.producao;
+  const valores = Object.values(registro);
+  if (valores.length > 0 && valores.every((item) => item && typeof item === "object")) return valores;
+  return [];
+}
+
+/** Junta as duas listas. Um zero mais novo não esconde um par já apontado. */
+export function unirProducao(remota: ProducaoPares[], local: ProducaoPares[]): ProducaoPares[] {
+  const map = new Map<string, ProducaoPares>();
+  for (const item of [...remota, ...local]) {
+    if (item.pares <= 0) continue;
+    const prev = map.get(item.id);
+    if (!prev || item.salvoEm >= prev.salvoEm) map.set(item.id, item);
+  }
+  return [...map.values()];
 }
 
 export function mergeProducao(local: ProducaoPares[], remote: ProducaoPares[]): ProducaoPares[] {

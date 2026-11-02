@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   ChevronDown,
   Download,
+  Eraser,
   ImageDown,
   Minus,
   Plus,
@@ -36,6 +37,7 @@ import {
   mergeCores,
   mergeFechamentos,
   mergeProducao,
+  unirProducao,
   outroVivo,
   mergeSharedEntries,
   pad2,
@@ -3075,16 +3077,17 @@ function PainelHistorico({
     .filter((item) => item.valor > 0)
     .sort((a, b) => b.valor - a.valor);
 
-  const producaoBase = mergeProducao(producaoRemota, state.producao ?? []);
+  const producaoBase = unirProducao(producaoRemota, state.producao ?? []);
   const perdasPeriodo = paresDasEntradas(periodo);
   const diasDia = [state.date];
   const diasSemana = diasAte(state.date, 7);
   const diasMes = datas;
   function somaProducao(datasAlvo: string[], turno?: Turno) {
     return producaoBase.reduce((soma, item) => {
-      if (item.pares <= 0 || !datasAlvo.includes(item.date)) return soma;
+      const data = item.date.slice(0, 10);
+      if (item.pares <= 0 || !datasAlvo.includes(data)) return soma;
       if (turno && item.turno !== turno) return soma;
-      return soma;
+      return soma + item.pares;
     }, 0);
   }
 
@@ -3162,7 +3165,7 @@ function PainelHistorico({
             aria-label="Limpar filtros"
             className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[#d5dee8] bg-[#f7f9fc] text-fg"
           >
-            <IconeLimpar />
+            <Eraser className="size-4" strokeWidth={1.8} />
           </button>
         ) : null}
         <div className="flex min-w-0 flex-1 flex-wrap justify-end gap-1.5">
@@ -3179,8 +3182,8 @@ function PainelHistorico({
         <CartaoResumo
           titulo="Produção"
           unidade="pares"
-          valor={somaProducao(diasJanela)}
-          periodo={tituloJanela}
+          valor={somaProducao(diasMes)}
+          periodo="Mês"
           tom="azul"
           linhas={resumoPeriodos.map((item) => ({ nome: item.nome, valor: item.producao }))}
         />
@@ -3349,7 +3352,7 @@ function PainelHistorico({
                   aria-label="Limpar filtros"
                   className="grid size-12 shrink-0 place-items-center rounded-2xl bg-[#f3f6fb]"
                 >
-                  <IconeLimpar />
+                  <Eraser className="size-4" strokeWidth={1.8} />
                 </button>
               ) : null}
               <button
@@ -3530,17 +3533,6 @@ function CartaoResumo({
         ))}
       </div>
     </article>
-  );
-}
-
-function IconeLimpar() {
-  return (
-    <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-      <path d="M4 19.5h7.2" strokeLinecap="round" />
-      <path d="M14.2 4.8l5 5" strokeLinecap="round" />
-      <path d="M9.2 19.5c.4-2.2 1.2-3.6 3.4-5.2l4.4-4.4a1.6 1.6 0 0 0-2.3-2.3l-4.4 4.4c-1.6 2.2-3 3-5.2 3.4" strokeLinejoin="round" />
-      <path d="M5.2 15.4l3.4 3.4" strokeLinecap="round" />
-    </svg>
   );
 }
 
