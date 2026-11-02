@@ -253,6 +253,26 @@ export function nomeMes(ate: string): string {
   return NOMES_MES[month - 1] ?? "Mês";
 }
 
+/** Semana corrente, de segunda até a data, sem dia do mês anterior. */
+export function diasDaSemana(ate: string): string[] {
+  const [year, month, day] = ate.split("-").map(Number);
+  if (!year || !month || !day) return [];
+  const cursor = new Date(Date.UTC(year, month - 1, day));
+  const weekday = cursor.getUTCDay();
+  const desdeSegunda = weekday === 0 ? 6 : weekday - 1;
+  const inicio = new Date(cursor);
+  inicio.setUTCDate(cursor.getUTCDate() - desdeSegunda);
+  const primeiro = new Date(Date.UTC(year, month - 1, 1));
+  if (inicio < primeiro) inicio.setTime(primeiro.getTime());
+  const dias: string[] = [];
+  for (const item = new Date(inicio); item <= cursor; item.setUTCDate(item.getUTCDate() + 1)) {
+    const mes = String(item.getUTCMonth() + 1).padStart(2, "0");
+    const dia = String(item.getUTCDate()).padStart(2, "0");
+    dias.push(`${item.getUTCFullYear()}-${mes}-${dia}`);
+  }
+  return dias;
+}
+
 export function formatDateBR(iso: string): string {
   const [y, m, d] = iso.split("-");
   if (!y || !m || !d) return iso;

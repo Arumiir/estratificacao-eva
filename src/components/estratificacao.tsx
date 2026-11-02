@@ -53,7 +53,7 @@ import {
   diaOperacional,
   TURNO_LABEL,
   type Turno,
-  diasAte,
+  diasDaSemana,
   diasDoMes,
   nomeMes,
   gradeHasNumbers,
@@ -2982,7 +2982,7 @@ function PainelHistorico({
   const [problema, setProblema] = useState<string | null>(salvos.problema);
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
   const diasMes = diasDoMes(state.date);
-  const diasSemana = diasAte(state.date, 7);
+  const diasSemana = diasDaSemana(state.date);
   const cobertura = new Set([...diasMes, ...diasSemana, state.date]);
 
   useEffect(() => {
