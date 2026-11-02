@@ -3033,11 +3033,6 @@ function PainelHistorico({
     { nome: "Dia", producao: somaProducao(diasDia), perdas: paresDasEntradas(doDia) },
     { nome: "Semana", producao: somaProducao(diasSemana), perdas: paresDasEntradas(daSemana) },
     { nome: "Mês", producao: somaProducao(diasMes), perdas: paresDasEntradas(doMes) },
-    ...(["1", "2", "3"] as const).map((turno) => ({
-      nome: TURNO_LABEL[turno].replace(" TURNO", ""),
-      producao: somaProducao(diasJanela, turno),
-      perdas: turnos.find((item) => item.turno === turno)?.pares ?? 0,
-    })),
   ];
 
   return (
@@ -3270,8 +3265,8 @@ function PainelHistorico({
           grupos={(["1", "2", "3"] as const).map((turno) => ({
             id: turno,
             nome: TURNO_LABEL[turno].replace(" TURNO", ""),
-            producao: somaProducao(diasJanela, turno),
-            perdas: turnos.find((item) => item.turno === turno)?.pares ?? 0,
+            producao: somaProducao(diasDia, turno),
+            perdas: paresDasEntradas(doDia.filter((entry) => entry.turno === turno)),
           }))}
         />
       </div>

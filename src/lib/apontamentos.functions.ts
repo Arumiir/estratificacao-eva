@@ -305,7 +305,9 @@ export const pullApontamentos = createServerFn({ method: "POST" })
     const outros = readOutros(gradeRows.find((row) => row.key === "__outros__")?.config);
     const cores = readCores(gradeRows.find((row) => row.key === "__cores__")?.config);
     const fechamentos = readFechamentos(gradeRows.find((row) => row.key === "__fechamento__")?.config);
-    const producao = readProducao(gradeRows.find((row) => row.key === "__producao__")?.config);
+    const producao = readProducao(gradeRows.find((row) => row.key === "__producao__")?.config).filter(
+      (item) => item.date === data.date,
+    );
     const grades = readGrades(
       Object.fromEntries(
         gradeRows
