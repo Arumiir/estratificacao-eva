@@ -809,11 +809,6 @@ export function EstratificacaoApp() {
   function openMachine(machine: MachineId) {
     const current = read();
     if (!current) return;
-    const turno = sessao?.turno ?? current.turno;
-    if (sessao?.papel === "preparador" && !gradeConfirmada(turno, machine)) {
-      push({ kind: "matrices", machine, diaria: true });
-      return;
-    }
     if (sessao?.papel === "preparador") {
       push({ kind: "hub", machine });
       return;
@@ -1219,6 +1214,7 @@ export function EstratificacaoApp() {
               machine={screen.machine}
               onProducao={() => push({ kind: "producao", machine: screen.machine })}
               onPerdas={() => push({ kind: "stations", machine: screen.machine })}
+              onGrade={() => push({ kind: "matrices", machine: screen.machine })}
             />
           ) : null}
 
@@ -1513,17 +1509,6 @@ function chaveGradeDia(turno: Turno, machine: MachineId, now = Date.now()) {
   return `${diaOperacional(turno, now)}|${turno}|${machine}`;
 }
 
-function gradeConfirmada(turno: Turno, machine: MachineId) {
-  try {
-    const raw = localStorage.getItem(GRADE_DIA_KEY);
-    const data: unknown = raw ? JSON.parse(raw) : {};
-    if (!data || typeof data !== "object") return false;
-    return Boolean((data as Record<string, unknown>)[chaveGradeDia(turno, machine)]);
-  } catch {
-    return false;
-  }
-}
-
 function marcarGradeDia(turno: Turno, machine: MachineId) {
   try {
     const raw = localStorage.getItem(GRADE_DIA_KEY);
@@ -1540,11 +1525,14 @@ function HubMaquina({
   machine,
   onProducao,
   onPerdas,
+  onGrade,
 }: {
   machine: MachineId;
   onProducao: () => void;
   onPerdas: () => void;
+  onGrade: () => void;
 }) {
+  const [perguntar, setPerguntar] = useState(false);
   return (
     <div className="w-full max-w-sm">
       <p className="text-center text-xs font-semibold tracking-[0.22em] text-muted">MÁQUINA</p>
@@ -1559,12 +1547,32 @@ function HubMaquina({
         </button>
         <button
           type="button"
-          onClick={onPerdas}
+          onClick={() => setPerguntar(true)}
           className="rounded-3xl bg-accent py-7 text-center font-display text-4xl leading-none text-accent-ink"
         >
           Perdas
         </button>
       </div>
+      {perguntar ? (
+        <div
+          className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setPerguntar(false);
+          }}
+        >
+          <div className="w-full max-w-sm rounded-3xl bg-white p-5 shadow-xl">
+            <p className="text-center text-lg font-semibold">Deseja atualizar a grade de matrizes?</p>
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button type="button" onClick={onGrade} className="rounded-2xl bg-[#2457b8] py-3 text-sm font-semibold text-white">
+                Sim
+              </button>
+              <button type="button" onClick={onPerdas} className="rounded-2xl bg-[#f3f6fb] py-3 text-sm font-semibold">
+                Não
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -2897,7 +2905,6 @@ function PainelHistorico({
   useEffect(() => {
     let ativo = true;
     setRemoto(null);
-    setProducaoRemota([]);
     setErro(false);
     pullHistorico({ data: { ate: state.date, dias: 31 } })
       .then((resultado) => {
@@ -2977,29 +2984,13 @@ function PainelHistorico({
   const diasDia = [state.date];
   const diasSemana = diasAte(state.date, 7);
   const diasMes = datas;
-  function somaProducao(datasAlvo: string[], turno?: Turno, machine?: MachineId) {
+  function somaProducao(datasAlvo: string[], turno?: Turno) {
     return producaoBase.reduce((soma, item) => {
       if (item.pares <= 0 || !datasAlvo.includes(item.date)) return soma;
       if (turno && item.turno !== turno) return soma;
-      if (machine && item.machine !== machine) return soma;
       return soma;
     }, 0);
   }
-  const producaoColunas = [
-    { id: "dia", nome: "Dia", datas: diasDia },
-    { id: "semana", nome: "Semana", datas: diasSemana },
-    { id: "mes", nome: "Mês", datas: diasMes },
-  ];
-  const producaoTurnos = (["1", "2", "3"] as const).map((turno) => ({
-    id: turno,
-    nome: TURNO_LABEL[turno],
-    valores: producaoColunas.map((coluna) => somaProducao(coluna.datas, turno)),
-  }));
-  const producaoPorMaquina = MACHINES.map((machine) => ({
-    id: machine,
-    nome: machine,
-    valores: producaoColunas.map((coluna) => somaProducao(coluna.datas, undefined, machine)),
-  })).filter((item) => item.valores.some((valor) => valor > 0));
 
   const problemaNome = PROBLEMS.find((item) => item.id === problema)?.name ?? null;
   const filtrosAtivos = [
@@ -3042,6 +3033,11 @@ function PainelHistorico({
     { nome: "Dia", producao: somaProducao(diasDia), perdas: paresDasEntradas(doDia) },
     { nome: "Semana", producao: somaProducao(diasSemana), perdas: paresDasEntradas(daSemana) },
     { nome: "Mês", producao: somaProducao(diasMes), perdas: paresDasEntradas(doMes) },
+    ...(["1", "2", "3"] as const).map((turno) => ({
+      nome: TURNO_LABEL[turno].replace(" TURNO", ""),
+      producao: somaProducao(diasJanela, turno),
+      perdas: turnos.find((item) => item.turno === turno)?.pares ?? 0,
+    })),
   ];
 
   return (
@@ -3260,15 +3256,18 @@ function PainelHistorico({
         </div>
       ) : null}
 
-      <TabelaProducao colunas={producaoColunas.map((coluna) => coluna.nome)} turnos={producaoTurnos} maquinas={producaoPorMaquina} />
-
-      <RankingBarras
-        vertical
-        titulo="Pares"
-        itens={[
-          { id: "dia", nome: "24 horas", valor: paresDasEntradas(doDia) },
-          { id: "semana", nome: "Semana", valor: paresDasEntradas(daSemana) },
-          { id: "mes", nome: "Mês", valor: paresDasEntradas(doMes) },
+      <BarrasDuplas
+        titulo="Produção e perdas"
+        grupos={[
+          { id: "dia", nome: "24 horas", producao: somaProducao(diasDia), perdas: paresDasEntradas(doDia) },
+          { id: "semana", nome: "Semana", producao: somaProducao(diasSemana), perdas: paresDasEntradas(daSemana) },
+          { id: "mes", nome: "Mês", producao: somaProducao(diasMes), perdas: paresDasEntradas(doMes) },
+          ...(["1", "2", "3"] as const).map((turno) => ({
+            id: turno,
+            nome: TURNO_LABEL[turno].replace(" TURNO", ""),
+            producao: somaProducao(diasJanela, turno),
+            perdas: turnos.find((item) => item.turno === turno)?.pares ?? 0,
+          })),
         ]}
       />
 
@@ -3421,83 +3420,71 @@ function CartaoResumo({
   );
 }
 
-const CORES_FATIA = ["#e23b3b", "#f08a24", "#e2b423", "#2f9e6b", "#2aa0c7", "#3b6fe0", "#7a4fd4", "#d4538a", "#6b7280", "#8b5a2b", "#1f7a4d"];
+const COR_PRODUCAO = "#4682B4";
+const COR_PERDA = "#e23b3b";
 
-function TabelaProducao({
-  colunas,
-  turnos,
-  maquinas,
+function BarrasDuplas({
+  titulo,
+  grupos,
 }: {
-  colunas: string[];
-  turnos: { id: string; nome: string; valores: number[] }[];
-  maquinas: { id: string; nome: string; valores: number[] }[];
+  titulo: string;
+  grupos: { id: string; nome: string; producao: number; perdas: number }[];
 }) {
-  const totais = colunas.map((_, index) => turnos.reduce((soma, linha) => soma + (linha.valores[index] ?? 0), 0));
-  const vazio = totais.every((valor) => valor === 0);
+  const maximo = Math.max(1, ...grupos.flatMap((item) => [item.producao, item.perdas]));
+  const vazio = grupos.every((item) => item.producao === 0 && item.perdas === 0);
   return (
-    <section className="min-w-0 overflow-hidden rounded-3xl bg-white shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
-      <div className="border-b border-[#eef1f6] px-4 py-3">
-        <h3 className="text-sm font-semibold">Produção em pares</h3>
+    <section className="min-w-0 max-w-full rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-base font-semibold">{titulo}</h3>
+        <div className="flex gap-3 text-xs font-semibold">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="size-2.5 rounded-sm" style={{ background: COR_PRODUCAO }} />
+            Produção
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="size-2.5 rounded-sm" style={{ background: COR_PERDA }} />
+            Perdas
+          </span>
+        </div>
       </div>
       {vazio ? (
-        <p className="px-4 py-4 text-sm text-muted">Nenhuma produção salva neste período.</p>
+        <p className="mt-3 text-sm text-muted">Sem apontamento neste recorte.</p>
       ) : (
-        <div className="overflow-x-auto">
-        <table className="w-full min-w-[32rem] border-collapse text-sm">
-          <thead>
-            <tr className="text-xs font-semibold text-muted">
-              <th className="px-4 py-2 text-left font-semibold"> </th>
-              {colunas.map((coluna) => (
-                <th key={coluna} className="px-3 py-2 text-right font-semibold">
-                  {coluna}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            <LinhaProducao nome="Total" valores={totais} forte />
-            <tr>
-              <td colSpan={colunas.length + 1} className="bg-[#f7f9fc] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">
-                Turno
-              </td>
-            </tr>
-            {turnos.map((linha) => (
-              <LinhaProducao key={linha.id} nome={linha.nome} valores={linha.valores} />
+        <div className="mt-4 overflow-x-auto">
+          <div className="flex min-w-max items-end gap-6 border-b border-[#c5d0dc] px-1">
+            {grupos.map((item) => (
+              <div key={item.id} className="flex w-[5.5rem] items-end justify-center gap-1.5">
+                <BarraValor valor={item.producao} maximo={maximo} cor={COR_PRODUCAO} />
+                <BarraValor valor={item.perdas} maximo={maximo} cor={COR_PERDA} />
+              </div>
             ))}
-            <tr>
-              <td colSpan={colunas.length + 1} className="bg-[#f7f9fc] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">
-                Máquina
-              </td>
-            </tr>
-            {maquinas.length === 0 ? (
-              <tr>
-                <td colSpan={colunas.length + 1} className="px-4 py-3 text-sm text-muted">
-                  Sem produção neste recorte.
-                </td>
-              </tr>
-            ) : (
-              maquinas.map((linha) => <LinhaProducao key={linha.id} nome={linha.nome} valores={linha.valores} />)
-            )}
-          </tbody>
-        </table>
+          </div>
+          <div className="mt-2 flex min-w-max gap-6 px-1">
+            {grupos.map((item) => (
+              <span key={item.id} className="w-[5.5rem] text-center text-xs font-medium leading-tight text-[#3b4250]">
+                {item.nome}
+              </span>
+            ))}
+          </div>
         </div>
       )}
     </section>
   );
 }
 
-function LinhaProducao({ nome, valores, forte = false }: { nome: string; valores: number[]; forte?: boolean }) {
+function BarraValor({ valor, maximo, cor }: { valor: number; maximo: number; cor: string }) {
+  const altura = valor <= 0 ? 0 : Math.max(10, Math.round((valor / maximo) * 168));
   return (
-    <tr className={cx("border-t border-[#eef1f6]", forte && "font-semibold")}>
-      <td className="px-4 py-2">{nome}</td>
-      {valores.map((valor, index) => (
-        <td key={index} className="px-3 py-2 text-right tabular-nums">
-          {valor}
-        </td>
-      ))}
-    </tr>
+    <span className="flex w-9 flex-col items-center justify-end">
+      <span className="mb-1 text-xs font-semibold tabular-nums" style={{ color: cor }}>
+        {valor}
+      </span>
+      <span className="block w-9 rounded-t-md" style={{ height: `${altura}px`, background: cor }} />
+    </span>
   );
 }
+
+const CORES_FATIA = ["#e23b3b", "#f08a24", "#e2b423", "#2f9e6b", "#2aa0c7", "#3b6fe0", "#7a4fd4", "#d4538a", "#6b7280", "#8b5a2b", "#1f7a4d"];
 
 function GraficoCircular({
   titulo,
