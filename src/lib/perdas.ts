@@ -188,6 +188,16 @@ export function todayISO(now = new Date()): string {
   return partesFortaleza(now.getTime()).date;
 }
 
+/** Dia do apontamento. Se foi salvo num mês e a data ficou no outro, vale o dia em que salvou. */
+export function diaDoApontamento(item: { date: string; salvoEm?: number }): string {
+  const marcada = typeof item.date === "string" ? item.date.slice(0, 10) : "";
+  if (!item.salvoEm || !Number.isFinite(item.salvoEm)) return marcada;
+  const gravada = partesFortaleza(item.salvoEm).date;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(marcada)) return gravada;
+  if (gravada < marcada && gravada.slice(0, 7) !== marcada.slice(0, 7)) return gravada;
+  return marcada;
+}
+
 function diaAnterior(iso: string): string {
   const [year, month, day] = iso.split("-").map(Number);
   if (!year || !month || !day) return iso;

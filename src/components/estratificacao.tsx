@@ -52,6 +52,7 @@ import {
   diaOperacional,
   TURNO_LABEL,
   type Turno,
+  diaDoApontamento,
   diasDaSemana,
   diasDoMes,
   nomeMes,
@@ -1706,7 +1707,7 @@ function ProducaoScreen({
   const [editando, setEditando] = useState(
     () =>
       !(state.producao ?? []).some(
-        (item) => item.date === state.date && item.turno === turno && item.machine === machine && item.pares > 0,
+        (item) => diaDoApontamento(item) === state.date && item.turno === turno && item.machine === machine && item.pares > 0,
       ),
   );
 
@@ -1714,7 +1715,7 @@ function ProducaoScreen({
     if (sujo) return;
     const proximo: Record<string, string> = {};
     for (const item of state.producao ?? []) {
-      if (item.date !== state.date || item.turno !== turno || item.machine !== machine || item.pares <= 0) continue;
+      if (diaDoApontamento(item) !== state.date || item.turno !== turno || item.machine !== machine || item.pares <= 0) continue;
       proximo[item.numero] = String(item.pares);
     }
     setValores(proximo);
@@ -3072,17 +3073,16 @@ function PainelHistorico({
     .filter((item) => item.valor > 0)
     .sort((a, b) => b.valor - a.valor);
 
-  const inicioMes = diasMes[0] ?? state.date;
-  const producaoBase = unirProducao(
-    producaoRemota.filter((item) => item.date >= inicioMes && item.date <= state.date),
-    (state.producao ?? []).filter((item) => item.date >= inicioMes && item.date <= state.date),
+  const producaoBase = unirProducao(producaoRemota, state.producao ?? []).filter((item) =>
+    diasMes.includes(diaDoApontamento(item)),
   );
   const perdasPeriodo = paresDasEntradas(periodo);
   const diasDia = [state.date];
   function somaProducao(datasAlvo: string[], turno?: Turno) {
+    const permitidas = new Set(datasAlvo);
     return producaoBase.reduce((soma, item) => {
-      const data = item.date.slice(0, 10);
-      if (item.pares <= 0 || !datasAlvo.includes(data)) return soma;
+      const data = diaDoApontamento(item);
+      if (item.pares <= 0 || !permitidas.has(data)) return soma;
       if (turno && item.turno !== turno) return soma;
       return soma + item.pares;
     }, 0);
@@ -4819,7 +4819,7 @@ function AcompanhamentoDiario({
   const visiveis = MACHINES.filter((machine) => {
     if (shown.includes(machine)) return true;
     return (state.producao ?? []).some(
-      (item) => item.date === state.date && item.turno === state.turno && item.machine === machine && item.pares > 0,
+      (item) => diaDoApontamento(item) === state.date && item.turno === state.turno && item.machine === machine && item.pares > 0,
     );
   });
   const aberta = painel ? visiveis.find((machine) => machine === painel.machine) ?? null : null;
@@ -4862,7 +4862,7 @@ function AcompanhamentoDiario({
             const linhasCard = fichaLines(state, machine);
             const paresMaquina = paresDasEntradas(shiftEntries(state, machine));
             const producaoMaquina = (state.producao ?? [])
-              .filter((item) => item.date === state.date && item.turno === state.turno && item.machine === machine)
+              .filter((item) => diaDoApontamento(item) === state.date && item.turno === state.turno && item.machine === machine)
               .reduce((soma, item) => soma + item.pares, 0);
             const piores = topProblems(linhasCard);
             return (
