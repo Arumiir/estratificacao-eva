@@ -3050,6 +3050,16 @@ function PainelHistorico({
   }
   const periodo = base.filter((entry) => diasJanela.includes(entry.date) && passaRecorte(entry));
   const doDia = base.filter((entry) => entry.date === state.date && passaRecorte(entry));
+  const doDiaRanking = base.filter(
+    (entry) =>
+      entry.date === state.date &&
+      (!maquina || entry.machine === maquina) &&
+      (estacao === null || entry.station === estacao) &&
+      (numeroAtivo === null || numeroLimpo(entry.matrizNumero) === numeroAtivo) &&
+      (refAtiva === null || (referenciaLimpa(entry.matrizRel) || "sem ref.") === refAtiva) &&
+      (!lado || entry.side === lado) &&
+      (!problema || entry.problem === problema),
+  );
   const daSemana = base.filter((entry) => diasSemana.includes(entry.date) && passaRecorte(entry));
   const doMes = base.filter((entry) => diasMes.includes(entry.date) && passaRecorte(entry));
   const turnos = (["1", "2", "3"] as const).map((turno) => {
@@ -3389,6 +3399,8 @@ function PainelHistorico({
         />
       </div>
 
+      <RankingDoDia entries={doDiaRanking} data={state.date} />
+
       <div className="grid gap-4 xl:grid-cols-2">
         <GraficoCircular
           titulo="Piores máquinas"
@@ -3456,6 +3468,153 @@ function PainelHistorico({
         />
       ) : null}
     </div>
+  );
+}
+
+const FAIXA_MAQUINA: Record<MachineId, string> = {
+  SIE01: "#4682B4",
+  SIE02: "#6f97bf",
+  SIE03: "#8aa4b8",
+  SIE04: "#c47b6a",
+  SIE05: "#3d9a86",
+  SIE06: "#c4a35a",
+};
+
+const COR_POSICAO = ["#c24141", "#e07a2f", "#d4a017", "#3d9a86", "#4682B4"];
+
+function paresNoRecorte(entries: Entry[]): number {
+  const grupos = new Map<string, number>();
+  for (const entry of entries) {
+    const chave = `${entry.station}|${entry.side}|${entry.problem}|${entry.outroId}`;
+    grupos.set(chave, (grupos.get(chave) ?? 0) + 1);
+  }
+  let total = 0;
+  for (const solas of grupos.values()) total += pares(solas);
+  return total;
+}
+
+function fraseMotivos(nomes: string[]): string {
+  if (nomes.length <= 1) return nomes[0] ?? "";
+  return `${nomes.slice(0, -1).join(", ")} e ${nomes[nomes.length - 1]}`;
+}
+
+function RankingDoDia({ entries, data }: { entries: Entry[]; data: string }) {
+  const [aba, setAba] = useState<"24" | Turno>("24");
+  const fonte = aba === "24" ? entries : entries.filter((entry) => entry.turno === aba);
+  const maquinas = MACHINES.map((machine) => {
+    const daMaquina = fonte.filter((entry) => entry.machine === machine);
+    const grupos = new Map<string, { numero: string; referencia: string; itens: Entry[] }>();
+    for (const entry of daMaquina) {
+      const numero = numeroLimpo(entry.matrizNumero);
+      if (!numero) continue;
+      const referencia = referenciaLimpa(entry.matrizRel);
+      const chave = `${numero}||${referencia}`;
+      const atual = grupos.get(chave) ?? { numero, referencia, itens: [] };
+      atual.itens.push(entry);
+      grupos.set(chave, atual);
+    }
+    const linhas = [...grupos.values()]
+      .map((item) => ({ ...item, pares: paresNoRecorte(item.itens) }))
+      .filter((item) => item.pares > 0)
+      .sort((a, b) => b.pares - a.pares || a.numero.localeCompare(b.numero, "pt-BR", { numeric: true }));
+    const total = linhas.reduce((soma, item) => soma + item.pares, 0);
+    const motivos = PROBLEMS.map((problem) => ({
+      nome: problem.name,
+      pares: paresDasEntradas(daMaquina.filter((entry) => entry.problem === problem.id)),
+    }))
+      .filter((item) => item.pares > 0)
+      .sort((a, b) => b.pares - a.pares)
+      .slice(0, 3)
+      .map((item) => item.nome);
+    return { machine, linhas, total, motivos };
+  }).filter((item) => item.total > 0);
+
+  return (
+    <section className="grid gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h3 className="text-base font-semibold">Ranking do dia</h3>
+          <p className="text-sm text-muted">{formatDateBR(data)}</p>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {(
+            [
+              ["24", "24 horas"],
+              ["1", "1º turno"],
+              ["2", "2º turno"],
+              ["3", "3º turno"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setAba(id)}
+              className={cx(
+                "rounded-lg px-3 py-2 text-sm font-semibold",
+                aba === id ? "bg-[#1e3a5f] text-white" : "border border-[#d5dee8] bg-white text-fg",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {maquinas.length === 0 ? (
+        <p className="rounded-2xl border border-dashed border-[#d5dee8] bg-white px-4 py-8 text-center text-sm text-muted">
+          Sem perdas neste recorte.
+        </p>
+      ) : (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {maquinas.map((item) => (
+            <article key={item.machine} className="overflow-hidden rounded-2xl border border-[#d5dee8] bg-white">
+              <div className="h-1.5" style={{ background: FAIXA_MAQUINA[item.machine] }} />
+              <header className="flex items-end justify-between gap-3 px-4 pt-3">
+                <h4 className="font-display text-3xl leading-none">{item.machine}</h4>
+                <p className="text-right">
+                  <span className="font-display text-3xl leading-none tabular-nums">{item.total}</span>
+                  <span className="mt-1 block text-xs text-muted">pares</span>
+                </p>
+              </header>
+              <div className="px-4 pb-2 pt-3">
+                <div className="grid grid-cols-[0.7rem_minmax(0,1fr)_2.5rem_3.4rem] gap-2 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                  <span />
+                  <span>Número</span>
+                  <span className="text-right">Pares</span>
+                  <span className="text-right">%</span>
+                </div>
+                <ol className="mt-1">
+                  {item.linhas.map((linha, index) => (
+                    <li
+                      key={`${linha.numero}-${linha.referencia}`}
+                      className="grid grid-cols-[0.7rem_minmax(0,1fr)_2.5rem_3.4rem] items-baseline gap-2 border-b border-[#f4f6f8] py-1.5 text-sm last:border-b-0"
+                    >
+                      <span
+                        className="size-2 self-center rounded-full"
+                        style={{ background: COR_POSICAO[Math.min(index, COR_POSICAO.length - 1)] }}
+                      />
+                      <span className="min-w-0 break-words font-semibold">
+                        {linha.referencia ? `${linha.numero}-${linha.referencia}` : linha.numero}
+                      </span>
+                      <span className="text-right tabular-nums">{linha.pares}</span>
+                      <span className="text-right tabular-nums text-muted">
+                        {((linha.pares / item.total) * 100).toLocaleString("pt-BR", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+              <footer className="border-t border-[#f3f2f1] px-4 py-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">Principais motivos</p>
+                <p className="mt-1 text-sm leading-snug">{fraseMotivos(item.motivos) || "Sem motivo."}</p>
+              </footer>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
