@@ -95,13 +95,138 @@ export function downloadBlob(filename: string, blob: Blob) {
   setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
+export type RankingImagem = {
+  data: string;
+  periodo: string;
+  faixa: string;
+  maquinas: {
+    nome: string;
+    total: number;
+    linhas: { rotulo: string; pares: number; percentual: string }[];
+    motivos: string;
+  }[];
+};
+
+const COR_POSICAO_FICHA = ["#c24141", "#e07a2f", "#d4a017", "#3d9a86", "#4682B4"];
+
+export async function renderRankingPng(ficha: RankingImagem): Promise<Blob> {
+  await document.fonts.load("700 64px 'Barlow Condensed'");
+  await document.fonts.load("600 20px 'Source Sans 3'");
+  await document.fonts.ready;
+  const margin = 28;
+  const colW = 340;
+  const gap = 14;
+  const n = Math.max(1, ficha.maquinas.length);
+  const width = margin * 2 + n * colW + (n - 1) * gap;
+  const maxRows = Math.max(1, ...ficha.maquinas.map((item) => item.linhas.length));
+  const height = 28 + 92 + 18 + 34 + 30 + maxRows * 26 + 12 + 86 + 24;
+  const surface = createSurfaceSized(width, height);
+  if (!surface) throw new Error("Não foi possível gerar a ficha.");
+  drawRanking(surface.ctx, ficha, width, height);
+  return canvasToBlob(surface.canvas);
+}
+
+function drawRanking(ctx: CanvasRenderingContext2D, ficha: RankingImagem, width: number, height: number) {
+  const margin = 28;
+  const colW = 340;
+  const gap = 14;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = ficha.faixa;
+  ctx.fillRect(margin, 24, width - margin * 2, 92);
+  ctx.fillStyle = "#fffaf7";
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "left";
+  ctx.font = "700 42px 'Barlow Condensed', sans-serif";
+  ctx.fillText("RANKING DAS PERDAS", margin + 20, 58);
+  ctx.font = "600 22px 'Source Sans 3', sans-serif";
+  ctx.fillText(`${ficha.data}     ${ficha.periodo}`, margin + 20, 92);
+
+  ficha.maquinas.forEach((item, index) => {
+    const x = margin + index * (colW + gap);
+    let y = 24 + 92 + 18;
+    ctx.fillStyle = "#f4f7fb";
+    ctx.fillRect(x, y, colW, 34);
+    ctx.fillStyle = "#1e3a5f";
+    ctx.font = "700 22px 'Barlow Condensed', sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText(item.nome, x + 10, y + 17);
+    ctx.textAlign = "right";
+    ctx.font = "600 16px 'Source Sans 3', sans-serif";
+    ctx.fillText(`${item.total} pares`, x + colW - 10, y + 17);
+    y += 34;
+    ctx.fillStyle = "#1e3a5f";
+    ctx.font = "700 13px 'Source Sans 3', sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText("NÚMERO", x + 18, y + 15);
+    ctx.textAlign = "right";
+    ctx.fillText("PARES", x + colW - 62, y + 15);
+    ctx.fillText("%", x + colW - 10, y + 15);
+    y += 30;
+    item.linhas.forEach((linha, linhaIndex) => {
+      if (linhaIndex % 2 === 1) {
+        ctx.fillStyle = "#f7f9fc";
+        ctx.fillRect(x, y - 12, colW, 26);
+      }
+      ctx.fillStyle = COR_POSICAO_FICHA[Math.min(linhaIndex, COR_POSICAO_FICHA.length - 1)] ?? "#4682B4";
+      ctx.beginPath();
+      ctx.arc(x + 10, y + 1, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#1c1c1c";
+      ctx.textAlign = "left";
+      ctx.font = "600 15px 'Source Sans 3', sans-serif";
+      let rotulo = linha.rotulo;
+      while (ctx.measureText(rotulo).width > colW - 120 && rotulo.length > 4) rotulo = `${rotulo.slice(0, -2)}…`;
+      ctx.fillText(rotulo, x + 20, y + 1);
+      ctx.textAlign = "right";
+      ctx.font = "600 15px 'Source Sans 3', sans-serif";
+      ctx.fillText(String(linha.pares), x + colW - 62, y + 1);
+      ctx.fillStyle = "#3d4a5c";
+      ctx.fillText(linha.percentual, x + colW - 10, y + 1);
+      y += 26;
+    });
+    y += 8;
+    ctx.fillStyle = "#1e3a5f";
+    ctx.textAlign = "left";
+    ctx.font = "700 12px 'Source Sans 3', sans-serif";
+    ctx.fillText("PRINCIPAIS MOTIVOS", x + 10, y + 8);
+    ctx.fillStyle = "#1c1c1c";
+    ctx.font = "600 14px 'Source Sans 3', sans-serif";
+    const linhasMotivo = quebrarTexto(ctx, item.motivos || "Sem motivo.", colW - 20);
+    linhasMotivo.slice(0, 3).forEach((texto, motivoIndex) => {
+      ctx.fillText(texto, x + 10, y + 28 + motivoIndex * 18);
+    });
+  });
+}
+
+function quebrarTexto(ctx: CanvasRenderingContext2D, texto: string, maxW: number): string[] {
+  const palavras = texto.split(/\s+/).filter(Boolean);
+  const linhas: string[] = [];
+  let atual = "";
+  for (const palavra of palavras) {
+    const teste = atual ? `${atual} ${palavra}` : palavra;
+    if (ctx.measureText(teste).width > maxW && atual) {
+      linhas.push(atual);
+      atual = palavra;
+    } else {
+      atual = teste;
+    }
+  }
+  if (atual) linhas.push(atual);
+  return linhas;
+}
+
 function createSurface(): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null {
+  return createSurfaceSized(W, H);
+}
+
+function createSurfaceSized(width: number, height: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null {
   for (const scale of SCALES) {
     try {
       const canvas = document.createElement("canvas");
-      canvas.width = Math.round(W * scale);
-      canvas.height = Math.round(H * scale);
-      if (canvas.width < W * scale - 1 || canvas.height < H * scale - 1) continue;
+      canvas.width = Math.round(width * scale);
+      canvas.height = Math.round(height * scale);
+      if (canvas.width < width * scale - 1 || canvas.height < height * scale - 1) continue;
       const ctx = canvas.getContext("2d", { alpha: false });
       if (!ctx) continue;
       ctx.setTransform(scale, 0, 0, scale, 0, 0);

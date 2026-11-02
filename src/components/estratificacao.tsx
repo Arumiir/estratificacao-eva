@@ -4,7 +4,6 @@ import { UpdateNotice } from "@/components/update-notice";
 import {
   ChevronLeft,
   ChevronDown,
-  Download,
   Eraser,
   ImageDown,
   Minus,
@@ -68,7 +67,7 @@ import {
   type State,
   type StationConfig,
 } from "@/lib/perdas";
-import { downloadBlob, renderFichasDaMaquina, renderFichasPdf } from "@/lib/ficha-image";
+import { downloadBlob, renderFichasDaMaquina, renderRankingPng } from "@/lib/ficha-image";
 import { enviarPlanilha, pullApontamentos, pullHistorico, pushApontamentos } from "@/lib/apontamentos.functions";
 
 type Papel = "preparador" | "lider" | "teste";
@@ -1814,7 +1813,7 @@ function ProducaoScreen({
 
 function TurnoPicker({ value, onChange }: { value: Turno; onChange: (turno: Turno) => void }) {
   return (
-    <div className="mx-auto grid w-full max-w-md grid-cols-3 gap-1">
+    <div className="grid w-full max-w-md grid-cols-3 gap-1">
       {(["1", "2", "3"] as const).map((turno) => (
         <button
           key={turno}
@@ -2673,23 +2672,6 @@ function SheetScreen({
     }
   }
 
-  async function downloadPdf() {
-    if (shown.length === 0) {
-      onNotice("Nenhuma ficha neste turno.");
-      return;
-    }
-    setBusy("pdf");
-    try {
-      const pdf = await renderFichasPdf(view, shown);
-      downloadBlob(`${fileBase}.pdf`, pdf);
-      onNotice(shown.length === 1 ? "PDF baixado." : "PDF baixado. Uma máquina por folha.");
-    } catch {
-      onNotice("Não foi possível gerar o PDF.");
-    } finally {
-      setBusy(null);
-    }
-  }
-
   return (
     <>
       {papel === "lider" ? (
@@ -2705,7 +2687,6 @@ function SheetScreen({
             shown={shown}
             busy={busy}
             onPhoto={abrirSeletor}
-            onPdf={() => void downloadPdf()}
             onDelete={onDelete}
             aba={abaLider}
             onAba={setAbaLider}
@@ -3498,10 +3479,25 @@ function fraseMotivos(nomes: string[]): string {
   return `${nomes.slice(0, -1).join(", ")} e ${nomes[nomes.length - 1]}`;
 }
 
-function RankingDoDia({ entries, data }: { entries: Entry[]; data: string }) {
-  const [aba, setAba] = useState<"24" | Turno>("24");
-  const fonte = aba === "24" ? entries : entries.filter((entry) => entry.turno === aba);
-  const maquinas = MACHINES.map((machine) => {
+function rotuloNumero(numero: string, referencia: string) {
+  return referencia ? `${numero} · ${referencia}` : numero;
+}
+
+function percentualPar(parte: number, total: number) {
+  if (total <= 0) return "0,00";
+  return ((parte / total) * 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+type BlocoRanking = {
+  machine: MachineId;
+  linhas: { numero: string; referencia: string; pares: number }[];
+  total: number;
+  motivos: string[];
+};
+
+function montarRanking(entries: Entry[], turno: "24" | Turno): BlocoRanking[] {
+  const fonte = turno === "24" ? entries : entries.filter((entry) => entry.turno === turno);
+  return MACHINES.map((machine) => {
     const daMaquina = fonte.filter((entry) => entry.machine === machine);
     const grupos = new Map<string, { numero: string; referencia: string; itens: Entry[] }>();
     for (const entry of daMaquina) {
@@ -3514,7 +3510,7 @@ function RankingDoDia({ entries, data }: { entries: Entry[]; data: string }) {
       grupos.set(chave, atual);
     }
     const linhas = [...grupos.values()]
-      .map((item) => ({ ...item, pares: paresNoRecorte(item.itens) }))
+      .map((item) => ({ numero: item.numero, referencia: item.referencia, pares: paresNoRecorte(item.itens) }))
       .filter((item) => item.pares > 0)
       .sort((a, b) => b.pares - a.pares || a.numero.localeCompare(b.numero, "pt-BR", { numeric: true }));
     const total = linhas.reduce((soma, item) => soma + item.pares, 0);
@@ -3528,23 +3524,69 @@ function RankingDoDia({ entries, data }: { entries: Entry[]; data: string }) {
       .map((item) => item.nome);
     return { machine, linhas, total, motivos };
   }).filter((item) => item.total > 0);
+}
+
+const ABAS_RANKING = [
+  ["24", "24 horas"],
+  ["1", "1º turno"],
+  ["2", "2º turno"],
+  ["3", "3º turno"],
+] as const;
+
+const FAIXA_RANKING: Record<(typeof ABAS_RANKING)[number][0], string> = {
+  "24": "#4682B4",
+  "1": "#2a2a2a",
+  "2": "#1f5f99",
+  "3": "#9b2c2c",
+};
+
+function RankingDoDia({ entries, data }: { entries: Entry[]; data: string }) {
+  const [aba, setAba] = useState<"24" | Turno>("24");
+  const [escolher, setEscolher] = useState(false);
+  const [gerando, setGerando] = useState(false);
+  const [aviso, setAviso] = useState("");
+  const maquinas = montarRanking(entries, aba);
+
+  async function baixar(turno: "24" | Turno) {
+    const blocos = montarRanking(entries, turno);
+    if (blocos.length === 0) {
+      setAviso("Sem perdas neste recorte.");
+      setEscolher(false);
+      return;
+    }
+    setGerando(true);
+    setAviso("");
+    try {
+      const periodo = ABAS_RANKING.find(([id]) => id === turno)?.[1] ?? "24 horas";
+      const blob = await renderRankingPng({
+        data: formatDateBR(data),
+        periodo,
+        faixa: FAIXA_RANKING[turno],
+        maquinas: blocos.map((item) => ({
+          nome: item.machine,
+          total: item.total,
+          linhas: item.linhas.map((linha) => ({
+            rotulo: rotuloNumero(linha.numero, linha.referencia),
+            pares: linha.pares,
+            percentual: percentualPar(linha.pares, item.total),
+          })),
+          motivos: fraseMotivos(item.motivos),
+        })),
+      });
+      downloadBlob(`ranking-${data}-${turno}.png`, blob);
+      setEscolher(false);
+    } catch {
+      setAviso("Não foi possível gerar a imagem.");
+    } finally {
+      setGerando(false);
+    }
+  }
 
   return (
-    <section className="grid gap-3">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h3 className="text-base font-semibold">Ranking do dia</h3>
-          <p className="text-sm text-muted">{formatDateBR(data)}</p>
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {(
-            [
-              ["24", "24 horas"],
-              ["1", "1º turno"],
-              ["2", "2º turno"],
-              ["3", "3º turno"],
-            ] as const
-          ).map(([id, label]) => (
+    <section className="grid gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap gap-1.5">
+          {ABAS_RANKING.map(([id, label]) => (
             <button
               key={id}
               type="button"
@@ -3558,62 +3600,95 @@ function RankingDoDia({ entries, data }: { entries: Entry[]; data: string }) {
             </button>
           ))}
         </div>
+        <button
+          type="button"
+          disabled={gerando}
+          onClick={() => setEscolher(true)}
+          className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-semibold shadow-[0_6px_16px_rgba(47,84,150,0.08)] disabled:opacity-50"
+        >
+          <ImageDown className="size-4" />
+          {gerando ? "Gerando…" : "Baixar imagem"}
+        </button>
+      </div>
+      <div>
+        <h3 className="text-base font-semibold">Ranking do dia</h3>
+        <p className="text-sm text-muted">{formatDateBR(data)}{aviso ? ` · ${aviso}` : ""}</p>
       </div>
       {maquinas.length === 0 ? (
-        <p className="rounded-2xl border border-dashed border-[#d5dee8] bg-white px-4 py-8 text-center text-sm text-muted">
+        <p className="rounded-2xl border border-dashed border-[#d5dee8] bg-white px-4 py-6 text-center text-sm text-muted">
           Sem perdas neste recorte.
         </p>
       ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           {maquinas.map((item) => (
             <article key={item.machine} className="overflow-hidden rounded-2xl border border-[#d5dee8] bg-white">
-              <div className="h-1.5" style={{ background: FAIXA_MAQUINA[item.machine] }} />
-              <header className="flex items-end justify-between gap-3 px-4 pt-3">
-                <h4 className="font-display text-3xl leading-none">{item.machine}</h4>
-                <p className="text-right">
-                  <span className="font-display text-3xl leading-none tabular-nums">{item.total}</span>
-                  <span className="mt-1 block text-xs text-muted">pares</span>
-                </p>
+              <div className="h-1" style={{ background: FAIXA_MAQUINA[item.machine] }} />
+              <header className="flex items-center justify-between gap-3 bg-[#f7f9fc] px-3 py-2">
+                <h4 className="text-sm font-semibold">{item.machine}</h4>
+                <p className="text-sm font-semibold tabular-nums">{item.total} pares</p>
               </header>
-              <div className="px-4 pb-2 pt-3">
-                <div className="grid grid-cols-[0.7rem_minmax(0,1fr)_2.5rem_3.4rem] gap-2 text-[11px] font-semibold uppercase tracking-wide text-muted">
-                  <span />
-                  <span>Número</span>
-                  <span className="text-right">Pares</span>
-                  <span className="text-right">%</span>
-                </div>
-                <ol className="mt-1">
-                  {item.linhas.map((linha, index) => (
-                    <li
-                      key={`${linha.numero}-${linha.referencia}`}
-                      className="grid grid-cols-[0.7rem_minmax(0,1fr)_2.5rem_3.4rem] items-baseline gap-2 border-b border-[#f4f6f8] py-1.5 text-sm last:border-b-0"
-                    >
-                      <span
-                        className="size-2 self-center rounded-full"
-                        style={{ background: COR_POSICAO[Math.min(index, COR_POSICAO.length - 1)] }}
-                      />
-                      <span className="min-w-0 break-words font-semibold">
-                        {linha.referencia ? `${linha.numero}-${linha.referencia}` : linha.numero}
-                      </span>
-                      <span className="text-right tabular-nums">{linha.pares}</span>
-                      <span className="text-right tabular-nums text-muted">
-                        {((linha.pares / item.total) * 100).toLocaleString("pt-BR", {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                      </span>
-                    </li>
-                  ))}
-                </ol>
+              <div className="grid grid-cols-[0.55rem_8.5rem_2.4rem_3.2rem] gap-x-2 bg-[#e8eef5] px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-[#1e3a5f]">
+                <span />
+                <span>Número</span>
+                <span className="text-right">Pares</span>
+                <span className="text-right">%</span>
               </div>
-              <footer className="border-t border-[#f3f2f1] px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">Principais motivos</p>
-                <p className="mt-1 text-sm leading-snug">{fraseMotivos(item.motivos) || "Sem motivo."}</p>
+              <ol>
+                {item.linhas.map((linha, index) => (
+                  <li
+                    key={`${linha.numero}-${linha.referencia}`}
+                    className="grid grid-cols-[0.55rem_8.5rem_2.4rem_3.2rem] items-center gap-x-2 border-b border-[#f4f6f8] px-3 py-1 text-sm last:border-b-0"
+                  >
+                    <span
+                      className="size-2 rounded-full"
+                      style={{ background: COR_POSICAO[Math.min(index, COR_POSICAO.length - 1)] }}
+                    />
+                    <span className="min-w-0 break-words font-semibold leading-tight">
+                      {rotuloNumero(linha.numero, linha.referencia)}
+                    </span>
+                    <span className="text-right font-semibold tabular-nums">{linha.pares}</span>
+                    <span className="text-right tabular-nums text-[#3d4a5c]">{percentualPar(linha.pares, item.total)}</span>
+                  </li>
+                ))}
+              </ol>
+              <footer className="border-t border-[#e6ebf2] bg-[#f7f9fc] px-3 py-2">
+                <p className="text-xs font-bold uppercase tracking-wide text-[#1e3a5f]">Principais motivos</p>
+                <p className="mt-0.5 text-sm font-semibold leading-snug text-fg">{fraseMotivos(item.motivos) || "Sem motivo."}</p>
               </footer>
             </article>
           ))}
         </div>
       )}
+      {escolher ? (
+        <div
+          className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center"
+          onClick={(event) => {
+            if (event.target === event.currentTarget && !gerando) setEscolher(false);
+          }}
+        >
+          <div className="w-full max-w-sm rounded-3xl bg-white p-4 shadow-xl">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-base font-semibold">Qual ranking baixar?</h3>
+              <button type="button" onClick={() => setEscolher(false)} className="text-sm font-semibold text-muted">
+                Fechar
+              </button>
+            </div>
+            <div className="mt-3 grid gap-2">
+              {ABAS_RANKING.map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  disabled={gerando}
+                  onClick={() => void baixar(id)}
+                  className="rounded-2xl bg-[#f3f6fb] py-3 text-sm font-semibold disabled:opacity-50"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -4180,14 +4255,6 @@ function PainelMesa({
             >
               {busy === "foto" ? "Gerando imagens…" : "Baixar imagens"}
             </button>
-            <button
-              type="button"
-              disabled={busy !== null || shown.length === 0}
-              onClick={onPdf}
-              className="rounded-full bg-white px-4 py-2 text-sm font-semibold shadow-[0_6px_16px_rgba(47,84,150,0.08)] disabled:opacity-50"
-            >
-              {busy === "pdf" ? "Gerando PDF…" : "Baixar PDF"}
-            </button>
           </div>
         </div>
 
@@ -4690,7 +4757,6 @@ function AcompanhamentoDiario({
   shown,
   busy,
   onPhoto,
-  onPdf,
   onDelete,
   aba,
   onAba,
@@ -4703,7 +4769,6 @@ function AcompanhamentoDiario({
   shown: MachineId[];
   busy: "foto" | "pdf" | null;
   onPhoto: () => void;
-  onPdf: () => void;
   onDelete?: (entries: Entry[]) => void;
   aba: "geral" | "diario";
   onAba: (aba: "geral" | "diario") => void;
@@ -4729,12 +4794,23 @@ function AcompanhamentoDiario({
   return (
     <div className="grid min-w-0 gap-3">
       <BarraDash aba={aba} onAba={onAba}>
-        <span className="text-sm font-semibold text-muted">
-          {formatDateBR(state.date)} · {TURNO_LABEL[state.turno]}
-        </span>
+        <span className="text-sm font-semibold text-muted">{formatDateBR(state.date)}</span>
       </BarraDash>
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0 max-w-md flex-1">
+          <TurnoPicker value={state.turno} onChange={onTurno} />
+        </div>
+        <button
+          type="button"
+          disabled={busy !== null || shown.length === 0}
+          onClick={onPhoto}
+          className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-semibold shadow-[0_6px_16px_rgba(47,84,150,0.08)] disabled:opacity-50"
+        >
+          <ImageDown className="size-4" />
+          {busy === "foto" ? "Gerando…" : "Baixar imagens"}
+        </button>
+      </div>
       <DayControls state={state} today={today} offDay={offDay} onDate={onDate} />
-      <TurnoPicker value={state.turno} onChange={onTurno} />
       {visiveis.length === 0 ? (
         <p className="rounded-tile border border-dashed border-line bg-surface px-4 py-6 text-center text-base text-muted">
           Nenhuma máquina apontada neste turno.
@@ -4879,26 +4955,6 @@ function AcompanhamentoDiario({
           </div>
         </div>
       ) : null}
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          disabled={busy !== null || shown.length === 0}
-          onClick={onPhoto}
-          className="flex items-center justify-center gap-2 rounded-tile bg-surface-2 py-3 font-semibold disabled:opacity-60"
-        >
-          <ImageDown className="size-5" />
-          {busy === "foto" ? "Gerando…" : "Baixar imagens"}
-        </button>
-        <button
-          type="button"
-          disabled={busy !== null || shown.length === 0}
-          onClick={onPdf}
-          className="flex items-center justify-center gap-2 rounded-tile bg-surface-2 py-3 font-semibold disabled:opacity-60"
-        >
-          <Download className="size-5" />
-          {busy === "pdf" ? "Gerando…" : "Baixar PDF"}
-        </button>
-      </div>
     </div>
   );
 }
