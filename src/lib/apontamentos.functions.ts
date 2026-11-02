@@ -379,12 +379,9 @@ export const pullHistorico = createServerFn({ method: "POST" })
           select date, config from grades
           where key = ${"__producao__"} and date >= ${inicio} and date <= ${data.ate}
         `
-      ).flatMap((row) => {
-        const dia = String(row.date).slice(0, 10);
-        return readProducao(row.config)
-          .filter((item) => item.date === dia)
-          .map((item) => ({ ...item, date: dia }));
-      }),
+      )
+        .flatMap((row) => readProducao(row.config))
+        .filter((item) => item.date >= inicio && item.date <= data.ate),
       cloud: cloudOn(),
     };
   });

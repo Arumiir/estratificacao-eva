@@ -37,7 +37,6 @@ import {
   mergeCores,
   mergeFechamentos,
   mergeProducao,
-  unirProducao,
   outroVivo,
   mergeSharedEntries,
   pad2,
@@ -3073,16 +3072,13 @@ function PainelHistorico({
     .filter((item) => item.valor > 0)
     .sort((a, b) => b.valor - a.valor);
 
-  const producaoBase = unirProducao(producaoRemota, state.producao ?? []).filter((item) =>
-    diasMes.includes(diaDoApontamento(item)),
-  );
+  const producaoBase = juntarProducao(producaoRemota, state.producao ?? [], new Set(diasMes));
   const perdasPeriodo = paresDasEntradas(periodo);
   const diasDia = [state.date];
   function somaProducao(datasAlvo: string[], turno?: Turno) {
     const permitidas = new Set(datasAlvo);
     return producaoBase.reduce((soma, item) => {
-      const data = diaDoApontamento(item);
-      if (item.pares <= 0 || !permitidas.has(data)) return soma;
+      if (item.pares <= 0 || !permitidas.has(item.date)) return soma;
       if (turno && item.turno !== turno) return soma;
       return soma + item.pares;
     }, 0);
@@ -4119,6 +4115,18 @@ function juntarHistorico(remoto: Entry[], local: Entry[], datas: Set<string>): E
   const mapa = new Map(remoto.filter((entry) => datas.has(entry.date)).map((entry) => [entry.id, entry]));
   for (const entry of local) {
     if (datas.has(entry.date) && !mapa.has(entry.id)) mapa.set(entry.id, entry);
+  }
+  return [...mapa.values()];
+}
+
+function juntarProducao(remoto: ProducaoPares[], local: ProducaoPares[], datas: Set<string>): ProducaoPares[] {
+  const mapa = new Map<string, ProducaoPares>();
+  for (const item of [...remoto, ...local]) {
+    const date = diaDoApontamento(item);
+    if (!datas.has(date) || item.pares <= 0) continue;
+    const normal = { ...item, date, id: `${date}|${item.turno}|${item.machine}|${item.numero}` };
+    const prev = mapa.get(normal.id);
+    if (!prev || item.salvoEm >= prev.salvoEm) mapa.set(normal.id, normal);
   }
   return [...mapa.values()];
 }

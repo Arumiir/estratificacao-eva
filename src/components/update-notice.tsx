@@ -3,18 +3,30 @@ import { useEffect, useState } from "react";
 const RELOAD_KEY = "perdas-reload-for";
 
 function bundleAtual() {
-  return (
-    [...document.scripts]
-      .map((script) => script.src)
-      .find((src) => /\/assets\/index-[^/]+\.js$/.test(src)) ?? ""
-  );
+  return [...document.scripts]
+    .map((script) => script.src)
+    .filter((src) => /\/assets\/(?:index|routes)-[^/]+\.js$/.test(src))
+    .sort()
+    .join("|");
 }
 
 async function bundleRemoto() {
   const resposta = await fetch("/", { cache: "no-store", headers: { accept: "text/html" } });
   if (!resposta.ok) return "";
   const html = await resposta.text();
-  return html.match(/\/assets\/index-[^"]+\.js/)?.[0] ?? "";
+  return [...html.matchAll(/\/assets\/(?:index|routes)-[^"]+\.js/g)]
+    .map((item) => item[0])
+    .sort()
+    .join("|");
+}
+
+function nomes(lista: string) {
+  return lista
+    .split("|")
+    .map((item) => item.split("/").pop() ?? "")
+    .filter(Boolean)
+    .sort()
+    .join("|");
 }
 
 export function UpdateNotice() {
@@ -34,7 +46,7 @@ export function UpdateNotice() {
       } catch {
         return;
       }
-      if (parado || !remoto || atual.includes(remoto)) return;
+      if (parado || !remoto || nomes(atual) === nomes(remoto)) return;
       if (document.visibilityState === "hidden" && sessionStorage.getItem(RELOAD_KEY) !== remoto) {
         sessionStorage.setItem(RELOAD_KEY, remoto);
         window.location.reload();
