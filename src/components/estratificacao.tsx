@@ -144,6 +144,26 @@ function loadExcelSent() {
   }
 }
 
+const PRODUCAO_ZERO = "2026-11-02";
+const PRODUCAO_FLAG = "eva-producao-geracao";
+
+function producaoConfirmada(atual: ProducaoPares[], remota: ProducaoPares[], geracao?: string) {
+  if (geracao === PRODUCAO_ZERO && localStorage.getItem(PRODUCAO_FLAG) !== PRODUCAO_ZERO) {
+    try {
+      localStorage.setItem(PRODUCAO_FLAG, PRODUCAO_ZERO);
+    } catch {
+      /* a limpeza vale nesta abertura */
+    }
+    const corte = Date.now() - 2 * 60 * 1000;
+    const recentes = atual.filter((item) => item.salvoEm >= corte);
+    return mergeProducao(
+      recentes,
+      remota.filter((item) => item.date >= "2026-11-01" && item.salvoEm >= corte),
+    );
+  }
+  return mergeProducao(atual, remota);
+}
+
 function usePerdas() {
   const [state, setState] = useState<State | null>(null);
   const [cloud, setCloud] = useState<boolean | null>(null);
@@ -151,6 +171,7 @@ function usePerdas() {
 
   useEffect(() => {
     const loaded = loadState();
+    if (localStorage.getItem(PRODUCAO_FLAG) !== PRODUCAO_ZERO) loaded.producao = [];
     ref.current = loaded;
     setState(loaded);
   }, []);
@@ -293,10 +314,11 @@ function usePerdas() {
     const cores = state.cores.filter((item) => item.date === state.date);
     const fechamentos = (state.fechamentos ?? []).filter((item) => item.date === state.date);
     const producao = state.producao ?? [];
+    const producaoInformada = localStorage.getItem(PRODUCAO_FLAG) === PRODUCAO_ZERO ? producao : [];
     const outrosMudou = JSON.stringify(outros) !== lastOutros.current;
     const coresMudou = JSON.stringify(cores) !== lastCores.current;
     const fechamentosMudou = JSON.stringify(fechamentos) !== lastFechamentos.current;
-    const producaoMudou = JSON.stringify(producao) !== lastProducao.current;
+    const producaoMudou = JSON.stringify(producaoInformada) !== lastProducao.current;
     if (upserts.length === 0 && removed.length === 0 && Object.keys(grades).length === 0 && !outrosMudou && !coresMudou && !fechamentosMudou && !producaoMudou) {
       skipExcelBacklog.current = false;
       return;
@@ -310,7 +332,7 @@ function usePerdas() {
     const sentGrades = Object.keys(grades);
     const gen = gradesGen.current;
     const sentRevives = reviveIds;
-    void pushApontamentos({ data: { upserts: booted.current ? upserts : [], removed, grades: booted.current ? grades : {}, date: state.date, outros: booted.current ? outros : [], cores: booted.current ? cores : [], fechamentos: booted.current ? fechamentos : [], producao: booted.current ? producao : [], revives: sentRevives } })
+    void pushApontamentos({ data: { upserts: booted.current ? upserts : [], removed, grades: booted.current ? grades : {}, date: state.date, outros: booted.current ? outros : [], cores: booted.current ? cores : [], fechamentos: booted.current ? fechamentos : [], producao: booted.current ? producaoInformada : [], producaoGeracao: PRODUCAO_ZERO, revives: sentRevives } })
       .then((result) => {
         setCloud(result.cloud);
         if (booted.current) {
@@ -318,7 +340,7 @@ function usePerdas() {
           lastOutros.current = JSON.stringify(outros);
           lastCores.current = JSON.stringify(cores);
           lastFechamentos.current = JSON.stringify(fechamentos);
-          lastProducao.current = JSON.stringify(producao);
+          lastProducao.current = JSON.stringify(producaoInformada);
         }
         for (const id of sentRevives) revives.current.delete(id);
         if (gradesGen.current !== gen) return;
@@ -329,7 +351,7 @@ function usePerdas() {
 
   function takeRemote(
     current: State,
-    remote: { entries: Entry[]; removed: string[]; grades?: Record<string, StationConfig>; outros?: OutroMatriz[]; cores?: Cor[]; fechamentos?: Fechamento[]; producao?: ProducaoPares[] },
+    remote: { entries: Entry[]; removed: string[]; grades?: Record<string, StationConfig>; outros?: OutroMatriz[]; cores?: Cor[]; fechamentos?: Fechamento[]; producao?: ProducaoPares[]; producaoGeracao?: string },
   ) {
     for (const id of remote.removed) {
       held.current.delete(id);
@@ -375,7 +397,7 @@ function usePerdas() {
     const outros = mergeOutros(current.outros, remote.outros ?? []);
     const cores = mergeCores(current.cores, remote.cores ?? []);
     const fechamentos = mergeFechamentos(current.fechamentos ?? [], remote.fechamentos ?? []);
-    const producao = mergeProducao(current.producao ?? [], remote.producao ?? []);
+    const producao = producaoConfirmada(current.producao ?? [], remote.producao ?? [], remote.producaoGeracao);
     const outrosIguais = JSON.stringify(outros) === JSON.stringify(current.outros);
     const coresIguais = JSON.stringify(cores) === JSON.stringify(current.cores);
     const fechamentosIguais = JSON.stringify(fechamentos) === JSON.stringify(current.fechamentos);
@@ -416,12 +438,13 @@ function usePerdas() {
         const cores = current.cores.filter((item) => item.date === current.date);
         const fechamentos = (current.fechamentos ?? []).filter((item) => item.date === current.date);
         const producao = current.producao ?? [];
+        const producaoInformada = localStorage.getItem(PRODUCAO_FLAG) === PRODUCAO_ZERO ? producao : [];
         const outrosMudou = JSON.stringify(outros) !== lastOutros.current;
         const coresMudou = JSON.stringify(cores) !== lastCores.current;
         const fechamentosMudou = JSON.stringify(fechamentos) !== lastFechamentos.current;
-        const producaoMudou = JSON.stringify(producao) !== lastProducao.current;
+        const producaoMudou = JSON.stringify(producaoInformada) !== lastProducao.current;
         if (booted.current && (upserts.length > 0 || removed.length > 0 || reviveIds.length > 0 || outrosMudou || coresMudou || fechamentosMudou || producaoMudou)) {
-          void pushApontamentos({ data: { upserts, removed, revives: reviveIds, date: current.date, outros, cores, fechamentos, producao } })
+          void pushApontamentos({ data: { upserts, removed, revives: reviveIds, date: current.date, outros, cores, fechamentos, producao: producaoInformada, producaoGeracao: PRODUCAO_ZERO } })
             .then((result) => {
               setCloud(result.cloud);
               for (const entry of upserts) known.add(entry.id);
@@ -429,7 +452,7 @@ function usePerdas() {
               lastOutros.current = JSON.stringify(outros);
               lastCores.current = JSON.stringify(cores);
               lastFechamentos.current = JSON.stringify(fechamentos);
-              lastProducao.current = JSON.stringify(producao);
+              lastProducao.current = JSON.stringify(producaoInformada);
             })
             .catch(() => setCloud(false));
         }
@@ -2973,6 +2996,13 @@ function PainelHistorico({
     pullHistorico({ data: { ate: state.date, desde: diasDoMes(state.date)[0] ?? state.date } })
       .then((resultado) => {
         if (ativo) {
+          if (resultado.producaoGeracao === PRODUCAO_ZERO) {
+            try {
+              localStorage.setItem(PRODUCAO_FLAG, PRODUCAO_ZERO);
+            } catch {
+              /* segue sem gravar a marca */
+            }
+          }
           setRemoto(resultado.entries);
           setProducaoRemota(resultado.producao ?? []);
         }

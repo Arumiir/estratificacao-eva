@@ -188,27 +188,9 @@ export function todayISO(now = new Date()): string {
   return partesFortaleza(now.getTime()).date;
 }
 
-/** Dia do apontamento. Vale o dia mais antigo entre a data, o id e o momento em que salvou. */
-export function diaDoApontamento(item: { id?: string; date?: string; salvoEm?: unknown }): string {
-  const campo = typeof item.date === "string" ? (item.date.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? "") : "";
-  const doId = typeof item.id === "string" ? (item.id.match(/^\d{4}-\d{2}-\d{2}/)?.[0] ?? "") : "";
-  const salvo = instanteSalvo(item.salvoEm);
-  const relogio = salvo ? partesFortaleza(salvo).date : "";
-  const dias = [campo, doId, relogio].filter((dia) => /^\d{4}-\d{2}-\d{2}$/.test(dia));
-  return dias.sort()[0] ?? "";
-}
-
-function instanteSalvo(value: unknown): number {
-  let bruto = 0;
-  if (typeof value === "number" && Number.isFinite(value)) bruto = value;
-  else if (typeof value === "string" && value.trim()) {
-    const numero = Number(value);
-    bruto = Number.isFinite(numero) ? numero : Date.parse(value);
-  }
-  if (!Number.isFinite(bruto) || bruto <= 0) return 0;
-  const ms = bruto < 1e12 ? bruto * 1000 : bruto;
-  if (ms < Date.parse("2026-01-01T00:00:00Z")) return 0;
-  return ms;
+/** Dia em que a produção foi colocada. Não muda de mês. */
+export function diaDoApontamento(item: { date?: string }): string {
+  return typeof item.date === "string" ? (item.date.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? "") : "";
 }
 
 function diaAnterior(iso: string): string {
@@ -688,11 +670,7 @@ export function readProducao(value: unknown): ProducaoPares[] {
     const machine = parseMachine(item.machine);
     const turnoBruto = typeof item.turno === "number" ? String(item.turno) : item.turno;
     const turno = parseTurno(turnoBruto);
-    const date = diaDoApontamento({
-      id: typeof item.id === "string" ? item.id : "",
-      date: typeof item.date === "string" ? item.date : "",
-      salvoEm: item.salvoEm,
-    });
+    const date = diaDoApontamento({ date: typeof item.date === "string" ? item.date : "" });
     const numero = numeroLimpo(typeof item.numero === "string" ? item.numero : String(item.numero ?? ""));
     if (!machine || !turno || !numero || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return [];
     const paresBrutos = typeof item.pares === "number" ? item.pares : Number(item.pares);
@@ -705,7 +683,7 @@ export function readProducao(value: unknown): ProducaoPares[] {
         machine,
         numero,
         pares,
-        salvoEm: instanteSalvo(item.salvoEm),
+        salvoEm: typeof item.salvoEm === "number" && Number.isFinite(item.salvoEm) ? item.salvoEm : 0,
       },
     ];
   });
