@@ -309,6 +309,13 @@ export function numeroLimpo(valor: string): string {
   return /\d/.test(limpo) ? limpo : "";
 }
 
+/** "01", "001" e "1" são a mesma referência. Texto que não é só número fica como está. */
+export function referenciaLimpa(valor: string): string {
+  const texto = valor.trim();
+  if (!/^\d+$/.test(texto)) return texto;
+  return texto.replace(/^0+/, "") || "0";
+}
+
 export function activeMatrix(
   config: StationConfig | undefined,
   side: Side,
@@ -321,14 +328,14 @@ export function activeMatrix(
       : config.dir;
   const numero = numeroLimpo(slot.numero);
   if (!numero) return null;
-  return { numero, referencia: slot.referencia.trim() };
+  return { numero, referencia: referenciaLimpa(slot.referencia) };
 }
 
 export function describeMatrix(config: StationConfig | undefined, side: Side): string {
   const slot = activeMatrix(config, side);
   if (!slot) return "";
   const numero = slot.numero.trim();
-  const referencia = slot.referencia.trim();
+  const referencia = referenciaLimpa(slot.referencia);
   if (numero && referencia) return `${numero} · ${referencia}`;
   return numero || referencia;
 }
@@ -354,7 +361,7 @@ export function withMatrix(entry: Entry, stations: Record<string, StationConfig>
   const slot = activeMatrix(stations[stationKey(entry.machine, entry.station)], entry.side);
   if (!slot) return entry;
   const numero = slot.numero.trim();
-  const referencia = slot.referencia.trim();
+  const referencia = referenciaLimpa(slot.referencia);
   if (entry.matrizNumero === numero && entry.matrizRel === referencia) return entry;
   return { ...entry, matrizNumero: numero, matrizRel: referencia };
 }
@@ -400,7 +407,7 @@ function readSlot(v: unknown): MatrixSlot {
     typeof v.referencia === "string" ? v.referencia : typeof v.rel === "string" ? v.rel : "";
   return {
     numero: typeof v.numero === "string" ? v.numero : "",
-    referencia,
+    referencia: referenciaLimpa(referencia),
   };
 }
 
@@ -464,7 +471,7 @@ function readEntry(v: unknown): Entry | null {
     problem,
     at: v.at,
     matrizNumero: typeof v.matrizNumero === "string" ? v.matrizNumero : "",
-    matrizRel: typeof v.matrizRel === "string" ? v.matrizRel : "",
+    matrizRel: typeof v.matrizRel === "string" ? referenciaLimpa(v.matrizRel) : "",
     autor: typeof v.autor === "string" ? v.autor.slice(0, 32) : "",
     outroId: typeof v.outroId === "string" ? v.outroId : "",
     corId: typeof v.corId === "string" ? v.corId : "",
@@ -482,7 +489,7 @@ export function readOutros(value: unknown): OutroMatriz[] {
     const date = typeof item.date === "string" ? item.date : "";
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return [];
     const numero = typeof item.numero === "string" ? item.numero.trim() : "";
-    const referencia = typeof item.referencia === "string" ? item.referencia.trim() : "";
+    const referencia = typeof item.referencia === "string" ? referenciaLimpa(item.referencia) : "";
     if (!numero && !referencia) return [];
     const station = typeof item.station === "number" && item.station >= 1 && item.station <= 8 ? item.station : 0;
     const ambos = item.ambos === true;
@@ -675,7 +682,7 @@ export function gradeDaCor(state: State, corId: string, station: number): Statio
 
 function aplicarSlot(entry: Entry, slot: { numero: string; referencia: string } | null | undefined, corNome?: string): Entry {
   const numero = numeroLimpo(slot?.numero ?? entry.matrizNumero);
-  const referencia = numero ? (slot?.referencia.trim() ?? entry.matrizRel) : "";
+  const referencia = numero ? referenciaLimpa(slot?.referencia ?? entry.matrizRel) : "";
   const nome = corNome ?? entry.corNome;
   if (entry.matrizNumero === numero && entry.matrizRel === referencia && entry.corNome === nome) return entry;
   return { ...entry, matrizNumero: numero, matrizRel: referencia, corNome: nome };
@@ -816,12 +823,12 @@ export function fichaLines(state: State, machine: MachineId): FichaLine[] {
           return SIDES.map((side) => {
             const slot = activeMatrix(config, side);
             let numero = slot?.numero ?? "";
-            let referencia = slot ? slot.referencia.trim() : "";
+            let referencia = slot ? referenciaLimpa(slot.referencia) : "";
             const doLado = entries.filter((entry) => entry.station === station && entry.side === side);
             if (!numero) {
               const latest = [...doLado].sort((a, b) => b.at - a.at)[0];
               numero = numeroLimpo(latest?.matrizNumero ?? "");
-              referencia = numero ? (latest?.matrizRel.trim() ?? "") : "";
+              referencia = numero ? referenciaLimpa(latest?.matrizRel ?? "") : "";
             }
             const counts = PROBLEMS.map(
               (problem) => doLado.filter((entry) => entry.problem === problem.id).length,
@@ -846,7 +853,7 @@ export function fichaLines(state: State, machine: MachineId): FichaLine[] {
           station: item.station,
           side,
           numero,
-          referencia: numero ? item.referencia.trim() : "",
+          referencia: numero ? referenciaLimpa(item.referencia) : "",
           shared: item.ambos,
           counts,
           outroId: item.id,

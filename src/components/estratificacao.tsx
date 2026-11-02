@@ -33,6 +33,7 @@ import {
   machineHasFicha,
   machineHasMatrices,
   numeroLimpo,
+  referenciaLimpa,
   mergeOutros,
   mergeCores,
   mergeFechamentos,
@@ -917,7 +918,7 @@ export function EstratificacaoApp() {
     referencia: string,
   ) {
     const cleanNumero = numero.trim();
-    const cleanRef = referencia.trim();
+    const cleanRef = referenciaLimpa(referencia);
     if (station < 1 || station > 8) {
       flash("Escolha a estação.");
       return;
@@ -1014,7 +1015,7 @@ export function EstratificacaoApp() {
           );
       snapshot = {
         numero: numeroLimpo(slot?.numero ?? ""),
-        referencia: numeroLimpo(slot?.numero ?? "") ? (slot?.referencia.trim() ?? "") : "",
+        referencia: numeroLimpo(slot?.numero ?? "") ? referenciaLimpa(slot?.referencia ?? "") : "",
       };
       const entry: Entry = {
         id,
@@ -2598,7 +2599,7 @@ function NumberPair({
   return (
     <div className="grid grid-cols-2 gap-2">
       <Field label="Numeração" value={numero} placeholder="39/0" onChange={onNumero} />
-      <Field label="Referência" value={referencia} placeholder="01" onChange={onReferencia} />
+      <Field label="Referência" value={referencia} placeholder="1" onChange={(valor) => onReferencia(referenciaLimpa(valor))} />
     </div>
   );
 }
@@ -2942,7 +2943,7 @@ function lerFiltros(): FiltrosDash {
       maquina,
       estacao,
       numero: typeof item.numero === "string" && item.numero ? item.numero : null,
-      referencia: typeof item.referencia === "string" && item.referencia ? item.referencia : null,
+      referencia: typeof item.referencia === "string" && item.referencia ? referenciaLimpa(item.referencia) : null,
       lado,
       turno,
       problema,
@@ -3030,8 +3031,8 @@ function PainelHistorico({
   const numerosJanela = [...new Set(recorteLista.map((entry) => numeroLimpo(entry.matrizNumero)).filter(Boolean))].sort((a, b) =>
     a.localeCompare(b, "pt-BR", { numeric: true }),
   );
-  const referenciasJanela = [...new Set(recorteLista.map((entry) => entry.matrizRel.trim() || "sem ref."))].sort((a, b) =>
-    a.localeCompare(b, "pt-BR"),
+  const referenciasJanela = [...new Set(recorteLista.map((entry) => referenciaLimpa(entry.matrizRel) || "sem ref."))].sort((a, b) =>
+    a.localeCompare(b, "pt-BR", { numeric: true }),
   );
   const numeroAtivo = numero && numerosJanela.includes(numero) ? numero : null;
   const refAtiva = referencia && referenciasJanela.includes(referencia) ? referencia : null;
@@ -3039,7 +3040,7 @@ function PainelHistorico({
     if (maquina && entry.machine !== maquina) return false;
     if (estacao !== null && entry.station !== estacao) return false;
     if (numeroAtivo !== null && numeroLimpo(entry.matrizNumero) !== numeroAtivo) return false;
-    if (refAtiva !== null && (entry.matrizRel.trim() || "sem ref.") !== refAtiva) return false;
+    if (refAtiva !== null && (referenciaLimpa(entry.matrizRel) || "sem ref.") !== refAtiva) return false;
     if (lado && entry.side !== lado) return false;
     if (turnoFiltro && entry.turno !== turnoFiltro) return false;
     if (problema && entry.problem !== problema) return false;
@@ -3851,7 +3852,7 @@ function rankNumeros(entries: Entry[], limite = 12) {
   for (const entry of entries) {
     const numero = numeroLimpo(entry.matrizNumero);
     if (!numero) continue;
-    const referencia = entry.matrizRel.trim();
+    const referencia = referenciaLimpa(entry.matrizRel);
     const chave = `${entry.machine}||${numero}||${referencia}`;
     const atual = grupos.get(chave) ?? {
       machine: entry.machine,
@@ -4917,7 +4918,7 @@ function estacoesDoDia(state: State, machine: MachineId, lines: FichaLine[]) {
 function textoDaLinha(line: FichaLine | undefined): string {
   if (!line) return "";
   const numero = line.numero.trim();
-  const referencia = line.referencia.trim();
+  const referencia = referenciaLimpa(line.referencia);
   if (numero && referencia) return `${numero} · ${referencia}`;
   return numero || referencia;
 }
