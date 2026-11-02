@@ -3534,7 +3534,7 @@ const ABAS_RANKING = [
 ] as const;
 
 const FAIXA_RANKING: Record<(typeof ABAS_RANKING)[number][0], string> = {
-  "24": "#4682B4",
+  "24": "#1d7a45",
   "1": "#2a2a2a",
   "2": "#1f5f99",
   "3": "#9b2c2c",
