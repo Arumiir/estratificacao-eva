@@ -563,13 +563,22 @@ export function EstratificacaoApp() {
   const [dir, setDir] = useState<"forward" | "back">("forward");
   const [banner, setBanner] = useState<Banner | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  const [rolou, setRolou] = useState(false);
   const stackRef = useRef<Screen[]>([{ kind: "papel" }]);
   const homeRef = useRef<Screen>({ kind: "papel" });
   const depthRef = useRef(1);
   const skipPopRef = useRef(0);
-
   const screen = stack[stack.length - 1] ?? { kind: "turnos" as const };
   const key = screenKey(screen);
+
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const medir = () => setRolou(el.scrollTop > 420);
+    medir();
+    el.addEventListener("scroll", medir, { passive: true });
+    return () => el.removeEventListener("scroll", medir);
+  }, [key]);
 
   function stampDepth(depth: number) {
     const current = window.history.state;
@@ -1357,6 +1366,16 @@ export function EstratificacaoApp() {
           ) : null}
         </div>
       </div>
+      {rolou ? (
+        <button
+          type="button"
+          aria-label="Voltar ao início"
+          onClick={() => scroller.current?.scrollTo({ top: 0, behavior: "smooth" })}
+          className="fixed bottom-6 right-4 z-40 grid size-11 place-items-center rounded-full border border-[#d5dee8] bg-white text-[#1e3a5f] shadow-[0_8px_20px_rgba(30,58,95,0.16)]"
+        >
+          <ChevronDown className="size-5 rotate-180" />
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -1857,42 +1876,113 @@ function nomeDia(iso: string): string {
   return nome ? nome.charAt(0).toUpperCase() + nome.slice(1) : iso;
 }
 
+const MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+
+function celulasDoMes(ano: number, mes: number): Array<string | null> {
+  const primeira = new Date(Date.UTC(ano, mes - 1, 1));
+  const folga = (primeira.getUTCDay() + 6) % 7;
+  const ultimo = new Date(Date.UTC(ano, mes, 0)).getUTCDate();
+  const celulas: Array<string | null> = Array.from({ length: folga }, () => null);
+  for (let dia = 1; dia <= ultimo; dia += 1) {
+    celulas.push(`${ano}-${String(mes).padStart(2, "0")}-${String(dia).padStart(2, "0")}`);
+  }
+  return celulas;
+}
+
 function SeletorDia({ date, today, onDate }: { date: string; today: string; onDate: (date: string) => void }) {
+  const [aberto, setAberto] = useState(false);
+  const [ano, setAno] = useState(Number(date.slice(0, 4)));
+  const [mes, setMes] = useState(Number(date.slice(5, 7)));
+
+  function abrir() {
+    setAno(Number(date.slice(0, 4)) || Number(today.slice(0, 4)));
+    setMes(Number(date.slice(5, 7)) || Number(today.slice(5, 7)));
+    setAberto(true);
+  }
+
+  function mudarMes(delta: number) {
+    const cursor = new Date(Date.UTC(ano, mes - 1 + delta, 1));
+    setAno(cursor.getUTCFullYear());
+    setMes(cursor.getUTCMonth() + 1);
+  }
+
   return (
-    <div className="flex items-center justify-between gap-2 rounded-2xl border border-[#d5dee8] bg-white px-1.5 py-1">
-      <button
-        type="button"
-        aria-label="Dia anterior"
-        onClick={() => onDate(moverDia(date, -1))}
-        className="grid size-11 place-items-center rounded-xl text-[#1e3a5f]"
-      >
-        <ChevronLeft className="size-5" />
-      </button>
-      <label className="relative min-w-0 flex-1 cursor-pointer text-center">
-        <p className="text-base font-semibold leading-tight">{formatDateBR(date)}</p>
-        <p className="text-xs text-muted">{date === today ? "Hoje" : nomeDia(date)}</p>
-        <input
-          type="date"
-          value={date}
-          max={today}
-          aria-label="Escolher data"
-          onChange={(event) => {
-            const valor = event.target.value;
-            if (valor && valor <= today) onDate(valor);
+    <>
+      <div className="flex items-center justify-between gap-2 rounded-2xl border border-[#d5dee8] bg-white px-1.5 py-1">
+        <button
+          type="button"
+          aria-label="Dia anterior"
+          onClick={() => onDate(moverDia(date, -1))}
+          className="grid size-11 place-items-center rounded-xl text-[#1e3a5f]"
+        >
+          <ChevronLeft className="size-5" />
+        </button>
+        <button type="button" onClick={abrir} className="min-w-0 flex-1 text-center">
+          <p className="text-base font-semibold leading-tight">{formatDateBR(date)}</p>
+          <p className="text-xs text-muted">{date === today ? "Hoje" : nomeDia(date)}</p>
+        </button>
+        <button
+          type="button"
+          aria-label="Próximo dia"
+          disabled={date >= today}
+          onClick={() => onDate(moverDia(date, 1))}
+          className="grid size-11 place-items-center rounded-xl text-[#1e3a5f] disabled:opacity-30"
+        >
+          <ChevronRight className="size-5" />
+        </button>
+      </div>
+      {aberto ? (
+        <div
+          className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setAberto(false);
           }}
-          className="absolute inset-0 cursor-pointer opacity-0"
-        />
-      </label>
-      <button
-        type="button"
-        aria-label="Próximo dia"
-        disabled={date >= today}
-        onClick={() => onDate(moverDia(date, 1))}
-        className="grid size-11 place-items-center rounded-xl text-[#1e3a5f] disabled:opacity-30"
-      >
-        <ChevronRight className="size-5" />
-      </button>
-    </div>
+        >
+          <div className="w-full max-w-sm rounded-3xl bg-white p-4 shadow-xl">
+            <div className="flex items-center justify-between gap-2">
+              <button type="button" aria-label="Mês anterior" onClick={() => mudarMes(-1)} className="grid size-10 place-items-center rounded-xl text-[#1e3a5f]">
+                <ChevronLeft className="size-5" />
+              </button>
+              <p className="text-base font-semibold">{MESES[mes - 1]} {ano}</p>
+              <button type="button" aria-label="Próximo mês" onClick={() => mudarMes(1)} className="grid size-10 place-items-center rounded-xl text-[#1e3a5f]">
+                <ChevronRight className="size-5" />
+              </button>
+            </div>
+            <div className="mt-3 grid grid-cols-7 gap-1 text-center text-xs font-semibold text-muted">
+              {["S", "T", "Q", "Q", "S", "S", "D"].map((letra, index) => (
+                <span key={`${letra}-${index}`}>{letra}</span>
+              ))}
+            </div>
+            <div className="mt-1 grid grid-cols-7 gap-1">
+              {celulasDoMes(ano, mes).map((iso, index) =>
+                iso ? (
+                  <button
+                    key={iso}
+                    type="button"
+                    disabled={iso > today}
+                    onClick={() => {
+                      onDate(iso);
+                      setAberto(false);
+                    }}
+                    className={cx(
+                      "grid h-10 place-items-center rounded-xl text-sm font-semibold disabled:opacity-30",
+                      iso === date ? "bg-[#4682B4] text-white" : iso === today ? "bg-[#e7eef5] text-[#1e3a5f]" : "text-fg",
+                    )}
+                  >
+                    {Number(iso.slice(8))}
+                  </button>
+                ) : (
+                  <span key={`vazio-${index}`} />
+                ),
+              )}
+            </div>
+            <button type="button" onClick={() => setAberto(false)} className="mt-3 w-full rounded-2xl bg-[#f3f6fb] py-3 text-sm font-semibold">
+              Fechar
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }
 

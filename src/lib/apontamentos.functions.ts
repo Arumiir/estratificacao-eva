@@ -25,6 +25,11 @@ function cloudOn() {
 async function acertarTerceiroTurno() {
   if (usesBlob() || dbSource !== "neon") return;
   const sql = await getSql();
+  const marca = "2026-11-03";
+  const feito = await sql<{ key: string }>`
+    select key from grades where date = ${marca} and key = ${"__acerto_terceiro__"} limit 1
+  `;
+  if (feito.length > 0) return;
   const rows = await sql<{ id: string; date: string; at: number }>`
     select id, date, at from apontamentos where turno = ${"3"}
   `;
@@ -34,6 +39,11 @@ async function acertarTerceiroTurno() {
     if (!dia || dia === atual) continue;
     await sql`update apontamentos set date = ${dia} where id = ${row.id}`;
   }
+  await sql`
+    insert into grades (date, key, config)
+    values (${marca}, ${"__acerto_terceiro__"}, ${JSON.stringify({ em: Date.now() })}::jsonb)
+    on conflict (date, key) do nothing
+  `;
 }
 
 function excelUrl() {
