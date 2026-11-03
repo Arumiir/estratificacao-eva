@@ -1868,10 +1868,21 @@ function SeletorDia({ date, today, onDate }: { date: string; today: string; onDa
       >
         <ChevronLeft className="size-5" />
       </button>
-      <button type="button" onClick={() => onDate(today)} className="min-w-0 flex-1 text-center">
+      <label className="relative min-w-0 flex-1 cursor-pointer text-center">
         <p className="text-base font-semibold leading-tight">{formatDateBR(date)}</p>
         <p className="text-xs text-muted">{date === today ? "Hoje" : nomeDia(date)}</p>
-      </button>
+        <input
+          type="date"
+          value={date}
+          max={today}
+          aria-label="Escolher data"
+          onChange={(event) => {
+            const valor = event.target.value;
+            if (valor && valor <= today) onDate(valor);
+          }}
+          className="absolute inset-0 cursor-pointer opacity-0"
+        />
+      </label>
       <button
         type="button"
         aria-label="Próximo dia"
