@@ -169,6 +169,7 @@ const JANELA_MINUTOS: Record<Turno, readonly [number, number]> = {
 
 export function dentroDaJanela(turno: Turno, now = Date.now()): boolean {
   const { minutes } = partesFortaleza(now);
+  if (turno === "3") return minutes >= 23 * 60 || minutes <= 6 * 60 + 15;
   const [inicio, fim] = JANELA_MINUTOS[turno];
   return minutes >= inicio && minutes <= fim;
 }
@@ -179,7 +180,8 @@ export function podeAlterarApontamento(
 ): boolean {
   if (apontamentoBloqueado(entry)) return false;
   const agora = partesFortaleza(now);
-  if (entry.date !== agora.date) return false;
+  const dia = entry.turno === "1" || entry.turno === "2" || entry.turno === "3" ? diaOperacional(entry.turno, now) : agora.date;
+  if (entry.date !== dia) return false;
   if (entry.turno !== "1" && entry.turno !== "2" && entry.turno !== "3") return false;
   return dentroDaJanela(entry.turno, now);
 }
@@ -203,11 +205,15 @@ function diaAnterior(iso: string): string {
   return `${cursor.getUTCFullYear()}-${mes}-${dia}`;
 }
 
-/** O 3º turno atravessa a meia-noite: de 23:00 até 06:00 é o mesmo dia de grade. */
+/** O 3º turno atravessa a meia-noite: de 23:00 até 06:15 ainda é o dia em que ele começou. */
 export function diaOperacional(turno: Turno, now = Date.now()): string {
   const { date, minutes } = partesFortaleza(now);
-  if (turno === "3" && minutes < 6 * 60) return diaAnterior(date);
+  if (turno === "3" && minutes <= 6 * 60 + 15) return diaAnterior(date);
   return date;
+}
+
+export function diaDeHoje(now = Date.now()): string {
+  return diaOperacional(turnoPeloRelogio(now), now);
 }
 
 export function diasAte(ate: string, quantidade: number): string[] {

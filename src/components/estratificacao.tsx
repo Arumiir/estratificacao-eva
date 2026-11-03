@@ -3,6 +3,7 @@ import { InstallPrompt } from "@/components/install-prompt";
 import { UpdateNotice } from "@/components/update-notice";
 import {
   ChevronLeft,
+  ChevronRight,
   ChevronDown,
   Eraser,
   ImageDown,
@@ -47,6 +48,7 @@ import {
   shiftEntries,
   stationKey,
   todayISO,
+  diaDeHoje,
   turnoPeloRelogio,
   diaOperacional,
   TURNO_LABEL,
@@ -151,13 +153,18 @@ function usePerdas() {
 
   useEffect(() => {
     const loaded = loadState();
+    loaded.entries = loaded.entries.map((entry) => {
+      if (entry.turno !== "3" || !entry.at) return entry;
+      const dia = diaOperacional("3", entry.at);
+      return dia && dia !== entry.date ? { ...entry, date: dia } : entry;
+    });
     ref.current = loaded;
     setState(loaded);
   }, []);
 
   useEffect(() => {
     function snapToToday() {
-      const today = todayISO();
+      const today = diaDeHoje();
       setState((current) => {
         if (!current || current.date === today) return current;
         const next = { ...current, date: today };
@@ -729,7 +736,7 @@ export function EstratificacaoApp() {
 
   function avisoFechado(entry: Entry) {
     if (apontamentoBloqueado(entry)) return "Turno bloqueado.";
-    if (entry.date !== todayISO()) return "Dia fechado.";
+    if (entry.date !== diaDeHoje() && entry.date !== diaOperacional(entry.turno === "1" || entry.turno === "2" || entry.turno === "3" ? entry.turno : "1", entry.at || Date.now())) return "Dia fechado.";
     return "Fora do horário.";
   }
 
@@ -751,7 +758,7 @@ export function EstratificacaoApp() {
 
   const papel = sessao?.papel ?? null;
 
-  const today = todayISO();
+  const today = diaDeHoje();
   const offDay = state.date !== today;
 
   function setDate(date: string) {
@@ -993,12 +1000,13 @@ export function EstratificacaoApp() {
   function addProblem(machine: MachineId, station: number, side: Side, problem: string, outroId = "", corId = "") {
     const current = read();
     if (!current) return;
-    if (current.date !== todayISO()) {
+    const at = Date.now();
+    const turno = sessao?.papel === "preparador" ? (sessao.turno ?? "1") : turnoPeloRelogio(at);
+    const dia = diaOperacional(turno, at);
+    if (current.date !== dia) {
       flash("Dia fechado.");
       return;
     }
-    const at = Date.now();
-    const turno = sessao?.papel === "preparador" ? (sessao.turno ?? "1") : turnoPeloRelogio(at);
     if (!dentroDaJanela(turno, at)) {
       flash("Fora do horário.");
       return;
@@ -1020,7 +1028,7 @@ export function EstratificacaoApp() {
       };
       const entry: Entry = {
         id,
-        date: todayISO(),
+        date: dia,
         turno,
         machine,
         station: outro ? outro.station || station : station,
@@ -1034,7 +1042,7 @@ export function EstratificacaoApp() {
         corId: outro ? "" : (cor?.id ?? ""),
         corNome: outro ? "" : (cor?.nome ?? ""),
       };
-      return { ...stateNow, turno, date: todayISO(), entries: [...stateNow.entries, entry] };
+      return { ...stateNow, turno, date: dia, entries: [...stateNow.entries, entry] };
     });
     navigator.vibrate?.(12);
     const where = `${problemName(problem)} · ${SIDE_LABEL[side].toLowerCase()}`;
@@ -1831,10 +1839,55 @@ function TurnoPicker({ value, onChange }: { value: Turno; onChange: (turno: Turn
   );
 }
 
+function moverDia(iso: string, delta: number): string {
+  const [year, month, day] = iso.split("-").map(Number);
+  if (!year || !month || !day) return iso;
+  const cursor = new Date(Date.UTC(year, month - 1, day));
+  cursor.setUTCDate(cursor.getUTCDate() + delta);
+  const mes = String(cursor.getUTCMonth() + 1).padStart(2, "0");
+  const dia = String(cursor.getUTCDate()).padStart(2, "0");
+  return `${cursor.getUTCFullYear()}-${mes}-${dia}`;
+}
+
+function nomeDia(iso: string): string {
+  const nome = new Date(`${iso}T12:00:00-03:00`).toLocaleDateString("pt-BR", {
+    weekday: "long",
+    timeZone: "America/Fortaleza",
+  });
+  return nome ? nome.charAt(0).toUpperCase() + nome.slice(1) : iso;
+}
+
+function SeletorDia({ date, today, onDate }: { date: string; today: string; onDate: (date: string) => void }) {
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-2xl border border-[#d5dee8] bg-white px-1.5 py-1">
+      <button
+        type="button"
+        aria-label="Dia anterior"
+        onClick={() => onDate(moverDia(date, -1))}
+        className="grid size-11 place-items-center rounded-xl text-[#1e3a5f]"
+      >
+        <ChevronLeft className="size-5" />
+      </button>
+      <button type="button" onClick={() => onDate(today)} className="min-w-0 flex-1 text-center">
+        <p className="text-base font-semibold leading-tight">{formatDateBR(date)}</p>
+        <p className="text-xs text-muted">{date === today ? "Hoje" : nomeDia(date)}</p>
+      </button>
+      <button
+        type="button"
+        aria-label="Próximo dia"
+        disabled={date >= today}
+        onClick={() => onDate(moverDia(date, 1))}
+        className="grid size-11 place-items-center rounded-xl text-[#1e3a5f] disabled:opacity-30"
+      >
+        <ChevronRight className="size-5" />
+      </button>
+    </div>
+  );
+}
+
 function DayControls({
   state,
   today,
-  offDay,
   onDate,
 }: {
   state: State;
@@ -1843,25 +1896,8 @@ function DayControls({
   onDate: (date: string) => void;
 }) {
   return (
-    <div className="mx-auto mb-4 w-full max-w-md">
-      <div className="mb-3 flex gap-2">
-        <input
-          type="date"
-          value={state.date}
-          onChange={(event) => onDate(event.target.value)}
-          aria-label="Data"
-          className="min-w-0 flex-1 rounded-tile border border-line bg-surface-2 px-3 py-3 text-base font-semibold text-fg"
-        />
-        {offDay ? (
-          <button
-            type="button"
-            onClick={() => onDate(today)}
-            className="rounded-tile bg-accent px-4 font-semibold text-accent-ink"
-          >
-            Hoje
-          </button>
-        ) : null}
-      </div>
+    <div className="mb-4 w-full max-w-md">
+      <SeletorDia date={state.date} today={today} onDate={onDate} />
     </div>
   );
 }
@@ -3130,6 +3166,7 @@ function PainelHistorico({
 
   return (
     <div className="grid min-w-0 gap-4">
+      <SeletorDia date={state.date} today={today} onDate={onDate} />
       <BarraDash aba={aba} onAba={onAba}>
         <button
           type="button"
@@ -3253,20 +3290,6 @@ function PainelHistorico({
                       {label}
                     </OpcaoFiltro>
                   ))}
-                </div>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <input
-                    type="date"
-                    value={state.date}
-                    aria-label="Até"
-                    onChange={(event) => onDate(event.target.value)}
-                    className="rounded-xl border border-line bg-white px-3 py-2 text-sm font-semibold"
-                  />
-                  {state.date !== today ? (
-                    <button type="button" onClick={() => onDate(today)} className="text-sm font-semibold text-[#2457b8]">
-                      Hoje
-                    </button>
-                  ) : null}
                 </div>
               </div>
               <GrupoFiltro titulo="Máquina">
@@ -3652,7 +3675,11 @@ function RankingDoDia({ entries, data }: { entries: Entry[]; data: string }) {
       </div>
       <div>
         <h3 className="text-base font-semibold">Ranking do dia</h3>
-        <p className="text-sm text-muted">{formatDateBR(data)}{aviso ? ` · ${aviso}` : ""}</p>
+        <p className="text-sm text-muted">
+          {formatDateBR(data)}
+          {aba === "24" ? " · 1º, 2º e 3º turno" : ""}
+          {aviso ? ` · ${aviso}` : ""}
+        </p>
       </div>
       {maquinas.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-[#d5dee8] bg-white px-4 py-6 text-center text-sm text-muted">
@@ -4431,24 +4458,9 @@ function PainelMesa({
       <aside className="grid content-start gap-4 xl:sticky xl:top-3">
         <section className="min-w-0 max-w-full rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
           <p className="text-sm font-semibold">Filtros</p>
-          <label className="mt-3 block text-xs font-semibold text-muted">
-            Data
-            <input
-              type="date"
-              value={state.date}
-              onChange={(event) => onDate(event.target.value)}
-              className="mt-1 w-full rounded-xl border border-line bg-[#f7f9fc] px-3 py-2 text-sm font-semibold text-fg"
-            />
-          </label>
-          {offDay ? (
-            <button
-              type="button"
-              onClick={() => onDate(today)}
-              className="mt-2 w-full rounded-full bg-[#2457b8] py-2 text-sm font-semibold text-white"
-            >
-              Voltar para hoje
-            </button>
-          ) : null}
+          <div className="mt-3">
+            <SeletorDia date={state.date} today={today} onDate={onDate} />
+          </div>
           <p className="mt-4 text-xs font-semibold text-muted">Turno</p>
           {papel === "lider" ? (
             <div className="mt-1">

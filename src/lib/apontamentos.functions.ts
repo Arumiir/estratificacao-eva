@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { pullDay, pushDays } from "@/lib/apontamentos-blob";
 import { dbSource, getSql } from "@/lib/db";
-import { apontamentoBloqueado, coerceEntry, diasAte, mergeCores, mergeFechamentos, mergeOutros, mergeProducao, podeAlterarApontamento, problemName, readCores, readFechamentos, readGrades, readOutros, readProducao, todayISO, turnoPeloRelogio, type Cor, type Entry, type Fechamento, type OutroMatriz, type ProducaoPares, type StationConfig } from "@/lib/perdas";
+import { apontamentoBloqueado, coerceEntry, diaOperacional, diasAte, mergeCores, mergeFechamentos, mergeOutros, mergeProducao, podeAlterarApontamento, problemName, readCores, readFechamentos, readGrades, readOutros, readProducao, turnoPeloRelogio, type Cor, type Entry, type Fechamento, type OutroMatriz, type ProducaoPares, type StationConfig } from "@/lib/perdas";
 
 type SyncResult = {
   entries: Entry[];
@@ -20,6 +20,20 @@ function usesBlob() {
 
 function cloudOn() {
   return dbSource === "neon" || Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim());
+}
+
+async function acertarTerceiroTurno() {
+  if (usesBlob() || dbSource !== "neon") return;
+  const sql = await getSql();
+  const rows = await sql<{ id: string; date: string; at: number }>`
+    select id, date, at from apontamentos where turno = ${"3"}
+  `;
+  for (const row of rows) {
+    const dia = diaOperacional("3", Number(row.at));
+    const atual = String(row.date).slice(0, 10);
+    if (!dia || dia === atual) continue;
+    await sql`update apontamentos set date = ${dia} where id = ${row.id}`;
+  }
 }
 
 function excelUrl() {
@@ -148,10 +162,9 @@ export const pushApontamentos = createServerFn({ method: "POST" })
       const row = existing[0];
       if (row && (apontamentoBloqueado({ date: row.date, turno: row.turno, at: Number(row.at) }) || !podeAlterarApontamento({ date: row.date, turno: row.turno, at: Number(row.at) }))) continue;
       const turnoInformado = entry.turno === "1" || entry.turno === "2" || entry.turno === "3" ? entry.turno : turnoPeloRelogio(entry.at);
-      const salvo = row
-        ? entry
-        : { ...entry, date: todayISO(new Date(entry.at)), turno: turnoInformado };
-      if (!row && salvo.date !== todayISO()) continue;
+      const dia = diaOperacional(turnoInformado, Number(entry.at) || Date.now());
+      const salvo = row ? entry : { ...entry, date: dia, turno: turnoInformado };
+      if (!row && salvo.date !== dia) continue;
       await sql`delete from apontamentos_removidos where id = ${entry.id}`;
       await sql`
         insert into apontamentos (id, date, turno, machine, station, side, problem, at, numero, referencia, autor, outro, cor, cor_nome)
@@ -256,6 +269,7 @@ export const pullApontamentos = createServerFn({ method: "POST" })
       const day = await pullDay(data.date);
       return { entries: day.entries, removed: day.removed, grades: day.grades, outros: day.outros, cores: [], fechamentos: [], producao: [], cloud: true };
     }
+    await acertarTerceiroTurno();
     const sql = await getSql();
     const rows = await sql<{
       id: string;
@@ -333,6 +347,7 @@ export const pullHistorico = createServerFn({ method: "POST" })
       const days = await Promise.all(datas.map((date) => pullDay(date)));
       return { entries: days.flatMap((day) => day.entries), producao: [], cloud: true };
     }
+    await acertarTerceiroTurno();
     const sql = await getSql();
     const rows = await sql<{
       id: string;

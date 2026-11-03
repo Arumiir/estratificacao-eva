@@ -1,5 +1,5 @@
 import type { Entry, OutroMatriz, StationConfig } from "@/lib/perdas";
-import { apontamentoBloqueado, coerceEntry, mergeOutros, podeAlterarApontamento, readGrades, readOutros, todayISO, turnoPeloRelogio } from "@/lib/perdas";
+import { apontamentoBloqueado, coerceEntry, diaOperacional, mergeOutros, podeAlterarApontamento, readGrades, readOutros, turnoPeloRelogio } from "@/lib/perdas";
 
 type DayBag = { entries: Entry[]; removed: string[]; grades: Record<string, StationConfig>; outros: OutroMatriz[] };
 
@@ -38,11 +38,11 @@ export function applyDayChanges(
     if (prev && fechado(prev)) continue;
     const next = { ...entry };
     if (!prev) {
-      const hoje = todayISO(new Date(agora));
-      const quando = todayISO(new Date(entry.at));
-      if (quando !== hoje) continue;
-      next.date = quando;
-      next.turno = entry.turno === "1" || entry.turno === "2" || entry.turno === "3" ? entry.turno : turnoPeloRelogio(entry.at);
+      const turno = entry.turno === "1" || entry.turno === "2" || entry.turno === "3" ? entry.turno : turnoPeloRelogio(entry.at);
+      const dia = diaOperacional(turno, entry.at);
+      if (dia !== diaOperacional(turnoPeloRelogio(agora), agora)) continue;
+      next.date = dia;
+      next.turno = turno;
     }
     gone.delete(entry.id);
     map.set(entry.id, next);
