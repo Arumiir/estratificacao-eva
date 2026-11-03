@@ -3809,7 +3809,7 @@ function RankingDoDia({
         <p className="text-sm text-muted">
           {formatDateBR(data)}
           {aba === "24" ? " · 1º, 2º e 3º turno" : ""}
-          {" · toque no número para ver se melhorou"}
+          {" · toque no número para ver o dia a dia"}
           {aviso ? ` · ${aviso}` : ""}
         </p>
       </div>
@@ -3910,18 +3910,20 @@ function RankingDoDia({
   );
 }
 
-function horaFortaleza(at: number): number {
-  const hora = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "America/Fortaleza",
-    hour: "2-digit",
-    hourCycle: "h23",
-  }).format(new Date(at));
-  const valor = Number(hora);
-  return Number.isFinite(valor) ? valor : 0;
-}
+const INICIO_LINHA = "2026-10-26";
 
 type PontoLinha = { id: string; rotulo: string; nome: string; pares: number };
-type FaixaLinha = "24" | "semana" | "mes" | "ano";
+
+function diasDesde(desde: string, ate: string): string[] {
+  if (!desde || !ate || ate < desde) return [];
+  const dias: string[] = [];
+  let cursor = desde;
+  for (let guarda = 0; guarda < 400 && cursor <= ate; guarda += 1) {
+    dias.push(cursor);
+    cursor = moverDia(cursor, 1);
+  }
+  return dias;
+}
 
 function mesmoMolde(entry: Entry, machine: MachineId, numero: string, referencia: string, turno: "24" | Turno) {
   if (entry.machine !== machine) return false;
@@ -3931,63 +3933,28 @@ function mesmoMolde(entry: Entry, machine: MachineId, numero: string, referencia
   return true;
 }
 
-function serieLocal(
+function serieDiaria(
+  dias: { date: string; pares: number }[],
   historico: Entry[],
   machine: MachineId,
   numero: string,
   referencia: string,
   turno: "24" | Turno,
-  faixa: Exclude<FaixaLinha, "ano">,
-  data: string,
+  ate: string,
 ): PontoLinha[] {
-  const lista = historico.filter((entry) => mesmoMolde(entry, machine, numero, referencia, turno));
-  if (faixa === "24") {
-    const doDia = lista.filter((entry) => entry.date === data);
-    const horas = doDia.map((entry) => horaFortaleza(entry.at));
-    if (horas.length === 0) return [];
-    const inicio = Math.min(...horas);
-    const fim = Math.max(...horas);
-    const pontos: PontoLinha[] = [];
-    for (let hora = inicio; hora <= fim; hora += 1) {
-      pontos.push({
-        id: String(hora),
-        rotulo: `${hora}h`,
-        nome: `${hora}h`,
-        pares: paresNoRecorte(doDia.filter((entry) => horaFortaleza(entry.at) === hora)),
-      });
-    }
-    return pontos;
-  }
-  const dias = faixa === "semana" ? diasDaSemana(data) : diasDoMes(data);
-  return dias.map((dia) => ({
-    id: dia,
-    rotulo: String(Number(dia.slice(8))),
-    nome: formatDateBR(dia),
-    pares: paresNoRecorte(lista.filter((entry) => entry.date === dia)),
-  }));
-}
-
-const MESES_CURTOS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
-
-function serieAno(dias: { date: string; pares: number }[], data: string): PontoLinha[] {
   const mapa = new Map(dias.map((item) => [item.date, item.pares]));
-  const ano = Number(data.slice(0, 4));
-  const mesFinal = Number(data.slice(5, 7));
-  const pontos: PontoLinha[] = [];
-  for (let mes = 1; mes <= mesFinal; mes += 1) {
-    const chave = `${ano}-${String(mes).padStart(2, "0")}`;
-    let total = 0;
-    for (const [date, valor] of mapa) {
-      if (date.startsWith(`${chave}-`)) total += valor;
-    }
-    pontos.push({
-      id: chave,
-      rotulo: MESES_CURTOS[mes - 1] ?? String(mes),
-      nome: `${MESES_CURTOS[mes - 1] ?? chave}/${String(ano).slice(2)}`,
-      pares: total,
-    });
+  const local = historico.filter((entry) => mesmoMolde(entry, machine, numero, referencia, turno));
+  const inicioMes = diasDoMes(ate)[0] ?? ate;
+  const faixa = diasDesde(INICIO_LINHA, ate);
+  for (const dia of faixa) {
+    if (dia >= inicioMes) mapa.set(dia, paresNoRecorte(local.filter((entry) => entry.date === dia)));
   }
-  return pontos;
+  return faixa.map((dia) => ({
+    id: dia,
+    rotulo: `${dia.slice(8, 10)}/${dia.slice(5, 7)}`,
+    nome: formatDateBR(dia),
+    pares: mapa.get(dia) ?? 0,
+  }));
 }
 
 function leituraLinha(pontos: PontoLinha[]): { texto: string; tom: "igual" | "melhor" | "pior" } | null {
@@ -4010,21 +3977,20 @@ function GraficoLinha({
   ativo: string | null;
   onAtivo: (id: string) => void;
 }) {
-  const largura = 640;
-  const altura = 220;
   const esquerda = 28;
-  const direita = 12;
-  const topo = 16;
+  const direita = 16;
+  const topo = 22;
+  const altura = 230;
   const base = 188;
+  const largura = Math.max(320, esquerda + direita + pontos.length * 46);
   const maximo = Math.max(1, ...pontos.map((ponto) => ponto.pares));
   const n = pontos.length;
-  const x = (indice: number) => (n <= 1 ? (esquerda + largura - direita) / 2 : esquerda + (indice / (n - 1)) * (largura - esquerda - direita));
+  const x = (indice: number) => (n <= 1 ? largura / 2 : esquerda + (indice / (n - 1)) * (largura - esquerda - direita));
   const y = (valor: number) => base - (valor / maximo) * (base - topo);
   const caminho = pontos.map((ponto, indice) => `${indice === 0 ? "M" : "L"} ${x(indice).toFixed(1)} ${y(ponto.pares).toFixed(1)}`).join(" ");
-  const passoRotulo = n > 16 ? 5 : n > 10 ? 2 : 1;
 
   return (
-    <svg viewBox={`0 0 ${largura} ${altura}`} className="mt-3 h-52 w-full" role="img">
+    <svg viewBox={`0 0 ${largura} ${altura}`} className="h-56" style={{ width: largura }} role="img">
       {[0, 0.5, 1].map((marca) => {
         const valor = Math.round(maximo * marca);
         const yLinha = y(valor);
@@ -4040,17 +4006,14 @@ function GraficoLinha({
       <path d={caminho} fill="none" stroke="#4682B4" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
       {pontos.map((ponto, indice) => (
         <g key={ponto.id} onClick={() => onAtivo(ponto.id)}>
+          <circle cx={x(indice)} cy={y(ponto.pares)} r="16" fill="transparent" />
+          <text x={x(indice)} y={y(ponto.pares) - 10} textAnchor="middle" fill="#1e3a5f" fontSize="11" fontWeight="700">
+            {ponto.pares}
+          </text>
           <circle cx={x(indice)} cy={y(ponto.pares)} r={ativo === ponto.id ? 6 : 4} fill={ativo === ponto.id ? "#1e3a5f" : "#4682B4"} />
-          {n <= 12 ? (
-            <text x={x(indice)} y={y(ponto.pares) - 10} textAnchor="middle" fill="#1e3a5f" fontSize="12" fontWeight="700">
-              {ponto.pares}
-            </text>
-          ) : null}
-          {indice % passoRotulo === 0 || indice === n - 1 ? (
-            <text x={x(indice)} y={208} textAnchor="middle" fill="#3d4a5c" fontSize="11">
-              {ponto.rotulo}
-            </text>
-          ) : null}
+          <text x={x(indice)} y={208} textAnchor="middle" fill="#3d4a5c" fontSize="11">
+            {ponto.rotulo}
+          </text>
         </g>
       ))}
     </svg>
@@ -4080,14 +4043,13 @@ function EvolucaoMolde({
   problema: string | null;
   onClose: () => void;
 }) {
-  const [faixa, setFaixa] = useState<FaixaLinha>("mes");
-  const [anoRemoto, setAnoRemoto] = useState<{ date: string; pares: number }[] | null>(null);
-  const [carregando, setCarregando] = useState(false);
+  const [remoto, setRemoto] = useState<{ date: string; pares: number }[] | null>(null);
+  const [carregando, setCarregando] = useState(true);
   const [falha, setFalha] = useState(false);
   const [ativo, setAtivo] = useState<string | null>(null);
+  const ate = data < INICIO_LINHA ? INICIO_LINHA : data;
 
   useEffect(() => {
-    if (faixa !== "ano") return;
     let vivo = true;
     setCarregando(true);
     setFalha(false);
@@ -4096,8 +4058,8 @@ function EvolucaoMolde({
         machine,
         numero,
         referencia,
-        desde: `${data.slice(0, 4)}-01-01`,
-        ate: data,
+        desde: INICIO_LINHA,
+        ate,
         turno,
         estacao: estacao ?? 0,
         lado: lado ?? "",
@@ -4105,7 +4067,7 @@ function EvolucaoMolde({
       },
     })
       .then((resultado) => {
-        if (vivo) setAnoRemoto(resultado.dias);
+        if (vivo) setRemoto(resultado.dias);
       })
       .catch(() => {
         if (vivo) setFalha(true);
@@ -4116,20 +4078,9 @@ function EvolucaoMolde({
     return () => {
       vivo = false;
     };
-  }, [faixa, machine, numero, referencia, data, turno, estacao, lado, problema]);
+  }, [machine, numero, referencia, ate, turno, estacao, lado, problema]);
 
-  const pontos =
-    faixa === "ano"
-      ? serieAno(
-          (() => {
-            const mapa = new Map((anoRemoto ?? []).map((item) => [item.date, item.pares]));
-            const local = historico.filter((entry) => mesmoMolde(entry, machine, numero, referencia, turno));
-            for (const dia of diasDoMes(data)) mapa.set(dia, paresNoRecorte(local.filter((entry) => entry.date === dia)));
-            return [...mapa.entries()].map(([date, pares]) => ({ date, pares }));
-          })(),
-          data,
-        )
-      : serieLocal(historico, machine, numero, referencia, turno, faixa, data);
+  const pontos = serieDiaria(remoto ?? [], historico, machine, numero, referencia, turno, ate);
   const leitura = leituraLinha(pontos);
   const escolhido = pontos.find((ponto) => ponto.id === ativo) ?? pontos[pontos.length - 1];
 
@@ -4147,46 +4098,23 @@ function EvolucaoMolde({
               {machine} · {rotuloNumero(numero, referencia)}
             </h3>
             <p className="text-sm text-muted">
-              {turno === "24" ? "1º, 2º e 3º turno" : TURNO_LABEL[turno]}
-              {" · cada ponto é o período, não a soma"}
+              {formatDateBR(INICIO_LINHA)} até {formatDateBR(ate)} · um ponto por dia
             </p>
           </div>
           <button type="button" onClick={onClose} aria-label="Fechar" className="grid size-10 place-items-center rounded-xl text-[#1e3a5f]">
             <X className="size-5" />
           </button>
         </div>
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {(
-            [
-              ["24", "24 horas"],
-              ["semana", "Semana"],
-              ["mes", "Mês"],
-              ["ano", "Ano"],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => {
-                setFaixa(id);
-                setAtivo(null);
-              }}
-              className={cx(
-                "rounded-lg px-3 py-2 text-sm font-semibold",
-                faixa === id ? "bg-[#1e3a5f] text-white" : "border border-[#d5dee8] bg-white text-fg",
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        {carregando && faixa === "ano" ? <p className="mt-4 text-sm text-muted">Carregando o ano…</p> : null}
-        {falha ? <p className="mt-3 text-sm text-[#9b2c2c]">O ano não carregou. O mês que já está no painel continua visível.</p> : null}
-        {pontos.length === 0 || pontos.every((ponto) => ponto.pares === 0) ? (
-          <p className="mt-4 text-sm text-muted">Sem perda nesse período.</p>
-        ) : (
+        {carregando ? <p className="mt-4 text-sm text-muted">Carregando os dias…</p> : null}
+        {falha ? <p className="mt-3 text-sm text-[#9b2c2c]">Não carregou o histórico. O mês que já está no painel continua visível.</p> : null}
+        {!carregando && (pontos.length === 0 || pontos.every((ponto) => ponto.pares === 0)) ? (
+          <p className="mt-4 text-sm text-muted">Sem perda de {formatDateBR(INICIO_LINHA)} até {formatDateBR(ate)}.</p>
+        ) : null}
+        {pontos.some((ponto) => ponto.pares > 0) && !carregando ? (
           <>
-            <GraficoLinha pontos={pontos} ativo={escolhido?.id ?? null} onAtivo={setAtivo} />
+            <div className="mt-3 overflow-x-auto">
+              <GraficoLinha pontos={pontos} ativo={escolhido?.id ?? null} onAtivo={setAtivo} />
+            </div>
             {escolhido ? (
               <p className="mt-1 text-sm font-semibold">
                 {escolhido.nome}: {escolhido.pares} {escolhido.pares === 1 ? "par" : "pares"}
@@ -4205,7 +4133,7 @@ function EvolucaoMolde({
               </p>
             ) : null}
           </>
-        )}
+        ) : null}
       </div>
     </div>
   );
