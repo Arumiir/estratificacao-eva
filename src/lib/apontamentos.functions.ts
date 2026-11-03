@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { pullDay, pushDays } from "@/lib/apontamentos-blob";
 import { dbSource, getSql } from "@/lib/db";
-import { apontamentoBloqueado, coerceEntry, diaOperacional, diasAte, mergeCores, mergeFechamentos, mergeOutros, mergeProducao, podeAlterarApontamento, problemName, readCores, readFechamentos, readGrades, readOutros, readProducao, turnoPeloRelogio, type Cor, type Entry, type Fechamento, type OutroMatriz, type ProducaoPares, type StationConfig } from "@/lib/perdas";
+import { apontamentoBloqueado, coerceEntry, diaOperacional, diasAte, mergeCores, mergeFechamentos, mergeOutros, mergeProducao, numeroLimpo, parseMachine, podeAlterarApontamento, problemName, readCores, readFechamentos, readGrades, readOutros, readProducao, referenciaLimpa, turnoPeloRelogio, type Cor, type Entry, type Fechamento, type OutroMatriz, type ProducaoPares, type StationConfig } from "@/lib/perdas";
 
 type SyncResult = {
   entries: Entry[];
@@ -408,6 +408,72 @@ export const pullHistorico = createServerFn({ method: "POST" })
         .flatMap((row) => readProducao(row.config))
         .filter((item) => item.date >= inicio && item.date <= data.ate),
       cloud: cloudOn(),
+    };
+  });
+
+export const pullEvolucaoMolde = createServerFn({ method: "POST" })
+  .validator((data: {
+    machine?: unknown;
+    numero?: unknown;
+    referencia?: unknown;
+    desde?: unknown;
+    ate?: unknown;
+    turno?: unknown;
+    estacao?: unknown;
+    lado?: unknown;
+    problema?: unknown;
+  }) => {
+    const machine = parseMachine(data?.machine);
+    const numero = typeof data?.numero === "string" ? numeroLimpo(data.numero) : "";
+    const referencia = typeof data?.referencia === "string" ? referenciaLimpa(data.referencia) : "";
+    const desde = typeof data?.desde === "string" && /^\d{4}-\d{2}-\d{2}$/.test(data.desde) ? data.desde : "";
+    const ate = typeof data?.ate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(data.ate) ? data.ate : "";
+    const turno = data?.turno === "1" || data?.turno === "2" || data?.turno === "3" || data?.turno === "24" ? data.turno : "24";
+    const estacao = typeof data?.estacao === "number" && data.estacao >= 1 && data.estacao <= 8 ? data.estacao : 0;
+    const lado = data?.lado === "esq" || data?.lado === "dir" ? data.lado : "";
+    const problema = typeof data?.problema === "string" ? data.problema : "";
+    return { machine, numero, referencia, desde, ate, turno, estacao, lado, problema };
+  })
+  .handler(async ({ data }): Promise<{ dias: { date: string; pares: number }[] }> => {
+    if (!data.machine || !data.numero || !data.desde || !data.ate || data.desde > data.ate) return { dias: [] };
+    if (usesBlob() || dbSource !== "neon") return { dias: [] };
+    const sql = await getSql();
+    const rows = await sql<{
+      date: string;
+      station: number;
+      side: string;
+      problem: string;
+      outro: string;
+      numero: string;
+      referencia: string;
+      qtd: number;
+    }>`
+      select date, station, side, problem, coalesce(outro, '') as outro, numero, referencia, count(*)::int as qtd
+      from apontamentos
+      where machine = ${data.machine}
+        and date >= ${data.desde}
+        and date <= ${data.ate}
+        and (${data.turno} = '24' or turno = ${data.turno})
+        and (${data.estacao} = 0 or station = ${data.estacao})
+        and (${data.lado} = '' or side = ${data.lado})
+        and (${data.problema} = '' or problem = ${data.problema})
+      group by date, station, side, problem, outro, numero, referencia
+    `;
+    const porDia = new Map<string, Map<string, number>>();
+    for (const row of rows) {
+      if (numeroLimpo(String(row.numero ?? "")) !== data.numero) continue;
+      if (referenciaLimpa(String(row.referencia ?? "")) !== data.referencia) continue;
+      const date = String(row.date).slice(0, 10);
+      const grupos = porDia.get(date) ?? new Map<string, number>();
+      const chave = `${row.station}|${row.side}|${row.problem}|${row.outro ?? ""}`;
+      grupos.set(chave, (grupos.get(chave) ?? 0) + Number(row.qtd));
+      porDia.set(date, grupos);
+    }
+    return {
+      dias: [...porDia.entries()].map(([date, grupos]) => ({
+        date,
+        pares: [...grupos.values()].reduce((soma, solas) => soma + (solas <= 0 ? 0 : Math.ceil(solas / 2)), 0),
+      })),
     };
   });
 

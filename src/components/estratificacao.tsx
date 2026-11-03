@@ -70,7 +70,7 @@ import {
   type StationConfig,
 } from "@/lib/perdas";
 import { downloadBlob, renderFichasDaMaquina, renderRankingPng } from "@/lib/ficha-image";
-import { enviarPlanilha, pullApontamentos, pullHistorico, pushApontamentos } from "@/lib/apontamentos.functions";
+import { enviarPlanilha, pullApontamentos, pullEvolucaoMolde, pullHistorico, pushApontamentos } from "@/lib/apontamentos.functions";
 
 type Papel = "preparador" | "lider" | "teste";
 type Sessao = { papel: Papel; turno: Turno | null };
@@ -3532,7 +3532,22 @@ function PainelHistorico({
       </BlocoDash>
 
       <BlocoDash id="ranking" titulo="Ranking">
-        <RankingDoDia entries={doDiaRanking} data={state.date} />
+        <RankingDoDia
+          entries={doDiaRanking}
+          historico={base.filter(
+            (entry) =>
+              (!maquina || entry.machine === maquina) &&
+              (estacao === null || entry.station === estacao) &&
+              (numeroAtivo === null || numeroLimpo(entry.matrizNumero) === numeroAtivo) &&
+              (refAtiva === null || (referenciaLimpa(entry.matrizRel) || "sem ref.") === refAtiva) &&
+              (!lado || entry.side === lado) &&
+              (!problema || entry.problem === problema),
+          )}
+          data={state.date}
+          estacao={estacao}
+          lado={lado}
+          problema={problema}
+        />
       </BlocoDash>
 
       <BlocoDash id="graficos" titulo="Gráficos">
@@ -3704,11 +3719,26 @@ const FAIXA_RANKING: Record<(typeof ABAS_RANKING)[number][0], string> = {
   "3": "#9b2c2c",
 };
 
-function RankingDoDia({ entries, data }: { entries: Entry[]; data: string }) {
+function RankingDoDia({
+  entries,
+  historico,
+  data,
+  estacao,
+  lado,
+  problema,
+}: {
+  entries: Entry[];
+  historico: Entry[];
+  data: string;
+  estacao: number | null;
+  lado: Side | null;
+  problema: string | null;
+}) {
   const [aba, setAba] = useState<"24" | Turno>("24");
   const [escolher, setEscolher] = useState(false);
   const [gerando, setGerando] = useState(false);
   const [aviso, setAviso] = useState("");
+  const [molde, setMolde] = useState<{ machine: MachineId; numero: string; referencia: string } | null>(null);
   const maquinas = montarRanking(entries, aba);
 
   async function baixar(turno: "24" | Turno) {
@@ -3779,6 +3809,7 @@ function RankingDoDia({ entries, data }: { entries: Entry[]; data: string }) {
         <p className="text-sm text-muted">
           {formatDateBR(data)}
           {aba === "24" ? " · 1º, 2º e 3º turno" : ""}
+          {" · toque no número para ver se melhorou"}
           {aviso ? ` · ${aviso}` : ""}
         </p>
       </div>
@@ -3811,9 +3842,13 @@ function RankingDoDia({ entries, data }: { entries: Entry[]; data: string }) {
                       className="size-2 rounded-full"
                       style={{ background: COR_POSICAO[Math.min(index, COR_POSICAO.length - 1)] }}
                     />
-                    <span className="min-w-0 break-words font-semibold leading-tight">
+                    <button
+                      type="button"
+                      onClick={() => setMolde({ machine: item.machine, numero: linha.numero, referencia: linha.referencia })}
+                      className="min-w-0 break-words text-left font-semibold leading-tight text-[#1e3a5f] underline decoration-[#4682B4] decoration-1 underline-offset-2"
+                    >
                       {rotuloNumero(linha.numero, linha.referencia)}
-                    </span>
+                    </button>
                     <span className="text-right font-semibold tabular-nums">{linha.pares}</span>
                     <span className="text-right tabular-nums text-[#3d4a5c]">{percentualPar(linha.pares, item.total)}</span>
                   </li>
@@ -3857,7 +3892,322 @@ function RankingDoDia({ entries, data }: { entries: Entry[]; data: string }) {
           </div>
         </div>
       ) : null}
+      {molde ? (
+        <EvolucaoMolde
+          machine={molde.machine}
+          numero={molde.numero}
+          referencia={molde.referencia}
+          data={data}
+          turno={aba}
+          historico={historico}
+          estacao={estacao}
+          lado={lado}
+          problema={problema}
+          onClose={() => setMolde(null)}
+        />
+      ) : null}
     </section>
+  );
+}
+
+function horaFortaleza(at: number): number {
+  const hora = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "America/Fortaleza",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date(at));
+  const valor = Number(hora);
+  return Number.isFinite(valor) ? valor : 0;
+}
+
+type PontoLinha = { id: string; rotulo: string; nome: string; pares: number };
+type FaixaLinha = "24" | "semana" | "mes" | "ano";
+
+function mesmoMolde(entry: Entry, machine: MachineId, numero: string, referencia: string, turno: "24" | Turno) {
+  if (entry.machine !== machine) return false;
+  if (numeroLimpo(entry.matrizNumero) !== numero) return false;
+  if (referenciaLimpa(entry.matrizRel) !== referencia) return false;
+  if (turno !== "24" && entry.turno !== turno) return false;
+  return true;
+}
+
+function serieLocal(
+  historico: Entry[],
+  machine: MachineId,
+  numero: string,
+  referencia: string,
+  turno: "24" | Turno,
+  faixa: Exclude<FaixaLinha, "ano">,
+  data: string,
+): PontoLinha[] {
+  const lista = historico.filter((entry) => mesmoMolde(entry, machine, numero, referencia, turno));
+  if (faixa === "24") {
+    const doDia = lista.filter((entry) => entry.date === data);
+    const horas = doDia.map((entry) => horaFortaleza(entry.at));
+    if (horas.length === 0) return [];
+    const inicio = Math.min(...horas);
+    const fim = Math.max(...horas);
+    const pontos: PontoLinha[] = [];
+    for (let hora = inicio; hora <= fim; hora += 1) {
+      pontos.push({
+        id: String(hora),
+        rotulo: `${hora}h`,
+        nome: `${hora}h`,
+        pares: paresNoRecorte(doDia.filter((entry) => horaFortaleza(entry.at) === hora)),
+      });
+    }
+    return pontos;
+  }
+  const dias = faixa === "semana" ? diasDaSemana(data) : diasDoMes(data);
+  return dias.map((dia) => ({
+    id: dia,
+    rotulo: String(Number(dia.slice(8))),
+    nome: formatDateBR(dia),
+    pares: paresNoRecorte(lista.filter((entry) => entry.date === dia)),
+  }));
+}
+
+const MESES_CURTOS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+
+function serieAno(dias: { date: string; pares: number }[], data: string): PontoLinha[] {
+  const mapa = new Map(dias.map((item) => [item.date, item.pares]));
+  const ano = Number(data.slice(0, 4));
+  const mesFinal = Number(data.slice(5, 7));
+  const pontos: PontoLinha[] = [];
+  for (let mes = 1; mes <= mesFinal; mes += 1) {
+    const chave = `${ano}-${String(mes).padStart(2, "0")}`;
+    let total = 0;
+    for (const [date, valor] of mapa) {
+      if (date.startsWith(`${chave}-`)) total += valor;
+    }
+    pontos.push({
+      id: chave,
+      rotulo: MESES_CURTOS[mes - 1] ?? String(mes),
+      nome: `${MESES_CURTOS[mes - 1] ?? chave}/${String(ano).slice(2)}`,
+      pares: total,
+    });
+  }
+  return pontos;
+}
+
+function leituraLinha(pontos: PontoLinha[]): { texto: string; tom: "igual" | "melhor" | "pior" } | null {
+  if (pontos.length < 2) return null;
+  const agora = pontos[pontos.length - 1];
+  const antes = pontos[pontos.length - 2];
+  if (!agora || !antes) return null;
+  const delta = agora.pares - antes.pares;
+  if (delta === 0) return { texto: `${antes.nome}: ${antes.pares} pares. ${agora.nome}: ${agora.pares}. Igual.`, tom: "igual" };
+  if (delta < 0) return { texto: `${antes.nome}: ${antes.pares} pares. ${agora.nome}: ${agora.pares}. Caiu ${-delta}.`, tom: "melhor" };
+  return { texto: `${antes.nome}: ${antes.pares} pares. ${agora.nome}: ${agora.pares}. Subiu ${delta}.`, tom: "pior" };
+}
+
+function GraficoLinha({
+  pontos,
+  ativo,
+  onAtivo,
+}: {
+  pontos: PontoLinha[];
+  ativo: string | null;
+  onAtivo: (id: string) => void;
+}) {
+  const largura = 640;
+  const altura = 220;
+  const esquerda = 28;
+  const direita = 12;
+  const topo = 16;
+  const base = 188;
+  const maximo = Math.max(1, ...pontos.map((ponto) => ponto.pares));
+  const n = pontos.length;
+  const x = (indice: number) => (n <= 1 ? (esquerda + largura - direita) / 2 : esquerda + (indice / (n - 1)) * (largura - esquerda - direita));
+  const y = (valor: number) => base - (valor / maximo) * (base - topo);
+  const caminho = pontos.map((ponto, indice) => `${indice === 0 ? "M" : "L"} ${x(indice).toFixed(1)} ${y(ponto.pares).toFixed(1)}`).join(" ");
+  const passoRotulo = n > 16 ? 5 : n > 10 ? 2 : 1;
+
+  return (
+    <svg viewBox={`0 0 ${largura} ${altura}`} className="mt-3 h-52 w-full" role="img">
+      {[0, 0.5, 1].map((marca) => {
+        const valor = Math.round(maximo * marca);
+        const yLinha = y(valor);
+        return (
+          <g key={marca}>
+            <line x1={esquerda} x2={largura - direita} y1={yLinha} y2={yLinha} stroke="#e6ebf2" />
+            <text x={0} y={yLinha + 4} fill="#6b7280" fontSize="11">
+              {valor}
+            </text>
+          </g>
+        );
+      })}
+      <path d={caminho} fill="none" stroke="#4682B4" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
+      {pontos.map((ponto, indice) => (
+        <g key={ponto.id} onClick={() => onAtivo(ponto.id)}>
+          <circle cx={x(indice)} cy={y(ponto.pares)} r={ativo === ponto.id ? 6 : 4} fill={ativo === ponto.id ? "#1e3a5f" : "#4682B4"} />
+          {n <= 12 ? (
+            <text x={x(indice)} y={y(ponto.pares) - 10} textAnchor="middle" fill="#1e3a5f" fontSize="12" fontWeight="700">
+              {ponto.pares}
+            </text>
+          ) : null}
+          {indice % passoRotulo === 0 || indice === n - 1 ? (
+            <text x={x(indice)} y={208} textAnchor="middle" fill="#3d4a5c" fontSize="11">
+              {ponto.rotulo}
+            </text>
+          ) : null}
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+function EvolucaoMolde({
+  machine,
+  numero,
+  referencia,
+  data,
+  turno,
+  historico,
+  estacao,
+  lado,
+  problema,
+  onClose,
+}: {
+  machine: MachineId;
+  numero: string;
+  referencia: string;
+  data: string;
+  turno: "24" | Turno;
+  historico: Entry[];
+  estacao: number | null;
+  lado: Side | null;
+  problema: string | null;
+  onClose: () => void;
+}) {
+  const [faixa, setFaixa] = useState<FaixaLinha>("mes");
+  const [anoRemoto, setAnoRemoto] = useState<{ date: string; pares: number }[] | null>(null);
+  const [carregando, setCarregando] = useState(false);
+  const [falha, setFalha] = useState(false);
+  const [ativo, setAtivo] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (faixa !== "ano") return;
+    let vivo = true;
+    setCarregando(true);
+    setFalha(false);
+    pullEvolucaoMolde({
+      data: {
+        machine,
+        numero,
+        referencia,
+        desde: `${data.slice(0, 4)}-01-01`,
+        ate: data,
+        turno,
+        estacao: estacao ?? 0,
+        lado: lado ?? "",
+        problema: problema ?? "",
+      },
+    })
+      .then((resultado) => {
+        if (vivo) setAnoRemoto(resultado.dias);
+      })
+      .catch(() => {
+        if (vivo) setFalha(true);
+      })
+      .finally(() => {
+        if (vivo) setCarregando(false);
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [faixa, machine, numero, referencia, data, turno, estacao, lado, problema]);
+
+  const pontos =
+    faixa === "ano"
+      ? serieAno(
+          (() => {
+            const mapa = new Map((anoRemoto ?? []).map((item) => [item.date, item.pares]));
+            const local = historico.filter((entry) => mesmoMolde(entry, machine, numero, referencia, turno));
+            for (const dia of diasDoMes(data)) mapa.set(dia, paresNoRecorte(local.filter((entry) => entry.date === dia)));
+            return [...mapa.entries()].map(([date, pares]) => ({ date, pares }));
+          })(),
+          data,
+        )
+      : serieLocal(historico, machine, numero, referencia, turno, faixa, data);
+  const leitura = leituraLinha(pontos);
+  const escolhido = pontos.find((ponto) => ponto.id === ativo) ?? pontos[pontos.length - 1];
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-3xl bg-white p-4 shadow-xl">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-base font-semibold">
+              {machine} · {rotuloNumero(numero, referencia)}
+            </h3>
+            <p className="text-sm text-muted">
+              {turno === "24" ? "1º, 2º e 3º turno" : TURNO_LABEL[turno]}
+              {" · cada ponto é o período, não a soma"}
+            </p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Fechar" className="grid size-10 place-items-center rounded-xl text-[#1e3a5f]">
+            <X className="size-5" />
+          </button>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {(
+            [
+              ["24", "24 horas"],
+              ["semana", "Semana"],
+              ["mes", "Mês"],
+              ["ano", "Ano"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => {
+                setFaixa(id);
+                setAtivo(null);
+              }}
+              className={cx(
+                "rounded-lg px-3 py-2 text-sm font-semibold",
+                faixa === id ? "bg-[#1e3a5f] text-white" : "border border-[#d5dee8] bg-white text-fg",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {carregando && faixa === "ano" ? <p className="mt-4 text-sm text-muted">Carregando o ano…</p> : null}
+        {falha ? <p className="mt-3 text-sm text-[#9b2c2c]">O ano não carregou. O mês que já está no painel continua visível.</p> : null}
+        {pontos.length === 0 || pontos.every((ponto) => ponto.pares === 0) ? (
+          <p className="mt-4 text-sm text-muted">Sem perda nesse período.</p>
+        ) : (
+          <>
+            <GraficoLinha pontos={pontos} ativo={escolhido?.id ?? null} onAtivo={setAtivo} />
+            {escolhido ? (
+              <p className="mt-1 text-sm font-semibold">
+                {escolhido.nome}: {escolhido.pares} {escolhido.pares === 1 ? "par" : "pares"}
+              </p>
+            ) : null}
+            {leitura ? (
+              <p
+                className={cx(
+                  "mt-1 text-sm font-semibold",
+                  leitura.tom === "melhor" && "text-[#1d7a45]",
+                  leitura.tom === "pior" && "text-[#9b2c2c]",
+                  leitura.tom === "igual" && "text-muted",
+                )}
+              >
+                {leitura.texto}
+              </p>
+            ) : null}
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
