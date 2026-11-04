@@ -288,6 +288,22 @@ export function nomeMes(ate: string): string {
   return NOMES_MES[month - 1] ?? "Mês";
 }
 
+/** Do dia 1º de janeiro até a data. */
+export function diasDoAno(ate: string): string[] {
+  const year = ate.slice(0, 4);
+  if (!/^\d{4}$/.test(year) || !/^\d{4}-\d{2}-\d{2}$/.test(ate)) return [];
+  const dias: string[] = [];
+  const cursor = new Date(Date.UTC(Number(year), 0, 1));
+  const fim = new Date(Date.UTC(Number(ate.slice(0, 4)), Number(ate.slice(5, 7)) - 1, Number(ate.slice(8, 10))));
+  for (let guarda = 0; guarda < 366 && cursor <= fim; guarda += 1) {
+    const mes = String(cursor.getUTCMonth() + 1).padStart(2, "0");
+    const dia = String(cursor.getUTCDate()).padStart(2, "0");
+    dias.push(`${cursor.getUTCFullYear()}-${mes}-${dia}`);
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dias;
+}
+
 /** Semana corrente, de segunda até a data, sem dia do mês anterior. */
 export function diasDaSemana(ate: string): string[] {
   const [year, month, day] = ate.split("-").map(Number);

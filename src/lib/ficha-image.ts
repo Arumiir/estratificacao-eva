@@ -102,12 +102,10 @@ export type RankingImagem = {
   maquinas: {
     nome: string;
     total: number;
-    linhas: { rotulo: string; pares: number; percentual: string }[];
+    linhas: { rotulo: string; pares: number; percentual: string; cor: string }[];
     motivos: string;
   }[];
 };
-
-const COR_POSICAO_FICHA = ["#c24141", "#e07a2f", "#d4a017", "#3d9a86", "#4682B4"];
 
 const RANKING_MARGEM = 28;
 const RANKING_COL = 340;
@@ -131,7 +129,8 @@ export async function renderRankingPng(ficha: RankingImagem): Promise<Blob> {
     const fatia = ficha.maquinas.slice(fileira * cols, fileira * cols + cols);
     blocos += fatia.length === 0 ? alturaRanking(1) : Math.max(...fatia.map((item) => alturaRanking(item.linhas.length)));
   }
-  const height = 24 + 92 + 18 + blocos + Math.max(0, fileiras - 1) * RANKING_GAP + 24;
+  const alturaFaixa = 118;
+  const height = 24 + alturaFaixa + 18 + blocos + Math.max(0, fileiras - 1) * RANKING_GAP + 24;
   const surface = createSurfaceSized(width, height, [3, 2, 1]);
   if (!surface) throw new Error("Não foi possível gerar a ficha.");
   drawRanking(surface.ctx, ficha, width, height);
@@ -146,16 +145,32 @@ function drawRanking(ctx: CanvasRenderingContext2D, ficha: RankingImagem, width:
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, width, height);
   ctx.fillStyle = ficha.faixa;
-  ctx.fillRect(margin, 24, width - margin * 2, 92);
+  ctx.fillRect(margin, 24, width - margin * 2, 118);
   ctx.fillStyle = "#fffaf7";
   ctx.textBaseline = "middle";
   ctx.textAlign = "left";
   ctx.font = "700 42px 'Barlow Condensed', sans-serif";
-  ctx.fillText("RANKING DAS PERDAS", margin + 20, 58);
-  ctx.font = "600 22px 'Source Sans 3', sans-serif";
-  ctx.fillText(`${ficha.data}     ${ficha.periodo}`, margin + 20, 92);
+  ctx.fillText("RANKING DAS PERDAS", margin + 20, 52);
+  ctx.font = "600 20px 'Source Sans 3', sans-serif";
+  ctx.fillText(`${ficha.data}     ${ficha.periodo}`, margin + 20, 84);
+  const legenda = [
+    ["#8fe3b0", "Até 5%"],
+    ["#ffe08a", "5% a 10%"],
+    ["#ffb4b4", "Acima de 10%"],
+  ] as const;
+  let legendaX = margin + 20;
+  ctx.font = "600 16px 'Source Sans 3', sans-serif";
+  for (const [cor, texto] of legenda) {
+    ctx.fillStyle = cor;
+    ctx.beginPath();
+    ctx.arc(legendaX + 6, 112, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#fffaf7";
+    ctx.fillText(texto, legendaX + 16, 112);
+    legendaX += ctx.measureText(texto).width + 36;
+  }
 
-  let yBase = 24 + 92 + 18;
+  let yBase = 24 + 118 + 18;
   for (let inicio = 0; inicio < ficha.maquinas.length; inicio += cols) {
     const fatia = ficha.maquinas.slice(inicio, inicio + cols);
     fatia.forEach((item, index) => {
@@ -184,7 +199,7 @@ function drawRanking(ctx: CanvasRenderingContext2D, ficha: RankingImagem, width:
           ctx.fillStyle = "#f7f9fc";
           ctx.fillRect(x, y - 12, colW, 26);
         }
-        ctx.fillStyle = COR_POSICAO_FICHA[Math.min(linhaIndex, COR_POSICAO_FICHA.length - 1)] ?? "#4682B4";
+        ctx.fillStyle = linha.cor || "#9aa8b5";
         ctx.beginPath();
         ctx.arc(x + 10, y + 1, 4, 0, Math.PI * 2);
         ctx.fill();
@@ -197,7 +212,7 @@ function drawRanking(ctx: CanvasRenderingContext2D, ficha: RankingImagem, width:
         ctx.textAlign = "right";
         ctx.font = "600 15px 'Source Sans 3', sans-serif";
         ctx.fillText(String(linha.pares), x + colW - 62, y + 1);
-        ctx.fillStyle = "#3d4a5c";
+        ctx.fillStyle = linha.cor || "#3d4a5c";
         ctx.fillText(linha.percentual, x + colW - 10, y + 1);
         y += 26;
       });

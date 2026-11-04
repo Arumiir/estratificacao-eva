@@ -59,6 +59,7 @@ import {
   type Turno,
   diaDoApontamento,
   diasDaSemana,
+  diasDoAno,
   diasDoMes,
   nomeMes,
   gradeHasNumbers,
@@ -3106,25 +3107,21 @@ function GrupoFiltro({ titulo, children }: { titulo: string; children: ReactNode
 const FILTROS_KEY = "injecao-filtros-dash-v1";
 
 type FiltrosDash = {
-  janela: "dia" | "semana" | "mes";
   maquina: MachineId | null;
   estacao: number | null;
   numero: string | null;
   referencia: string | null;
   lado: Side | null;
-  turno: Turno | null;
   problema: string | null;
 };
 
 function lerFiltros(): FiltrosDash {
   const vazio: FiltrosDash = {
-    janela: "mes",
     maquina: null,
     estacao: null,
     numero: null,
     referencia: null,
     lado: null,
-    turno: null,
     problema: null,
   };
   try {
@@ -3136,16 +3133,13 @@ function lerFiltros(): FiltrosDash {
     const maquina = MACHINES.find((machine) => machine === item.maquina) ?? null;
     const estacao = STATIONS.find((station) => station === item.estacao) ?? null;
     const lado = item.lado === "esq" || item.lado === "dir" ? item.lado : null;
-    const turno = item.turno === "1" || item.turno === "2" || item.turno === "3" ? item.turno : null;
     const problema = PROBLEMS.some((problem) => problem.id === item.problema) ? (item.problema ?? null) : null;
     return {
-      janela: item.janela === "dia" || item.janela === "semana" || item.janela === "mes" ? item.janela : "mes",
       maquina,
       estacao,
       numero: typeof item.numero === "string" && item.numero ? item.numero : null,
       referencia: typeof item.referencia === "string" && item.referencia ? referenciaLimpa(item.referencia) : null,
       lado,
-      turno,
       problema,
     };
   } catch {
@@ -3207,6 +3201,69 @@ function ConfigModelos({ state, onToggle }: { state: State; onToggle: (machine: 
   );
 }
 
+type PeriodoBloco = "dia" | "semana" | "mes" | "ano";
+type RecorteBloco = { periodo: PeriodoBloco; turno: Turno | null };
+
+const PERIODOS_BLOCO: { id: PeriodoBloco; nome: string }[] = [
+  { id: "dia", nome: "Dia" },
+  { id: "semana", nome: "Semana" },
+  { id: "mes", nome: "Mês" },
+  { id: "ano", nome: "Ano" },
+];
+
+function FiltroBloco({
+  recorte,
+  onChange,
+}: {
+  recorte: RecorteBloco;
+  onChange: (recorte: RecorteBloco) => void;
+}) {
+  return (
+    <div className="grid gap-2">
+      <div className="flex flex-wrap gap-1.5">
+        {PERIODOS_BLOCO.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => onChange({ ...recorte, periodo: item.id })}
+            className={cx(
+              "rounded-lg px-3 py-2 text-sm font-semibold",
+              recorte.periodo === item.id ? "bg-[#4682B4] text-white" : "border border-[#d5dee8] bg-white text-fg",
+            )}
+          >
+            {item.nome}
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        <button
+          type="button"
+          onClick={() => onChange({ ...recorte, turno: null })}
+          className={cx(
+            "rounded-lg px-3 py-2 text-sm font-semibold",
+            recorte.turno === null ? "bg-[#1e3a5f] text-white" : "border border-[#d5dee8] bg-white text-fg",
+          )}
+        >
+          Todos
+        </button>
+        {(["1", "2", "3"] as const).map((turno) => (
+          <button
+            key={turno}
+            type="button"
+            onClick={() => onChange({ ...recorte, turno })}
+            className={cx(
+              "rounded-lg px-3 py-2 text-sm font-semibold",
+              recorte.turno === turno ? "bg-[#1e3a5f] text-white" : "border border-[#d5dee8] bg-white text-fg",
+            )}
+          >
+            {TURNO_LABEL[turno].replace(" TURNO", "")}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function PainelHistorico({
   state,
   today,
@@ -3226,24 +3283,27 @@ function PainelHistorico({
   const [remoto, setRemoto] = useState<Entry[] | null>(null);
   const [producaoRemota, setProducaoRemota] = useState<ProducaoPares[]>([]);
   const [erro, setErro] = useState(false);
-  const [janela, setJanela] = useState(salvos.janela);
   const [maquina, setMaquina] = useState<MachineId | null>(salvos.maquina);
   const [estacao, setEstacao] = useState<number | null>(salvos.estacao);
   const [numero, setNumero] = useState<string | null>(salvos.numero);
   const [referencia, setReferencia] = useState<string | null>(salvos.referencia);
   const [lado, setLado] = useState<Side | null>(salvos.lado);
-  const [turnoFiltro, setTurnoFiltro] = useState<Turno | null>(salvos.turno);
   const [problema, setProblema] = useState<string | null>(salvos.problema);
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  const [resumoRecorte, setResumoRecorte] = useState<RecorteBloco>({ periodo: "mes", turno: null });
+  const [producaoRecorte, setProducaoRecorte] = useState<RecorteBloco>({ periodo: "mes", turno: null });
+  const [rankingRecorte, setRankingRecorte] = useState<RecorteBloco>({ periodo: "dia", turno: null });
+  const [graficoRecorte, setGraficoRecorte] = useState<RecorteBloco>({ periodo: "mes", turno: null });
   const diasMes = diasDoMes(state.date);
   const diasSemana = diasDaSemana(state.date);
-  const cobertura = new Set([...diasMes, ...diasSemana, state.date]);
+  const diasAno = diasDoAno(state.date);
+  const cobertura = new Set(diasAno);
 
   useEffect(() => {
     let ativo = true;
     setRemoto(null);
     setErro(false);
-    pullHistorico({ data: { ate: state.date, desde: diasDoMes(state.date)[0] ?? state.date } })
+    pullHistorico({ data: { ate: state.date, desde: `${state.date.slice(0, 4)}-01-01` } })
       .then((resultado) => {
         if (ativo) {
           setRemoto(resultado.entries);
@@ -3259,27 +3319,16 @@ function PainelHistorico({
   }, [state.date]);
 
   useEffect(() => {
-    const salvo: FiltrosDash = {
-      janela,
-      maquina,
-      estacao,
-      numero,
-      referencia,
-      lado,
-      turno: turnoFiltro,
-      problema,
-    };
+    const salvo: FiltrosDash = { maquina, estacao, numero, referencia, lado, problema };
     try {
       localStorage.setItem(FILTROS_KEY, JSON.stringify(salvo));
     } catch {
       /* o filtro continua só nesta tela */
     }
-  }, [janela, maquina, estacao, numero, referencia, lado, turnoFiltro, problema]);
+  }, [maquina, estacao, numero, referencia, lado, problema]);
 
   const base = juntarHistorico(remoto ?? [], state.entries, cobertura);
-  const diasJanela = janela === "dia" ? [state.date] : janela === "semana" ? diasSemana : diasMes;
   const recorteLista = base.filter((entry) => {
-    if (!diasJanela.includes(entry.date)) return false;
     if (maquina && entry.machine !== maquina) return false;
     if (estacao !== null && entry.station !== estacao) return false;
     return true;
@@ -3298,57 +3347,28 @@ function PainelHistorico({
     if (numeroAtivo !== null && numeroLimpo(entry.matrizNumero) !== numeroAtivo) return false;
     if (refAtiva !== null && (referenciaLimpa(entry.matrizRel) || "sem ref.") !== refAtiva) return false;
     if (lado && entry.side !== lado) return false;
-    if (turnoFiltro && entry.turno !== turnoFiltro) return false;
     if (problema && entry.problem !== problema) return false;
     return true;
   }
-  const periodo = base.filter((entry) => diasJanela.includes(entry.date) && passaRecorte(entry));
-  const doDia = base.filter((entry) => entry.date === state.date && passaRecorte(entry));
-  const doDiaRanking = base.filter(
-    (entry) =>
-      entry.date === state.date &&
-      (!maquina || entry.machine === maquina) &&
-      (estacao === null || entry.station === estacao) &&
-      (numeroAtivo === null || numeroLimpo(entry.matrizNumero) === numeroAtivo) &&
-      (refAtiva === null || (referenciaLimpa(entry.matrizRel) || "sem ref.") === refAtiva) &&
-      (!lado || entry.side === lado) &&
-      (!problema || entry.problem === problema),
-  );
-  const daSemana = base.filter((entry) => diasSemana.includes(entry.date) && passaRecorte(entry));
-  const doMes = base.filter((entry) => diasMes.includes(entry.date) && passaRecorte(entry));
-  const turnos = (["1", "2", "3"] as const).map((turno) => {
-    const lista = periodo.filter((entry) => entry.turno === turno);
-    return { turno, lista, solas: lista.length, pares: paresDasEntradas(lista) };
-  });
-  const porProblema = PROBLEMS.map((problem) => ({
-    name: problem.name,
-    id: problem.id,
-    total: paresDasEntradas(periodo.filter((entry) => entry.problem === problem.id)),
-  }))
-    .filter((item) => item.total > 0)
-    .sort((a, b) => b.total - a.total);
-  const porMaquina = MACHINES.map((machine) => ({
-    machine,
-    total: paresDasEntradas(periodo.filter((entry) => entry.machine === machine)),
-  }))
-    .filter((item) => item.total > 0)
-    .sort((a, b) => b.total - a.total);
+  function datasPeriodo(periodo: PeriodoBloco) {
+    if (periodo === "dia") return [state.date];
+    if (periodo === "semana") return diasSemana;
+    if (periodo === "ano") return diasAno;
+    return diasMes;
+  }
   const nomeDoMes = nomeMes(state.date);
-  const tituloJanela = janela === "dia" ? "24 horas" : janela === "semana" ? "Semana" : nomeDoMes;
-  const rankingNumeros = rankNumeros(periodo, 5);
-  const rankingEstacao = STATIONS.map((station) => ({
-    id: String(station),
-    nome: `Estação ${pad2(station)}`,
-    valor: paresDasEntradas(periodo.filter((entry) => entry.station === station)),
-    ativo: estacao === null ? undefined : estacao === station,
-  }))
-    .filter((item) => item.valor > 0)
-    .sort((a, b) => b.valor - a.valor);
-
-  const producaoBase = juntarProducao(producaoRemota, state.producao ?? [], new Set(diasMes));
-  const perdasPeriodo = paresDasEntradas(periodo);
-  const diasDia = [state.date];
-  function somaProducao(datasAlvo: string[], turno: Turno | null = turnoFiltro) {
+  function nomePeriodo(periodo: PeriodoBloco) {
+    if (periodo === "dia") return "Dia";
+    if (periodo === "semana") return "Semana";
+    if (periodo === "ano") return "Ano";
+    return nomeDoMes;
+  }
+  function entradasDe(periodo: PeriodoBloco, turno: Turno | null) {
+    const datas = new Set(datasPeriodo(periodo));
+    return base.filter((entry) => datas.has(entry.date) && (!turno || entry.turno === turno) && passaRecorte(entry));
+  }
+  const producaoBase = juntarProducao(producaoRemota, state.producao ?? [], cobertura);
+  function somaProducao(datasAlvo: string[], turno: Turno | null) {
     const permitidas = new Set(datasAlvo);
     return producaoBase.reduce((soma, item) => {
       if (item.pares <= 0 || !permitidas.has(item.date)) return soma;
@@ -3357,48 +3377,84 @@ function PainelHistorico({
       return soma + item.pares;
     }, 0);
   }
+  function mapaProducao(datasAlvo: string[], turno: Turno | null) {
+    const permitidas = new Set(datasAlvo);
+    const mapa = new Map<string, number>();
+    for (const item of producaoBase) {
+      if (item.pares <= 0 || !permitidas.has(item.date)) continue;
+      if (turno && item.turno !== turno) continue;
+      if (maquina && item.machine !== maquina) continue;
+      const numero = numeroLimpo(item.numero);
+      if (!numero) continue;
+      const chave = `${item.machine}|${numero}`;
+      mapa.set(chave, (mapa.get(chave) ?? 0) + item.pares);
+    }
+    return mapa;
+  }
+  const entradasResumo = entradasDe(resumoRecorte.periodo, resumoRecorte.turno);
+  const perdasResumo = paresDasEntradas(entradasResumo);
+  const producaoResumo = somaProducao(datasPeriodo(resumoRecorte.periodo), resumoRecorte.turno);
+  const tituloResumo = nomePeriodo(resumoRecorte.periodo);
+  const entradasGrafico = entradasDe(graficoRecorte.periodo, graficoRecorte.turno);
+  const entradasGraficoTurnos = entradasDe(graficoRecorte.periodo, null);
+  const turnos = (["1", "2", "3"] as const).map((turno) => {
+    const lista = entradasGraficoTurnos.filter((entry) => entry.turno === turno);
+    return { turno, pares: paresDasEntradas(lista) };
+  });
+  const porProblema = PROBLEMS.map((problem) => ({
+    name: problem.name,
+    id: problem.id,
+    total: paresDasEntradas(entradasGrafico.filter((entry) => entry.problem === problem.id)),
+  }))
+    .filter((item) => item.total > 0)
+    .sort((a, b) => b.total - a.total);
+  const porMaquina = MACHINES.map((machine) => ({
+    machine,
+    total: paresDasEntradas(entradasGrafico.filter((entry) => entry.machine === machine)),
+  }))
+    .filter((item) => item.total > 0)
+    .sort((a, b) => b.total - a.total);
+  const rankingNumeros = rankNumeros(entradasGrafico, 5);
+  const rankingEstacao = STATIONS.map((station) => ({
+    id: String(station),
+    nome: `Estação ${pad2(station)}`,
+    valor: paresDasEntradas(entradasGrafico.filter((entry) => entry.station === station)),
+    ativo: estacao === null ? undefined : estacao === station,
+  }))
+    .filter((item) => item.valor > 0)
+    .sort((a, b) => b.valor - a.valor);
+  const entradasRanking = entradasDe(rankingRecorte.periodo, rankingRecorte.turno);
+  const producaoRanking = mapaProducao(datasPeriodo(rankingRecorte.periodo), rankingRecorte.turno);
+  const nomeRanking = `${nomePeriodo(rankingRecorte.periodo)}${rankingRecorte.turno ? ` · ${TURNO_LABEL[rankingRecorte.turno]}` : " · Todos"}`;
+  const historicoRanking = base.filter((entry) => passaRecorte(entry));
 
   const problemaNome = PROBLEMS.find((item) => item.id === problema)?.name ?? null;
-  const filtrosAtivos = [
-    janela !== "mes",
-    state.date !== today,
-    maquina !== null,
-    estacao !== null,
-    numeroAtivo !== null,
-    refAtiva !== null,
-    lado !== null,
-    turnoFiltro !== null,
-    problema !== null,
-  ].filter(Boolean).length;
+  const filtrosAtivos = [maquina !== null, estacao !== null, numeroAtivo !== null, refAtiva !== null, lado !== null, problema !== null].filter(Boolean).length;
   const resumoFiltro = [
     maquina,
     estacao !== null ? `Est. ${pad2(estacao)}` : null,
     numeroAtivo ? `Nº ${numeroAtivo}` : null,
     refAtiva ? `Ref. ${refAtiva}` : null,
     lado ? SIDE_LABEL[lado] : null,
-    turnoFiltro ? TURNO_LABEL[turnoFiltro] : null,
     problemaNome,
   ]
     .filter((item): item is string => Boolean(item))
     .join(" · ");
 
   function limparFiltros() {
-    setJanela("mes");
     setMaquina(null);
     setEstacao(null);
     setNumero(null);
     setReferencia(null);
     setLado(null);
-    setTurnoFiltro(null);
     setProblema(null);
-    if (state.date !== today) onDate(today);
   }
 
-  const chips = [tituloJanela, ...resumoFiltro.split(" · ").filter(Boolean)];
-  const resumoPeriodos = [
-    { nome: "Dia", producao: somaProducao(diasDia), perdas: paresDasEntradas(doDia) },
-    { nome: "Semana", producao: somaProducao(diasSemana), perdas: paresDasEntradas(daSemana) },
-    { nome: nomeDoMes, producao: somaProducao(diasMes), perdas: paresDasEntradas(doMes) },
+  const chips = resumoFiltro ? resumoFiltro.split(" · ") : [];
+  const resumoLinhas = [
+    { nome: "Dia", producao: somaProducao([state.date], resumoRecorte.turno), perdas: paresDasEntradas(entradasDe("dia", resumoRecorte.turno)) },
+    { nome: "Semana", producao: somaProducao(diasSemana, resumoRecorte.turno), perdas: paresDasEntradas(entradasDe("semana", resumoRecorte.turno)) },
+    { nome: nomeDoMes, producao: somaProducao(diasMes, resumoRecorte.turno), perdas: paresDasEntradas(entradasDe("mes", resumoRecorte.turno)) },
   ];
 
   return (
@@ -3468,30 +3524,31 @@ function PainelHistorico({
       </nav>
 
       <BlocoDash id="resumo" titulo="Resumo">
+        <FiltroBloco recorte={resumoRecorte} onChange={setResumoRecorte} />
         <div className="grid gap-3 lg:grid-cols-3">
         <CartaoResumo
           titulo="Produção"
           unidade="pares"
-          valor={somaProducao(diasMes)}
-          periodo={nomeDoMes}
+          valor={producaoResumo}
+          periodo={tituloResumo}
           tom="azul"
-          linhas={resumoPeriodos.map((item) => ({ nome: item.nome, valor: item.producao }))}
+          linhas={resumoLinhas.map((item) => ({ nome: item.nome, valor: item.producao }))}
         />
         <CartaoResumo
           titulo="Perdas"
           unidade="pares"
-          valor={perdasPeriodo}
-          periodo={tituloJanela}
+          valor={perdasResumo}
+          periodo={tituloResumo}
           tom="escuro"
-          linhas={resumoPeriodos.map((item) => ({ nome: item.nome, valor: item.perdas }))}
+          linhas={resumoLinhas.map((item) => ({ nome: item.nome, valor: item.perdas }))}
         />
         <CartaoResumo
           titulo="% de perda"
           unidade=""
-          valor={textoPercentual(percentualPerda(perdasPeriodo, somaProducao(diasJanela)))}
-          periodo={tituloJanela}
+          valor={textoPercentual(percentualPerda(perdasResumo, producaoResumo))}
+          periodo={tituloResumo}
           tom="claro"
-          linhas={resumoPeriodos.map((item) => ({
+          linhas={resumoLinhas.map((item) => ({
             nome: item.nome,
             valor: textoPercentual(percentualPerda(item.perdas, item.producao)),
           }))}
@@ -3514,22 +3571,6 @@ function PainelHistorico({
               </button>
             </div>
             <div className="grid gap-4 overflow-y-auto px-4 py-4">
-              <div>
-                <p className="text-xs font-semibold text-muted">Período</p>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {(
-                    [
-                      ["mes", nomeDoMes],
-                      ["semana", "Semana"],
-                      ["dia", "24 horas"],
-                    ] as const
-                  ).map(([id, label]) => (
-                    <OpcaoFiltro key={id} ativo={janela === id} onClick={() => setJanela(id)}>
-                      {label}
-                    </OpcaoFiltro>
-                  ))}
-                </div>
-              </div>
               <GrupoFiltro titulo="Máquina">
                 <OpcaoFiltro ativo={maquina === null} onClick={() => setMaquina(null)}>
                   Todas
@@ -3592,20 +3633,6 @@ function PainelHistorico({
                   </OpcaoFiltro>
                 ))}
               </GrupoFiltro>
-              <GrupoFiltro titulo="Turno">
-                <OpcaoFiltro ativo={turnoFiltro === null} onClick={() => setTurnoFiltro(null)}>
-                  Todos
-                </OpcaoFiltro>
-                {(["1", "2", "3"] as const).map((turno) => (
-                  <OpcaoFiltro
-                    key={turno}
-                    ativo={turnoFiltro === turno}
-                    onClick={() => setTurnoFiltro((atual) => (atual === turno ? null : turno))}
-                  >
-                    {TURNO_LABEL[turno]}
-                  </OpcaoFiltro>
-                ))}
-              </GrupoFiltro>
               <GrupoFiltro titulo="Problema">
                 <OpcaoFiltro ativo={problema === null} onClick={() => setProblema(null)}>
                   Todos
@@ -3645,49 +3672,53 @@ function PainelHistorico({
       ) : null}
 
       <BlocoDash id="producao" titulo="Produção e perdas">
+        <FiltroBloco recorte={producaoRecorte} onChange={setProducaoRecorte} />
         <div className="grid grid-cols-2 gap-3">
         <BarrasDuplas
           titulo="Produção e perdas"
-          grupos={[
-            { id: "dia", nome: "24 horas", producao: somaProducao(diasDia), perdas: paresDasEntradas(doDia) },
-            { id: "semana", nome: "Semana", producao: somaProducao(diasSemana), perdas: paresDasEntradas(daSemana) },
-            { id: "mes", nome: nomeDoMes, producao: somaProducao(diasMes), perdas: paresDasEntradas(doMes) },
-          ]}
+          grupos={(
+            [
+              ["dia", "Dia"],
+              ["semana", "Semana"],
+              ["mes", nomeDoMes],
+              ["ano", "Ano"],
+            ] as const
+          ).map(([id, nome]) => ({
+            id,
+            nome,
+            producao: somaProducao(datasPeriodo(id), producaoRecorte.turno),
+            perdas: paresDasEntradas(entradasDe(id, producaoRecorte.turno)),
+          }))}
         />
         <BarrasDuplas
           titulo="Por turno"
           grupos={(["1", "2", "3"] as const).map((turno) => ({
             id: turno,
             nome: TURNO_LABEL[turno].replace(" TURNO", ""),
-            producao: somaProducao(diasJanela, turno),
-            perdas: paresDasEntradas(
-              base.filter((entry) => diasJanela.includes(entry.date) && entry.turno === turno && (!maquina || entry.machine === maquina)),
-            ),
+            producao: somaProducao(datasPeriodo(producaoRecorte.periodo), turno),
+            perdas: paresDasEntradas(entradasDe(producaoRecorte.periodo, turno)),
           }))}
         />
         </div>
       </BlocoDash>
 
       <BlocoDash id="ranking" titulo="Ranking">
+        <FiltroBloco recorte={rankingRecorte} onChange={setRankingRecorte} />
         <RankingDoDia
-          entries={doDiaRanking}
-          historico={base.filter(
-            (entry) =>
-              (!maquina || entry.machine === maquina) &&
-              (estacao === null || entry.station === estacao) &&
-              (numeroAtivo === null || numeroLimpo(entry.matrizNumero) === numeroAtivo) &&
-              (refAtiva === null || (referenciaLimpa(entry.matrizRel) || "sem ref.") === refAtiva) &&
-              (!lado || entry.side === lado) &&
-              (!problema || entry.problem === problema),
-          )}
+          entries={entradasRanking}
+          historico={historicoRanking}
           data={state.date}
           estacao={estacao}
           lado={lado}
           problema={problema}
+          producao={producaoRanking}
+          periodoNome={nomeRanking}
+          turno={rankingRecorte.turno ?? "24"}
         />
       </BlocoDash>
 
       <BlocoDash id="graficos" titulo="Gráficos">
+      <FiltroBloco recorte={graficoRecorte} onChange={setGraficoRecorte} />
       <div className="grid gap-4 xl:grid-cols-2">
         <GraficoCircular
           titulo="Piores máquinas"
@@ -3708,9 +3739,11 @@ function PainelHistorico({
               id: item.turno,
               nome: TURNO_LABEL[item.turno],
               valor: item.pares,
-              ativo: turnoFiltro === null ? undefined : turnoFiltro === item.turno,
+              ativo: graficoRecorte.turno === null ? undefined : graficoRecorte.turno === item.turno,
             }))}
-          onPick={(id) => setTurnoFiltro((atual) => (atual === id ? null : (id as Turno)))}
+          onPick={(id) =>
+            setGraficoRecorte((atual) => ({ ...atual, turno: atual.turno === id ? null : (id as Turno) }))
+          }
         />
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
@@ -3791,7 +3824,65 @@ function corDaMaquina(machine: MachineId) {
   return machine.endsWith("B") ? COR_B[base] : COR_BASE[base];
 }
 
-const COR_POSICAO = ["#c24141", "#e07a2f", "#d4a017", "#3d9a86", "#4682B4"];
+function corDaTaxa(taxa: number | null, producao: number) {
+  if (producao <= 0 || taxa === null) return "#9aa8b5";
+  if (taxa <= 5) return "#1d7a45";
+  if (taxa < 10) return "#d4a017";
+  return "#c24141";
+}
+
+function textoTaxa(taxa: number | null, producao: number) {
+  if (producao <= 0 || taxa === null) return "—";
+  return taxa.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+type BlocoRanking = {
+  machine: MachineId;
+  linhas: { numero: string; referencia: string; pares: number; cor: string; taxa: string }[];
+  total: number;
+  motivos: string[];
+};
+
+function montarRanking(entries: Entry[], producao: Map<string, number>): BlocoRanking[] {
+  return MACHINES.map((machine) => {
+    const daMaquina = entries.filter((entry) => entry.machine === machine);
+    const grupos = new Map<string, { numero: string; referencia: string; itens: Entry[] }>();
+    for (const entry of daMaquina) {
+      const numero = numeroLimpo(entry.matrizNumero);
+      if (!numero) continue;
+      const referencia = referenciaLimpa(entry.matrizRel);
+      const chave = `${numero}||${referencia}`;
+      const atual = grupos.get(chave) ?? { numero, referencia, itens: [] };
+      atual.itens.push(entry);
+      grupos.set(chave, atual);
+    }
+    const linhas = [...grupos.values()]
+      .map((item) => {
+        const pares = paresNoRecorte(item.itens);
+        const feitas = producao.get(`${machine}|${item.numero}`) ?? 0;
+        const taxa = percentualPerda(pares, feitas);
+        return {
+          numero: item.numero,
+          referencia: item.referencia,
+          pares,
+          cor: corDaTaxa(taxa, feitas),
+          taxa: textoTaxa(taxa, feitas),
+        };
+      })
+      .filter((item) => item.pares > 0)
+      .sort((a, b) => b.pares - a.pares || a.numero.localeCompare(b.numero, "pt-BR", { numeric: true }));
+    const total = linhas.reduce((soma, item) => soma + item.pares, 0);
+    const motivos = PROBLEMS.map((problem) => ({
+      nome: problem.name,
+      pares: paresDasEntradas(daMaquina.filter((entry) => entry.problem === problem.id)),
+    }))
+      .filter((item) => item.pares > 0)
+      .sort((a, b) => b.pares - a.pares)
+      .slice(0, 3)
+      .map((item) => item.nome);
+    return { machine, linhas, total, motivos };
+  }).filter((item) => item.total > 0);
+}
 
 function paresNoRecorte(entries: Entry[]): number {
   const grupos = new Map<string, number>();
@@ -3813,63 +3904,6 @@ function rotuloNumero(numero: string, referencia: string) {
   return referencia ? `${numero} · ${referencia}` : numero;
 }
 
-function percentualPar(parte: number, total: number) {
-  if (total <= 0) return "0,00";
-  return ((parte / total) * 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-type BlocoRanking = {
-  machine: MachineId;
-  linhas: { numero: string; referencia: string; pares: number }[];
-  total: number;
-  motivos: string[];
-};
-
-function montarRanking(entries: Entry[], turno: "24" | Turno): BlocoRanking[] {
-  const fonte = turno === "24" ? entries : entries.filter((entry) => entry.turno === turno);
-  return MACHINES.map((machine) => {
-    const daMaquina = fonte.filter((entry) => entry.machine === machine);
-    const grupos = new Map<string, { numero: string; referencia: string; itens: Entry[] }>();
-    for (const entry of daMaquina) {
-      const numero = numeroLimpo(entry.matrizNumero);
-      if (!numero) continue;
-      const referencia = referenciaLimpa(entry.matrizRel);
-      const chave = `${numero}||${referencia}`;
-      const atual = grupos.get(chave) ?? { numero, referencia, itens: [] };
-      atual.itens.push(entry);
-      grupos.set(chave, atual);
-    }
-    const linhas = [...grupos.values()]
-      .map((item) => ({ numero: item.numero, referencia: item.referencia, pares: paresNoRecorte(item.itens) }))
-      .filter((item) => item.pares > 0)
-      .sort((a, b) => b.pares - a.pares || a.numero.localeCompare(b.numero, "pt-BR", { numeric: true }));
-    const total = linhas.reduce((soma, item) => soma + item.pares, 0);
-    const motivos = PROBLEMS.map((problem) => ({
-      nome: problem.name,
-      pares: paresDasEntradas(daMaquina.filter((entry) => entry.problem === problem.id)),
-    }))
-      .filter((item) => item.pares > 0)
-      .sort((a, b) => b.pares - a.pares)
-      .slice(0, 3)
-      .map((item) => item.nome);
-    return { machine, linhas, total, motivos };
-  }).filter((item) => item.total > 0);
-}
-
-const ABAS_RANKING = [
-  ["24", "24 horas"],
-  ["1", "1º turno"],
-  ["2", "2º turno"],
-  ["3", "3º turno"],
-] as const;
-
-const FAIXA_RANKING: Record<(typeof ABAS_RANKING)[number][0], string> = {
-  "24": "#1d7a45",
-  "1": "#2a2a2a",
-  "2": "#1f5f99",
-  "3": "#9b2c2c",
-};
-
 function RankingDoDia({
   entries,
   historico,
@@ -3877,6 +3911,9 @@ function RankingDoDia({
   estacao,
   lado,
   problema,
+  producao,
+  periodoNome,
+  turno,
 }: {
   entries: Entry[];
   historico: Entry[];
@@ -3884,42 +3921,41 @@ function RankingDoDia({
   estacao: number | null;
   lado: Side | null;
   problema: string | null;
+  producao: Map<string, number>;
+  periodoNome: string;
+  turno: "24" | Turno;
 }) {
-  const [aba, setAba] = useState<"24" | Turno>("24");
-  const [escolher, setEscolher] = useState(false);
   const [gerando, setGerando] = useState(false);
   const [aviso, setAviso] = useState("");
   const [molde, setMolde] = useState<{ machine: MachineId; numero: string; referencia: string } | null>(null);
-  const maquinas = montarRanking(entries, aba);
+  const maquinas = montarRanking(entries, producao);
+  const faixa = turno === "1" ? "#2a2a2a" : turno === "2" ? "#1f5f99" : turno === "3" ? "#9b2c2c" : "#1d7a45";
 
-  async function baixar(turno: "24" | Turno) {
-    const blocos = montarRanking(entries, turno);
-    if (blocos.length === 0) {
+  async function baixar() {
+    if (maquinas.length === 0) {
       setAviso("Sem perdas neste recorte.");
-      setEscolher(false);
       return;
     }
     setGerando(true);
     setAviso("");
     try {
-      const periodo = ABAS_RANKING.find(([id]) => id === turno)?.[1] ?? "24 horas";
       const blob = await renderRankingPng({
         data: formatDateBR(data),
-        periodo,
-        faixa: FAIXA_RANKING[turno],
-        maquinas: blocos.map((item) => ({
+        periodo: periodoNome,
+        faixa,
+        maquinas: maquinas.map((item) => ({
           nome: item.machine,
           total: item.total,
           linhas: item.linhas.map((linha) => ({
             rotulo: rotuloNumero(linha.numero, linha.referencia),
             pares: linha.pares,
-            percentual: percentualPar(linha.pares, item.total),
+            percentual: linha.taxa,
+            cor: linha.cor,
           })),
           motivos: fraseMotivos(item.motivos),
         })),
       });
       downloadBlob(`ranking-${data}-${turno}.png`, blob);
-      setEscolher(false);
     } catch {
       setAviso("Não foi possível gerar a imagem.");
     } finally {
@@ -3930,25 +3966,15 @@ function RankingDoDia({
   return (
     <section className="grid gap-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex min-w-0 flex-wrap gap-1.5">
-          {ABAS_RANKING.map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setAba(id)}
-              className={cx(
-                "rounded-lg px-3 py-2 text-sm font-semibold",
-                aba === id ? "bg-[#1e3a5f] text-white" : "border border-[#d5dee8] bg-white text-fg",
-              )}
-            >
-              {label}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-3 text-xs font-semibold text-[#3d4a5c]">
+          <span className="inline-flex items-center gap-1"><span className="size-2.5 rounded-full bg-[#1d7a45]" /> Até 5%</span>
+          <span className="inline-flex items-center gap-1"><span className="size-2.5 rounded-full bg-[#d4a017]" /> 5% a 10%</span>
+          <span className="inline-flex items-center gap-1"><span className="size-2.5 rounded-full bg-[#c24141]" /> Acima de 10%</span>
         </div>
         <button
           type="button"
           disabled={gerando}
-          onClick={() => setEscolher(true)}
+          onClick={() => void baixar()}
           className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-semibold shadow-[0_6px_16px_rgba(47,84,150,0.08)] disabled:opacity-50"
         >
           <ImageDown className="size-4" />
@@ -3956,10 +3982,9 @@ function RankingDoDia({
         </button>
       </div>
       <div>
-        <h3 className="text-base font-semibold">Ranking do dia</h3>
+        <h3 className="text-base font-semibold">Ranking</h3>
         <p className="text-sm text-muted">
-          {formatDateBR(data)}
-          {aba === "24" ? " · 1º, 2º e 3º turno" : ""}
+          {formatDateBR(data)} · {periodoNome}
           {" · toque no número para ver o dia a dia"}
           {aviso ? ` · ${aviso}` : ""}
         </p>
@@ -3984,15 +4009,12 @@ function RankingDoDia({
                 <span className="text-right">%</span>
               </div>
               <ol>
-                {item.linhas.map((linha, index) => (
+                {item.linhas.map((linha) => (
                   <li
                     key={`${linha.numero}-${linha.referencia}`}
                     className="grid w-full grid-cols-[0.55rem_minmax(0,1fr)_2.6rem_3.5rem] items-center gap-x-2 border-b border-[#f4f6f8] px-3 py-1 text-sm last:border-b-0"
                   >
-                    <span
-                      className="size-2 rounded-full"
-                      style={{ background: COR_POSICAO[Math.min(index, COR_POSICAO.length - 1)] }}
-                    />
+                    <span className="size-2.5 rounded-full" style={{ background: linha.cor }} />
                     <button
                       type="button"
                       onClick={() => setMolde({ machine: item.machine, numero: linha.numero, referencia: linha.referencia })}
@@ -4001,7 +4023,7 @@ function RankingDoDia({
                       {rotuloNumero(linha.numero, linha.referencia)}
                     </button>
                     <span className="text-right font-semibold tabular-nums">{linha.pares}</span>
-                    <span className="text-right tabular-nums text-[#3d4a5c]">{percentualPar(linha.pares, item.total)}</span>
+                    <span className="text-right font-semibold tabular-nums" style={{ color: linha.cor }}>{linha.taxa}</span>
                   </li>
                 ))}
               </ol>
@@ -4013,43 +4035,13 @@ function RankingDoDia({
           ))}
         </div>
       )}
-      {escolher ? (
-        <div
-          className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center"
-          onClick={(event) => {
-            if (event.target === event.currentTarget && !gerando) setEscolher(false);
-          }}
-        >
-          <div className="w-full max-w-sm rounded-3xl bg-white p-4 shadow-xl">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="text-base font-semibold">Qual ranking baixar?</h3>
-              <button type="button" onClick={() => setEscolher(false)} className="text-sm font-semibold text-muted">
-                Fechar
-              </button>
-            </div>
-            <div className="mt-3 grid gap-2">
-              {ABAS_RANKING.map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  disabled={gerando}
-                  onClick={() => void baixar(id)}
-                  className="rounded-2xl bg-[#f3f6fb] py-3 text-sm font-semibold disabled:opacity-50"
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      ) : null}
       {molde ? (
         <EvolucaoMolde
           machine={molde.machine}
           numero={molde.numero}
           referencia={molde.referencia}
           data={data}
-          turno={aba}
+          turno={turno}
           historico={historico}
           estacao={estacao}
           lado={lado}
