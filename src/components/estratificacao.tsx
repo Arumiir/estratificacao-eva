@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { InstallPrompt } from "@/components/install-prompt";
 import { UpdateNotice } from "@/components/update-notice";
 import {
@@ -151,6 +151,32 @@ function loadExcelSent() {
   } catch {
     return new Set<string>();
   }
+}
+
+function chaveNumero(valor: string) {
+  const limpo = numeroLimpo(valor);
+  if (!limpo) return "";
+  return limpo
+    .split("/")
+    .map((parte) => parte.replace(/^0+/, "") || "0")
+    .join("/");
+}
+
+function mesmasEntradas(proximas: Entry[], atuais: Entry[]) {
+  if (proximas.length !== atuais.length) return false;
+  const porId = new Map(atuais.map((entry) => [entry.id, entry]));
+  return proximas.every((entry) => {
+    const outra = porId.get(entry.id);
+    return (
+      outra !== undefined &&
+      outra.matrizNumero === entry.matrizNumero &&
+      outra.matrizRel === entry.matrizRel &&
+      outra.problem === entry.problem &&
+      outra.at === entry.at &&
+      outra.corId === entry.corId &&
+      outra.corNome === entry.corNome
+    );
+  });
 }
 
 function usePerdas() {
@@ -380,16 +406,7 @@ function usePerdas() {
       else synced.current.delete(entry.id);
     }
     for (const id of remote.removed) synced.current.delete(id);
-    const sameEntries =
-      entries.length === current.entries.length &&
-      entries.every(
-        (entry, index) =>
-          entry.id === current.entries[index]?.id &&
-          entry.matrizNumero === current.entries[index]?.matrizNumero &&
-          entry.matrizRel === current.entries[index]?.matrizRel &&
-          entry.corId === current.entries[index]?.corId &&
-          entry.corNome === current.entries[index]?.corNome,
-      );
+    const sameEntries = mesmasEntradas(entries, current.entries);
     const outros = mergeOutros(current.outros, remote.outros ?? []);
     const cores = mergeCores(current.cores, remote.cores ?? []);
     const fechamentos = mergeFechamentos(current.fechamentos ?? [], remote.fechamentos ?? []);
@@ -3296,19 +3313,22 @@ function PainelHistorico({
   const [graficoRecorte, setGraficoRecorte] = useState<RecorteBloco>({ periodo: "mes", turno: null });
   const diasMes = diasDoMes(state.date);
   const diasSemana = diasDaSemana(state.date);
-  const diasAno = diasDoAno(state.date);
-  const cobertura = new Set(diasAno);
+  const querAno =
+    resumoRecorte.periodo === "ano" ||
+    producaoRecorte.periodo === "ano" ||
+    rankingRecorte.periodo === "ano" ||
+    graficoRecorte.periodo === "ano";
+  const desdeHistorico = querAno ? `${state.date.slice(0, 4)}-01-01` : (diasDoMes(state.date)[0] ?? state.date);
+  const cobertura = useMemo(() => new Set(querAno ? diasDoAno(state.date) : diasDoMes(state.date)), [querAno, state.date]);
 
   useEffect(() => {
     let ativo = true;
-    setRemoto(null);
-    setErro(false);
-    pullHistorico({ data: { ate: state.date, desde: `${state.date.slice(0, 4)}-01-01` } })
+    pullHistorico({ data: { ate: state.date, desde: desdeHistorico } })
       .then((resultado) => {
-        if (ativo) {
-          setRemoto(resultado.entries);
-          setProducaoRemota(resultado.producao ?? []);
-        }
+        if (!ativo) return;
+        setRemoto(resultado.entries);
+        setProducaoRemota(resultado.producao ?? []);
+        setErro(false);
       })
       .catch(() => {
         if (ativo) setErro(true);
@@ -3316,7 +3336,7 @@ function PainelHistorico({
     return () => {
       ativo = false;
     };
-  }, [state.date]);
+  }, [state.date, desdeHistorico]);
 
   useEffect(() => {
     const salvo: FiltrosDash = { maquina, estacao, numero, referencia, lado, problema };
@@ -3327,7 +3347,10 @@ function PainelHistorico({
     }
   }, [maquina, estacao, numero, referencia, lado, problema]);
 
-  const base = juntarHistorico(remoto ?? [], state.entries, cobertura);
+  const base = useMemo(
+    () => juntarHistorico(remoto ?? [], state.entries, cobertura),
+    [remoto, state.entries, cobertura],
+  );
   const recorteLista = base.filter((entry) => {
     if (maquina && entry.machine !== maquina) return false;
     if (estacao !== null && entry.station !== estacao) return false;
@@ -3353,7 +3376,7 @@ function PainelHistorico({
   function datasPeriodo(periodo: PeriodoBloco) {
     if (periodo === "dia") return [state.date];
     if (periodo === "semana") return diasSemana;
-    if (periodo === "ano") return diasAno;
+    if (periodo === "ano") return diasDoAno(state.date);
     return diasMes;
   }
   const nomeDoMes = nomeMes(state.date);
@@ -3367,27 +3390,45 @@ function PainelHistorico({
     const datas = new Set(datasPeriodo(periodo));
     return base.filter((entry) => datas.has(entry.date) && (!turno || entry.turno === turno) && passaRecorte(entry));
   }
-  const producaoBase = juntarProducao(producaoRemota, state.producao ?? [], cobertura);
+  const producaoBase = useMemo(
+    () => juntarProducao(producaoRemota, state.producao ?? [], cobertura),
+    [producaoRemota, state.producao, cobertura],
+  );
   function somaProducao(datasAlvo: string[], turno: Turno | null) {
     const permitidas = new Set(datasAlvo);
     return producaoBase.reduce((soma, item) => {
       if (item.pares <= 0 || !permitidas.has(item.date)) return soma;
       if (turno && item.turno !== turno) return soma;
-      if (maquina && item.machine !== maquina) return soma;
+      if (maquina && item.machine !== maquina && maquinaBase(item.machine) !== maquina && maquinaBase(maquina) !== item.machine) return soma;
       return soma + item.pares;
     }, 0);
   }
   function mapaProducao(datasAlvo: string[], turno: Turno | null) {
     const permitidas = new Set(datasAlvo);
     const mapa = new Map<string, number>();
+    function soma(chave: string, pares: number) {
+      mapa.set(chave, (mapa.get(chave) ?? 0) + pares);
+    }
     for (const item of producaoBase) {
       if (item.pares <= 0 || !permitidas.has(item.date)) continue;
       if (turno && item.turno !== turno) continue;
-      if (maquina && item.machine !== maquina) continue;
-      const numero = numeroLimpo(item.numero);
+      if (maquina && item.machine !== maquina && maquinaBase(item.machine) !== maquina && maquinaBase(maquina) !== item.machine) continue;
+      const numero = chaveNumero(item.numero);
       if (!numero) continue;
-      const chave = `${item.machine}|${numero}`;
-      mapa.set(chave, (mapa.get(chave) ?? 0) + item.pares);
+      soma(`${item.machine}|${numero}`, item.pares);
+    }
+    for (const [chave, pares] of [...mapa.entries()]) {
+      const corte = chave.indexOf("|");
+      const machine = chave.slice(0, corte);
+      const numero = chave.slice(corte + 1);
+      const curto = numero.split("/")[0] ?? "";
+      if (curto && curto !== numero && !mapa.has(`${machine}|${curto}`)) mapa.set(`${machine}|${curto}`, pares);
+      if ((MAQUINAS_PISO as readonly string[]).includes(machine)) {
+        for (const variante of variantesDe(machine as MaquinaPiso)) {
+          if (!mapa.has(`${variante}|${numero}`)) mapa.set(`${variante}|${numero}`, pares);
+          if (curto && curto !== numero && !mapa.has(`${variante}|${curto}`)) mapa.set(`${variante}|${curto}`, pares);
+        }
+      }
     }
     return mapa;
   }
@@ -3824,15 +3865,15 @@ function corDaMaquina(machine: MachineId) {
   return machine.endsWith("B") ? COR_B[base] : COR_BASE[base];
 }
 
-function corDaTaxa(taxa: number | null, producao: number) {
-  if (producao <= 0 || taxa === null) return "#9aa8b5";
+function corDaTaxa(taxa: number | null) {
+  if (taxa === null) return "#9aa8b5";
   if (taxa <= 5) return "#1d7a45";
   if (taxa < 10) return "#d4a017";
   return "#c24141";
 }
 
-function textoTaxa(taxa: number | null, producao: number) {
-  if (producao <= 0 || taxa === null) return "—";
+function textoTaxa(taxa: number | null) {
+  if (taxa === null) return "—";
   return taxa.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
@@ -3859,14 +3900,14 @@ function montarRanking(entries: Entry[], producao: Map<string, number>): BlocoRa
     const linhas = [...grupos.values()]
       .map((item) => {
         const pares = paresNoRecorte(item.itens);
-        const feitas = producao.get(`${machine}|${item.numero}`) ?? 0;
+        const feitas = producao.get(`${machine}|${chaveNumero(item.numero)}`) ?? 0;
         const taxa = percentualPerda(pares, feitas);
         return {
           numero: item.numero,
           referencia: item.referencia,
           pares,
-          cor: corDaTaxa(taxa, feitas),
-          taxa: textoTaxa(taxa, feitas),
+          cor: corDaTaxa(taxa),
+          taxa: textoTaxa(taxa),
         };
       })
       .filter((item) => item.pares > 0)
