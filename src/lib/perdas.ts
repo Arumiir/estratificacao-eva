@@ -107,10 +107,34 @@ export type State = {
   entries: Entry[];
   date: string;
   turno: Turno;
+  modelos: MaquinaPiso[];
+  modelosEm: number;
 };
 
-export const MACHINES = ["SIE01", "SIE02", "SIE03", "SIE04", "SIE05", "SIE06"] as const;
+export const MAQUINAS_PISO = ["SIE01", "SIE02", "SIE03", "SIE04", "SIE05", "SIE06"] as const;
+export type MaquinaPiso = (typeof MAQUINAS_PISO)[number];
+export const MACHINES = [
+  "SIE01",
+  "SIE01A",
+  "SIE01B",
+  "SIE02",
+  "SIE02A",
+  "SIE02B",
+  "SIE03",
+  "SIE03A",
+  "SIE03B",
+  "SIE04",
+  "SIE04A",
+  "SIE04B",
+  "SIE05",
+  "SIE05A",
+  "SIE05B",
+  "SIE06",
+  "SIE06A",
+  "SIE06B",
+] as const;
 export type MachineId = (typeof MACHINES)[number];
+export const MODELOS_PADRAO: MaquinaPiso[] = ["SIE06"];
 export const STATIONS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 export const SIDES = ["esq", "dir"] as const;
 
@@ -308,9 +332,39 @@ export function stationKey(machine: MachineId, station: number): string {
 export function parseMachine(value: unknown): MachineId | null {
   if (typeof value === "number" && Number.isInteger(value)) return legacyMachine(String(value));
   if (typeof value !== "string") return null;
-  if (value === "SIE05A" || value === "SIE05B") return "SIE05";
   if ((MACHINES as readonly string[]).includes(value)) return value as MachineId;
   return legacyMachine(value);
+}
+
+export function maquinaBase(machine: MachineId): MaquinaPiso {
+  if ((MAQUINAS_PISO as readonly string[]).includes(machine)) return machine as MaquinaPiso;
+  return machine.slice(0, -1) as MaquinaPiso;
+}
+
+export function variantesDe(base: MaquinaPiso): [MachineId, MachineId] {
+  return [`${base}A`, `${base}B`];
+}
+
+export function readModelos(value: unknown): { machines: MaquinaPiso[]; salvoEm: number } | null {
+  if (!isRecord(value)) return null;
+  const salvoEm = typeof value.salvoEm === "number" && Number.isFinite(value.salvoEm) ? value.salvoEm : 0;
+  if (!Array.isArray(value.machines) || salvoEm <= 0) return null;
+  const machines = [...new Set(value.machines.flatMap((item) => ((MAQUINAS_PISO as readonly string[]).includes(String(item)) ? [item as MaquinaPiso] : [])))];
+  return { machines, salvoEm };
+}
+
+export function maquinasDoFiltro(modelos: readonly MaquinaPiso[], comDado: Iterable<MachineId>): MachineId[] {
+  const tem = new Set(comDado);
+  const ligados = new Set(modelos);
+  const lista: MachineId[] = [];
+  for (const base of MAQUINAS_PISO) {
+    const [ladoA, ladoB] = variantesDe(base);
+    const ligado = ligados.has(base);
+    if (!ligado || tem.has(base)) lista.push(base);
+    if (ligado || tem.has(ladoA)) lista.push(ladoA);
+    if (ligado || tem.has(ladoB)) lista.push(ladoB);
+  }
+  return lista;
 }
 
 function legacyMachine(raw: string): MachineId | null {
@@ -324,8 +378,6 @@ function legacyMachine(raw: string): MachineId | null {
     case "4":
       return "SIE04";
     case "5":
-    case "SIE05A":
-    case "SIE05B":
       return "SIE05";
     case "6":
       return "SIE06";
@@ -446,6 +498,8 @@ export function emptyState(now = new Date()): State {
     entries: [],
     date: todayISO(now),
     turno: "1",
+    modelos: [...MODELOS_PADRAO],
+    modelosEm: 0,
   };
 }
 
@@ -795,6 +849,7 @@ export function loadState(): State {
           return entry ? [entry] : [];
         })
       : [];
+    const modelos = readModelos({ machines: data.modelos, salvoEm: data.modelosEm });
     return {
       stations,
       outros: readOutros(data.outros),
@@ -804,6 +859,8 @@ export function loadState(): State {
       entries,
       date: base.date,
       turno: parseTurno(data.turno) ?? base.turno,
+      modelos: modelos?.machines ?? base.modelos,
+      modelosEm: modelos?.salvoEm ?? 0,
     };
   } catch {
     return base;

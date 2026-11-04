@@ -44,7 +44,7 @@ export function UpdateNotice() {
     }
 
     void checar();
-    const timer = window.setInterval(() => void checar(), 60_000);
+    const timer = window.setInterval(() => void checar(), 20_000);
     function aoVoltar() {
       if (document.visibilityState === "visible") void checar();
     }

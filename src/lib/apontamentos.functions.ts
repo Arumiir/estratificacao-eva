@@ -1,7 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import { pullDay, pushDays } from "@/lib/apontamentos-blob";
 import { dbSource, getSql } from "@/lib/db";
-import { apontamentoBloqueado, coerceEntry, diaOperacional, diasAte, mergeCores, mergeFechamentos, mergeOutros, mergeProducao, numeroLimpo, parseMachine, podeAlterarApontamento, problemName, readCores, readFechamentos, readGrades, readOutros, readProducao, referenciaLimpa, turnoPeloRelogio, type Cor, type Entry, type Fechamento, type OutroMatriz, type ProducaoPares, type StationConfig } from "@/lib/perdas";
+import { apontamentoBloqueado, coerceEntry, diaOperacional, diasAte, mergeCores, mergeFechamentos, mergeOutros, mergeProducao, numeroLimpo, parseMachine, podeAlterarApontamento, problemName, readCores, readFechamentos, readGrades, readModelos, readOutros, readProducao, referenciaLimpa, turnoPeloRelogio, type Cor, type Entry, type Fechamento, type MaquinaPiso, type OutroMatriz, type ProducaoPares, type StationConfig } from "@/lib/perdas";
+
+type ModeloSalvo = { machines: MaquinaPiso[]; salvoEm: number };
 
 type SyncResult = {
   entries: Entry[];
@@ -11,6 +13,7 @@ type SyncResult = {
   cores: Cor[];
   fechamentos: Fechamento[];
   producao: ProducaoPares[];
+  modelos: ModeloSalvo | null;
   cloud: boolean;
 };
 
@@ -120,7 +123,7 @@ function cleanEntries(value: unknown): Entry[] {
 }
 
 export const pushApontamentos = createServerFn({ method: "POST" })
-  .validator((data: { upserts?: unknown; removed?: unknown; grades?: unknown; date?: unknown; outros?: unknown; cores?: unknown; fechamentos?: unknown; producao?: unknown; revives?: unknown }) => ({
+  .validator((data: { upserts?: unknown; removed?: unknown; grades?: unknown; date?: unknown; outros?: unknown; cores?: unknown; fechamentos?: unknown; producao?: unknown; revives?: unknown; modelos?: unknown }) => ({
     upserts: cleanEntries(data?.upserts),
     removed: cleanRemoved(data?.removed),
     grades: readGrades(data?.grades),
@@ -130,6 +133,7 @@ export const pushApontamentos = createServerFn({ method: "POST" })
     fechamentos: readFechamentos(data?.fechamentos),
     producao: readProducao(data?.producao),
     revives: Array.isArray(data?.revives) ? data.revives.filter((id): id is string => typeof id === "string").slice(0, 2000) : [],
+    modelos: readModelos(data?.modelos),
   }))
   .handler(async ({ data }) => {
     if (usesBlob()) {
@@ -265,6 +269,19 @@ export const pushApontamentos = createServerFn({ method: "POST" })
         }
       }
     }
+    if (data.modelos) {
+      const existingModelo = await sql<{ config: unknown }>`
+        select config from grades where date = ${"modelos"} and key = ${"__modelos__"}
+      `;
+      const prev = readModelos(existingModelo[0]?.config);
+      if (!prev || data.modelos.salvoEm >= prev.salvoEm) {
+        await sql`
+          insert into grades (date, key, config)
+          values (${"modelos"}, ${"__modelos__"}, ${JSON.stringify(data.modelos)}::jsonb)
+          on conflict (date, key) do update set config = excluded.config
+        `;
+      }
+    }
     return { ok: true as const, cloud: cloudOn() };
   });
 
@@ -274,10 +291,10 @@ export const pullApontamentos = createServerFn({ method: "POST" })
     return { date };
   })
   .handler(async ({ data }): Promise<SyncResult> => {
-    if (!data.date) return { entries: [], removed: [], grades: {}, outros: [], cores: [], fechamentos: [], producao: [], cloud: cloudOn() };
+    if (!data.date) return { entries: [], removed: [], grades: {}, outros: [], cores: [], fechamentos: [], producao: [], modelos: null, cloud: cloudOn() };
     if (usesBlob()) {
       const day = await pullDay(data.date);
-      return { entries: day.entries, removed: day.removed, grades: day.grades, outros: day.outros, cores: [], fechamentos: [], producao: [], cloud: true };
+      return { entries: day.entries, removed: day.removed, grades: day.grades, outros: day.outros, cores: [], fechamentos: [], producao: [], modelos: null, cloud: true };
     }
     await acertarTerceiroTurno();
     const sql = await getSql();
@@ -339,7 +356,20 @@ export const pullApontamentos = createServerFn({ method: "POST" })
           .map((row) => [row.key, row.config]),
       ),
     );
-    return { entries, removed: removedRows.map((row) => row.id), grades, outros, cores, fechamentos, producao, cloud: cloudOn() };
+    const modeloRow = await sql<{ config: unknown }>`
+      select config from grades where date = ${"modelos"} and key = ${"__modelos__"}
+    `;
+    return {
+      entries,
+      removed: removedRows.map((row) => row.id),
+      grades,
+      outros,
+      cores,
+      fechamentos,
+      producao,
+      modelos: readModelos(modeloRow[0]?.config),
+      cloud: cloudOn(),
+    };
   });
 
 export const pullHistorico = createServerFn({ method: "POST" })

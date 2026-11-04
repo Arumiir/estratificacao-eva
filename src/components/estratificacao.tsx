@@ -13,6 +13,10 @@ import {
 } from "lucide-react";
 import {
   MACHINES,
+  MAQUINAS_PISO,
+  maquinaBase,
+  maquinasDoFiltro,
+  variantesDe,
   PROBLEMS,
   SIDE_LABEL,
   SIDE_SHORT,
@@ -64,6 +68,7 @@ import {
   type ProducaoPares,
   type FichaLine,
   type MachineId,
+  type MaquinaPiso,
   type OutroMatriz,
   type Side,
   type State,
@@ -109,6 +114,7 @@ type Screen =
   | { kind: "papel" }
   | { kind: "turnos" }
   | { kind: "machines" }
+  | { kind: "modelo"; machine: MaquinaPiso }
   | { kind: "ask"; machine: MachineId }
   | { kind: "cor"; machine: MachineId }
   | { kind: "troca-cor"; machine: MachineId; corId: string }
@@ -193,6 +199,7 @@ function usePerdas() {
   const lastCores = useRef("");
   const lastFechamentos = useRef("");
   const lastProducao = useRef("");
+  const lastModelosEm = useRef(0);
   const held = useRef<Set<string>>(new Set());
   const pendingRemoved = useRef<Map<string, Entry>>(new Map());
   const revives = useRef<Set<string>>(new Set());
@@ -304,7 +311,8 @@ function usePerdas() {
     const coresMudou = JSON.stringify(cores) !== lastCores.current;
     const fechamentosMudou = JSON.stringify(fechamentos) !== lastFechamentos.current;
     const producaoMudou = JSON.stringify(producao) !== lastProducao.current;
-    if (upserts.length === 0 && removed.length === 0 && Object.keys(grades).length === 0 && !outrosMudou && !coresMudou && !fechamentosMudou && !producaoMudou) {
+    const modelosMudou = state.modelosEm > lastModelosEm.current;
+    if (upserts.length === 0 && removed.length === 0 && Object.keys(grades).length === 0 && !outrosMudou && !coresMudou && !fechamentosMudou && !producaoMudou && !modelosMudou) {
       skipExcelBacklog.current = false;
       return;
     }
@@ -317,7 +325,8 @@ function usePerdas() {
     const sentGrades = Object.keys(grades);
     const gen = gradesGen.current;
     const sentRevives = reviveIds;
-    void pushApontamentos({ data: { upserts: booted.current ? upserts : [], removed, grades: booted.current ? grades : {}, date: state.date, outros: booted.current ? outros : [], cores: booted.current ? cores : [], fechamentos: booted.current ? fechamentos : [], producao: booted.current ? producao : [], revives: sentRevives } })
+    const modeloEnviado = modelosMudou ? { machines: state.modelos, salvoEm: state.modelosEm } : null;
+    void pushApontamentos({ data: { upserts: booted.current ? upserts : [], removed, grades: booted.current ? grades : {}, date: state.date, outros: booted.current ? outros : [], cores: booted.current ? cores : [], fechamentos: booted.current ? fechamentos : [], producao: booted.current ? producao : [], revives: sentRevives, modelos: booted.current ? modeloEnviado : null } })
       .then((result) => {
         setCloud(result.cloud);
         if (booted.current) {
@@ -326,6 +335,7 @@ function usePerdas() {
           lastCores.current = JSON.stringify(cores);
           lastFechamentos.current = JSON.stringify(fechamentos);
           lastProducao.current = JSON.stringify(producao);
+          if (modeloEnviado) lastModelosEm.current = modeloEnviado.salvoEm;
         }
         for (const id of sentRevives) revives.current.delete(id);
         if (gradesGen.current !== gen) return;
@@ -336,7 +346,7 @@ function usePerdas() {
 
   function takeRemote(
     current: State,
-    remote: { entries: Entry[]; removed: string[]; grades?: Record<string, StationConfig>; outros?: OutroMatriz[]; cores?: Cor[]; fechamentos?: Fechamento[]; producao?: ProducaoPares[] },
+    remote: { entries: Entry[]; removed: string[]; grades?: Record<string, StationConfig>; outros?: OutroMatriz[]; cores?: Cor[]; fechamentos?: Fechamento[]; producao?: ProducaoPares[]; modelos?: { machines: MaquinaPiso[]; salvoEm: number } | null },
   ) {
     for (const id of remote.removed) {
       held.current.delete(id);
@@ -387,8 +397,19 @@ function usePerdas() {
     const coresIguais = JSON.stringify(cores) === JSON.stringify(current.cores);
     const fechamentosIguais = JSON.stringify(fechamentos) === JSON.stringify(current.fechamentos);
     const producaoIgual = JSON.stringify(producao) === JSON.stringify(current.producao ?? []);
-    if (!stationsChanged && sameEntries && outrosIguais && coresIguais && fechamentosIguais && producaoIgual) return current;
-    return { ...current, stations, entries, outros, cores, fechamentos, producao };
+    const modelosNovos = remote.modelos && remote.modelos.salvoEm > current.modelosEm ? remote.modelos : null;
+    if (modelosNovos) lastModelosEm.current = modelosNovos.salvoEm;
+    if (!stationsChanged && sameEntries && outrosIguais && coresIguais && fechamentosIguais && producaoIgual && !modelosNovos) return current;
+    return {
+      ...current,
+      stations,
+      entries,
+      outros,
+      cores,
+      fechamentos,
+      producao,
+      ...(modelosNovos ? { modelos: modelosNovos.machines, modelosEm: modelosNovos.salvoEm } : {}),
+    };
   }
 
   async function refresh() {
@@ -427,8 +448,10 @@ function usePerdas() {
         const coresMudou = JSON.stringify(cores) !== lastCores.current;
         const fechamentosMudou = JSON.stringify(fechamentos) !== lastFechamentos.current;
         const producaoMudou = JSON.stringify(producao) !== lastProducao.current;
-        if (booted.current && (upserts.length > 0 || removed.length > 0 || reviveIds.length > 0 || outrosMudou || coresMudou || fechamentosMudou || producaoMudou)) {
-          void pushApontamentos({ data: { upserts, removed, revives: reviveIds, date: current.date, outros, cores, fechamentos, producao } })
+        const modelosMudou = current.modelosEm > lastModelosEm.current;
+        if (booted.current && (upserts.length > 0 || removed.length > 0 || reviveIds.length > 0 || outrosMudou || coresMudou || fechamentosMudou || producaoMudou || modelosMudou)) {
+          const modeloEnviado = modelosMudou ? { machines: current.modelos, salvoEm: current.modelosEm } : null;
+          void pushApontamentos({ data: { upserts, removed, revives: reviveIds, date: current.date, outros, cores, fechamentos, producao, modelos: modeloEnviado } })
             .then((result) => {
               setCloud(result.cloud);
               for (const entry of upserts) known.add(entry.id);
@@ -437,6 +460,7 @@ function usePerdas() {
               lastCores.current = JSON.stringify(cores);
               lastFechamentos.current = JSON.stringify(fechamentos);
               lastProducao.current = JSON.stringify(producao);
+              if (modeloEnviado) lastModelosEm.current = modeloEnviado.salvoEm;
             })
             .catch(() => setCloud(false));
         }
@@ -514,6 +538,8 @@ function screenKey(screen: Screen): string {
       return "turnos";
     case "machines":
       return "machines";
+    case "modelo":
+      return `modelo-${screen.machine}`;
     case "ask":
       return `ask-${screen.machine}`;
     case "cor":
@@ -779,6 +805,15 @@ export function EstratificacaoApp() {
     commit((current) => ({ ...current, turno }));
   }
 
+  function alternarModelo(machine: MaquinaPiso) {
+    commit((current) => {
+      const ligados = new Set(current.modelos);
+      if (ligados.has(machine)) ligados.delete(machine);
+      else ligados.add(machine);
+      return { ...current, modelos: MAQUINAS_PISO.filter((item) => ligados.has(item)), modelosEm: Date.now() };
+    });
+  }
+
   function salvarProducao(machine: MachineId, turno: Turno, valores: Record<string, number>) {
     const salvoEm = Date.now();
     commit((current) => {
@@ -829,6 +864,10 @@ export function EstratificacaoApp() {
   function openMachine(machine: MachineId) {
     const current = read();
     if (!current) return;
+    if ((MAQUINAS_PISO as readonly string[]).includes(machine) && current.modelos.includes(machine as MaquinaPiso)) {
+      push({ kind: "modelo", machine: machine as MaquinaPiso });
+      return;
+    }
     if (sessao?.papel === "preparador") {
       push({ kind: "hub", machine });
       return;
@@ -1119,7 +1158,7 @@ export function EstratificacaoApp() {
   }
 
   const header = headerFor(screen);
-  const telaFixa = screen.kind === "hub" || screen.kind === "papel";
+  const telaFixa = screen.kind === "hub" || screen.kind === "modelo" || screen.kind === "papel";
 
   return (
     <div className="relative flex h-dvh flex-col bg-bg text-fg">
@@ -1228,6 +1267,10 @@ export function EstratificacaoApp() {
 
           {papel === "preparador" && screen.kind === "machines" ? (
             <MachinesScreen state={state} onOpen={openMachine} />
+          ) : null}
+
+          {papel === "preparador" && screen.kind === "modelo" ? (
+            <ModeloScreen machine={screen.machine} onPick={(escolhida) => push({ kind: "hub", machine: escolhida })} />
           ) : null}
 
           {papel === "preparador" && screen.kind === "hub" ? (
@@ -1362,6 +1405,7 @@ export function EstratificacaoApp() {
                 )
               }
               onNotice={(text) => flash(text)}
+              onModelo={alternarModelo}
             />
           ) : null}
         </div>
@@ -1403,6 +1447,8 @@ function headerFor(screen: Screen): { context: string } {
       return { context: "" };
     case "machines":
       return { context: "" };
+    case "modelo":
+      return { context: `Máquina ${screen.machine}` };
     case "ask":
       return { context: `Máquina ${screen.machine}` };
     case "cor":
@@ -1688,7 +1734,7 @@ function TesteMaquinas({ onOpen }: { onOpen: (machine: MachineId) => void }) {
       <p className="mb-2 text-sm font-semibold text-accent">Página de teste</p>
       <h2 className="font-display text-3xl leading-none">Qual máquina?</h2>
       <div className="mx-auto mt-3 grid w-full max-w-md grid-cols-2 gap-3 md:grid-cols-3">
-        {MACHINES.map((machine) => (
+        {MAQUINAS_PISO.map((machine) => (
           <button
             key={machine}
             type="button"
@@ -2003,6 +2049,11 @@ function DayControls({
   );
 }
 
+function perdasNoCartao(state: State, machine: MaquinaPiso) {
+  const [ladoA, ladoB] = variantesDe(machine);
+  return [machine, ladoA, ladoB].reduce((soma, id) => soma + shiftEntries(state, id).length, 0);
+}
+
 function MachinesScreen({
   state,
   onOpen,
@@ -2016,8 +2067,8 @@ function MachinesScreen({
       <h2 className="font-display text-3xl leading-none">Qual máquina?</h2>
       <p className="mb-3 mt-2 text-sm text-muted">{formatDateBR(state.date)}</p>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-        {MACHINES.map((machine) => {
-          const count = shiftEntries(state, machine).length;
+        {MAQUINAS_PISO.map((machine) => {
+          const count = perdasNoCartao(state, machine);
           return (
             <button
               key={machine}
@@ -2038,6 +2089,32 @@ function MachinesScreen({
             </button>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function ModeloScreen({ machine, onPick }: { machine: MaquinaPiso; onPick: (machine: MachineId) => void }) {
+  const lados = [
+    ["A", variantesDe(machine)[0]],
+    ["B", variantesDe(machine)[1]],
+  ] as const;
+  return (
+    <div className="w-full max-w-sm">
+      <p className="text-center text-xs font-semibold tracking-[0.22em] text-muted">MÁQUINA</p>
+      <h2 className="mt-2 text-center font-display text-5xl leading-none">{machine}</h2>
+      <div className="mt-8 grid gap-3">
+        {lados.map(([letra, id]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => onPick(id)}
+            className="rounded-3xl border border-line bg-white py-7 text-center shadow-[0_10px_30px_rgba(47,84,150,0.08)]"
+          >
+            <span className="block font-display text-5xl leading-none">{letra}</span>
+            <span className="mt-1 block text-sm font-semibold text-muted">{id}</span>
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -2751,6 +2828,7 @@ function SheetScreen({
   papel,
   onDelete,
   onNotice,
+  onModelo,
 }: {
   state: State;
   today: string;
@@ -2760,6 +2838,7 @@ function SheetScreen({
   papel: Papel;
   onDelete?: (entries: Entry[]) => void;
   onNotice: (text: string) => void;
+  onModelo: (machine: MaquinaPiso) => void;
 }) {
   const [busy, setBusy] = useState<"foto" | "pdf" | null>(null);
   const [abaLider, setAbaLider] = useState<"geral" | "diario">("geral");
@@ -2813,7 +2892,7 @@ function SheetScreen({
     <>
       {papel === "lider" ? (
         abaLider === "geral" ? (
-          <PainelHistorico state={state} today={today} onDate={onDate} aba={abaLider} onAba={setAbaLider} />
+          <PainelHistorico state={state} today={today} onDate={onDate} aba={abaLider} onAba={setAbaLider} onModelo={onModelo} />
         ) : (
           <AcompanhamentoDiario
             state={view}
@@ -2827,6 +2906,7 @@ function SheetScreen({
             onDelete={onDelete}
             aba={abaLider}
             onAba={setAbaLider}
+            onModelo={onModelo}
           />
         )
       ) : null}
@@ -3073,18 +3153,74 @@ function lerFiltros(): FiltrosDash {
   }
 }
 
+function ConfigModelos({ state, onToggle }: { state: State; onToggle: (machine: MaquinaPiso) => void }) {
+  const [aberto, setAberto] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setAberto(true)}
+        className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border border-[#d5dee8] bg-[#f7f9fc] px-3 text-sm font-semibold text-fg"
+      >
+        <svg viewBox="0 0 24 24" className="size-4 text-[#4682B4]" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M12 3.5v2.2M12 18.3v2.2M3.5 12h2.2M18.3 12h2.2M5.8 5.8l1.6 1.6M16.6 16.6l1.6 1.6M18.2 5.8l-1.6 1.6M7.4 16.6l-1.6 1.6" strokeLinecap="round" />
+        </svg>
+        Configurar
+      </button>
+      {aberto ? (
+        <div
+          className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setAberto(false);
+          }}
+        >
+          <div className="w-full max-w-sm rounded-3xl bg-white p-5 shadow-xl">
+            <h3 className="text-base font-semibold">A e B</h3>
+            <p className="mt-1 text-sm text-muted">Ligado, a máquina pede A ou B. Desligado, entra direto.</p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              {MAQUINAS_PISO.map((machine) => {
+                const ligado = state.modelos.includes(machine);
+                return (
+                  <button
+                    key={machine}
+                    type="button"
+                    onClick={() => onToggle(machine)}
+                    className={cx(
+                      "rounded-xl border px-3 py-3 text-sm font-semibold",
+                      ligado ? "border-[#4682B4] bg-[#4682B4] text-white" : "border-[#d5dee8] bg-white text-fg",
+                    )}
+                  >
+                    {machine}
+                    {ligado ? " A/B" : ""}
+                  </button>
+                );
+              })}
+            </div>
+            <button type="button" onClick={() => setAberto(false)} className="mt-4 w-full rounded-2xl bg-[#f3f6fb] py-3 text-sm font-semibold">
+              Fechar
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 function PainelHistorico({
   state,
   today,
   onDate,
   aba,
   onAba,
+  onModelo,
 }: {
   state: State;
   today: string;
   onDate: (date: string) => void;
   aba: "geral" | "diario";
   onAba: (aba: "geral" | "diario") => void;
+  onModelo: (machine: MaquinaPiso) => void;
 }) {
   const salvos = lerFiltros();
   const [remoto, setRemoto] = useState<Entry[] | null>(null);
@@ -3290,6 +3426,7 @@ function PainelHistorico({
             </span>
           ) : null}
         </button>
+        <ConfigModelos state={state} onToggle={onModelo} />
         {filtrosAtivos > 0 ? (
           <button
             type="button"
@@ -3397,7 +3534,7 @@ function PainelHistorico({
                 <OpcaoFiltro ativo={maquina === null} onClick={() => setMaquina(null)}>
                   Todas
                 </OpcaoFiltro>
-                {MACHINES.map((machine) => (
+                {maquinasDoFiltro(state.modelos, base.map((entry) => entry.machine)).map((machine) => (
                   <OpcaoFiltro
                     key={machine}
                     ativo={maquina === machine}
@@ -3631,7 +3768,7 @@ function BlocoDash({ id, titulo, children }: { id: string; titulo: string; child
   );
 }
 
-const FAIXA_MAQUINA: Record<MachineId, string> = {
+const COR_BASE: Record<MaquinaPiso, string> = {
   SIE01: "#4682B4",
   SIE02: "#6f97bf",
   SIE03: "#8aa4b8",
@@ -3639,6 +3776,20 @@ const FAIXA_MAQUINA: Record<MachineId, string> = {
   SIE05: "#3d9a86",
   SIE06: "#c4a35a",
 };
+
+const COR_B: Record<MaquinaPiso, string> = {
+  SIE01: "#2c5278",
+  SIE02: "#4d7194",
+  SIE03: "#5e7c90",
+  SIE04: "#8d4e42",
+  SIE05: "#1f6b5c",
+  SIE06: "#7a5a28",
+};
+
+function corDaMaquina(machine: MachineId) {
+  const base = maquinaBase(machine);
+  return machine.endsWith("B") ? COR_B[base] : COR_BASE[base];
+}
 
 const COR_POSICAO = ["#c24141", "#e07a2f", "#d4a017", "#3d9a86", "#4682B4"];
 
@@ -3821,7 +3972,7 @@ function RankingDoDia({
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           {maquinas.map((item) => (
             <article key={item.machine} className="min-w-0 overflow-hidden rounded-2xl border border-[#d5dee8] bg-white">
-              <div className="h-1" style={{ background: FAIXA_MAQUINA[item.machine] }} />
+              <div className="h-1" style={{ background: corDaMaquina(item.machine) }} />
               <header className="flex items-center justify-between gap-3 bg-[#f7f9fc] px-3 py-2">
                 <h4 className="text-sm font-semibold">{item.machine}</h4>
                 <p className="text-sm font-semibold tabular-nums">{item.total} pares</p>
@@ -5203,6 +5354,7 @@ function AcompanhamentoDiario({
   onDelete,
   aba,
   onAba,
+  onModelo,
 }: {
   state: State;
   today: string;
@@ -5215,6 +5367,7 @@ function AcompanhamentoDiario({
   onDelete?: (entries: Entry[]) => void;
   aba: "geral" | "diario";
   onAba: (aba: "geral" | "diario") => void;
+  onModelo: (machine: MaquinaPiso) => void;
 }) {
   const [painel, setPainel] = useState<{ machine: MachineId; tipo: "apontamentos" | "matrizaria" } | null>(null);
   const [pedir, setPedir] = useState(false);
@@ -5238,6 +5391,7 @@ function AcompanhamentoDiario({
     <div className="grid min-w-0 gap-3">
       <BarraDash aba={aba} onAba={onAba}>
         <span className="text-sm font-semibold text-muted">{formatDateBR(state.date)}</span>
+        <ConfigModelos state={state} onToggle={onModelo} />
       </BarraDash>
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0 max-w-md flex-1">
