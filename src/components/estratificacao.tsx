@@ -153,15 +153,6 @@ function loadExcelSent() {
   }
 }
 
-function chaveNumero(valor: string) {
-  const limpo = numeroLimpo(valor);
-  if (!limpo) return "";
-  return limpo
-    .split("/")
-    .map((parte) => parte.replace(/^0+/, "") || "0")
-    .join("/");
-}
-
 function mesmasEntradas(proximas: Entry[], atuais: Entry[]) {
   if (proximas.length !== atuais.length) return false;
   const porId = new Map(atuais.map((entry) => [entry.id, entry]));
@@ -3403,35 +3394,6 @@ function PainelHistorico({
       return soma + item.pares;
     }, 0);
   }
-  function mapaProducao(datasAlvo: string[], turno: Turno | null) {
-    const permitidas = new Set(datasAlvo);
-    const mapa = new Map<string, number>();
-    function soma(chave: string, pares: number) {
-      mapa.set(chave, (mapa.get(chave) ?? 0) + pares);
-    }
-    for (const item of producaoBase) {
-      if (item.pares <= 0 || !permitidas.has(item.date)) continue;
-      if (turno && item.turno !== turno) continue;
-      if (maquina && item.machine !== maquina && maquinaBase(item.machine) !== maquina && maquinaBase(maquina) !== item.machine) continue;
-      const numero = chaveNumero(item.numero);
-      if (!numero) continue;
-      soma(`${item.machine}|${numero}`, item.pares);
-    }
-    for (const [chave, pares] of [...mapa.entries()]) {
-      const corte = chave.indexOf("|");
-      const machine = chave.slice(0, corte);
-      const numero = chave.slice(corte + 1);
-      const curto = numero.split("/")[0] ?? "";
-      if (curto && curto !== numero && !mapa.has(`${machine}|${curto}`)) mapa.set(`${machine}|${curto}`, pares);
-      if ((MAQUINAS_PISO as readonly string[]).includes(machine)) {
-        for (const variante of variantesDe(machine as MaquinaPiso)) {
-          if (!mapa.has(`${variante}|${numero}`)) mapa.set(`${variante}|${numero}`, pares);
-          if (curto && curto !== numero && !mapa.has(`${variante}|${curto}`)) mapa.set(`${variante}|${curto}`, pares);
-        }
-      }
-    }
-    return mapa;
-  }
   const entradasResumo = entradasDe(resumoRecorte.periodo, resumoRecorte.turno);
   const perdasResumo = paresDasEntradas(entradasResumo);
   const producaoResumo = somaProducao(datasPeriodo(resumoRecorte.periodo), resumoRecorte.turno);
@@ -3465,7 +3427,6 @@ function PainelHistorico({
     .filter((item) => item.valor > 0)
     .sort((a, b) => b.valor - a.valor);
   const entradasRanking = entradasDe(rankingRecorte.periodo, rankingRecorte.turno);
-  const producaoRanking = mapaProducao(datasPeriodo(rankingRecorte.periodo), rankingRecorte.turno);
   const nomeRanking = `${nomePeriodo(rankingRecorte.periodo)}${rankingRecorte.turno ? ` · ${TURNO_LABEL[rankingRecorte.turno]}` : " · Todos"}`;
   const historicoRanking = base.filter((entry) => passaRecorte(entry));
 
@@ -3752,7 +3713,6 @@ function PainelHistorico({
           estacao={estacao}
           lado={lado}
           problema={problema}
-          producao={producaoRanking}
           periodoNome={nomeRanking}
           turno={rankingRecorte.turno ?? "24"}
         />
@@ -3884,7 +3844,7 @@ type BlocoRanking = {
   motivos: string[];
 };
 
-function montarRanking(entries: Entry[], producao: Map<string, number>): BlocoRanking[] {
+function montarRanking(entries: Entry[]): BlocoRanking[] {
   return MACHINES.map((machine) => {
     const daMaquina = entries.filter((entry) => entry.machine === machine);
     const grupos = new Map<string, { numero: string; referencia: string; itens: Entry[] }>();
@@ -3897,22 +3857,19 @@ function montarRanking(entries: Entry[], producao: Map<string, number>): BlocoRa
       atual.itens.push(entry);
       grupos.set(chave, atual);
     }
-    const linhas = [...grupos.values()]
-      .map((item) => {
-        const pares = paresNoRecorte(item.itens);
-        const feitas = producao.get(`${machine}|${chaveNumero(item.numero)}`) ?? 0;
-        const taxa = percentualPerda(pares, feitas);
-        return {
-          numero: item.numero,
-          referencia: item.referencia,
-          pares,
-          cor: corDaTaxa(taxa),
-          taxa: textoTaxa(taxa),
-        };
-      })
+    const base = [...grupos.values()]
+      .map((item) => ({
+        numero: item.numero,
+        referencia: item.referencia,
+        pares: paresNoRecorte(item.itens),
+      }))
       .filter((item) => item.pares > 0)
       .sort((a, b) => b.pares - a.pares || a.numero.localeCompare(b.numero, "pt-BR", { numeric: true }));
-    const total = linhas.reduce((soma, item) => soma + item.pares, 0);
+    const total = base.reduce((soma, item) => soma + item.pares, 0);
+    const linhas = base.map((item) => {
+      const taxa = total > 0 ? (item.pares / total) * 100 : 0;
+      return { ...item, cor: corDaTaxa(taxa), taxa: textoTaxa(taxa) };
+    });
     const motivos = PROBLEMS.map((problem) => ({
       nome: problem.name,
       pares: paresDasEntradas(daMaquina.filter((entry) => entry.problem === problem.id)),
@@ -3952,7 +3909,6 @@ function RankingDoDia({
   estacao,
   lado,
   problema,
-  producao,
   periodoNome,
   turno,
 }: {
@@ -3962,14 +3918,13 @@ function RankingDoDia({
   estacao: number | null;
   lado: Side | null;
   problema: string | null;
-  producao: Map<string, number>;
   periodoNome: string;
   turno: "24" | Turno;
 }) {
   const [gerando, setGerando] = useState(false);
   const [aviso, setAviso] = useState("");
   const [molde, setMolde] = useState<{ machine: MachineId; numero: string; referencia: string } | null>(null);
-  const maquinas = montarRanking(entries, producao);
+  const maquinas = montarRanking(entries);
   const faixa = turno === "1" ? "#2a2a2a" : turno === "2" ? "#1f5f99" : turno === "3" ? "#9b2c2c" : "#1d7a45";
 
   async function baixar() {
