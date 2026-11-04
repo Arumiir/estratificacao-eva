@@ -5499,7 +5499,7 @@ function AcompanhamentoDiario({
                     onClick={() => abrir(machine, "matrizaria")}
                     className="rounded-2xl bg-[#f3f6fb] py-2.5 text-sm font-semibold text-[#4682B4]"
                   >
-                    Matrizaria
+                    Estações
                   </button>
                 </div>
               </article>
@@ -5519,7 +5519,7 @@ function AcompanhamentoDiario({
               <h3 className="font-display text-3xl leading-none">
                 {aberta}
                 <span className="ml-2 text-base font-semibold text-muted">
-                  {painel.tipo === "matrizaria" ? "Matrizaria" : "Apontamentos"}
+                  {painel.tipo === "matrizaria" ? "Estações" : "Apontamentos"}
                 </span>
               </h3>
               <button type="button" onClick={() => setPainel(null)} className="text-sm font-semibold text-muted">
