@@ -109,27 +109,40 @@ export type RankingImagem = {
 
 const COR_POSICAO_FICHA = ["#c24141", "#e07a2f", "#d4a017", "#3d9a86", "#4682B4"];
 
+const RANKING_MARGEM = 28;
+const RANKING_COL = 340;
+const RANKING_GAP = 14;
+const RANKING_COLS = 3;
+
+function alturaRanking(linhas: number) {
+  return 34 + 30 + Math.max(1, linhas) * 26 + 12 + 86;
+}
+
 export async function renderRankingPng(ficha: RankingImagem): Promise<Blob> {
   await document.fonts.load("700 64px 'Barlow Condensed'");
   await document.fonts.load("600 20px 'Source Sans 3'");
   await document.fonts.ready;
-  const margin = 28;
-  const colW = 340;
-  const gap = 14;
   const n = Math.max(1, ficha.maquinas.length);
-  const width = margin * 2 + n * colW + (n - 1) * gap;
-  const maxRows = Math.max(1, ...ficha.maquinas.map((item) => item.linhas.length));
-  const height = 28 + 92 + 18 + 34 + 30 + maxRows * 26 + 12 + 86 + 24;
-  const surface = createSurfaceSized(width, height, [4, 3, 2]);
+  const cols = Math.min(RANKING_COLS, n);
+  const fileiras = Math.ceil(n / cols);
+  const width = RANKING_MARGEM * 2 + cols * RANKING_COL + (cols - 1) * RANKING_GAP;
+  let blocos = 0;
+  for (let fileira = 0; fileira < fileiras; fileira += 1) {
+    const fatia = ficha.maquinas.slice(fileira * cols, fileira * cols + cols);
+    blocos += fatia.length === 0 ? alturaRanking(1) : Math.max(...fatia.map((item) => alturaRanking(item.linhas.length)));
+  }
+  const height = 24 + 92 + 18 + blocos + Math.max(0, fileiras - 1) * RANKING_GAP + 24;
+  const surface = createSurfaceSized(width, height, [3, 2, 1]);
   if (!surface) throw new Error("Não foi possível gerar a ficha.");
   drawRanking(surface.ctx, ficha, width, height);
   return canvasToBlob(surface.canvas);
 }
 
 function drawRanking(ctx: CanvasRenderingContext2D, ficha: RankingImagem, width: number, height: number) {
-  const margin = 28;
-  const colW = 340;
-  const gap = 14;
+  const margin = RANKING_MARGEM;
+  const colW = RANKING_COL;
+  const gap = RANKING_GAP;
+  const cols = Math.min(RANKING_COLS, Math.max(1, ficha.maquinas.length));
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, width, height);
   ctx.fillStyle = ficha.faixa;
@@ -142,61 +155,66 @@ function drawRanking(ctx: CanvasRenderingContext2D, ficha: RankingImagem, width:
   ctx.font = "600 22px 'Source Sans 3', sans-serif";
   ctx.fillText(`${ficha.data}     ${ficha.periodo}`, margin + 20, 92);
 
-  ficha.maquinas.forEach((item, index) => {
-    const x = margin + index * (colW + gap);
-    let y = 24 + 92 + 18;
-    ctx.fillStyle = "#f4f7fb";
-    ctx.fillRect(x, y, colW, 34);
-    ctx.fillStyle = "#1e3a5f";
-    ctx.font = "700 22px 'Barlow Condensed', sans-serif";
-    ctx.textAlign = "left";
-    ctx.fillText(item.nome, x + 10, y + 17);
-    ctx.textAlign = "right";
-    ctx.font = "600 16px 'Source Sans 3', sans-serif";
-    ctx.fillText(`${item.total} pares`, x + colW - 10, y + 17);
-    y += 34;
-    ctx.fillStyle = "#1e3a5f";
-    ctx.font = "700 13px 'Source Sans 3', sans-serif";
-    ctx.textAlign = "left";
-    ctx.fillText("NÚMERO", x + 18, y + 15);
-    ctx.textAlign = "right";
-    ctx.fillText("PARES", x + colW - 62, y + 15);
-    ctx.fillText("%", x + colW - 10, y + 15);
-    y += 30;
-    item.linhas.forEach((linha, linhaIndex) => {
-      if (linhaIndex % 2 === 1) {
-        ctx.fillStyle = "#f7f9fc";
-        ctx.fillRect(x, y - 12, colW, 26);
-      }
-      ctx.fillStyle = COR_POSICAO_FICHA[Math.min(linhaIndex, COR_POSICAO_FICHA.length - 1)] ?? "#4682B4";
-      ctx.beginPath();
-      ctx.arc(x + 10, y + 1, 4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#1c1c1c";
+  let yBase = 24 + 92 + 18;
+  for (let inicio = 0; inicio < ficha.maquinas.length; inicio += cols) {
+    const fatia = ficha.maquinas.slice(inicio, inicio + cols);
+    fatia.forEach((item, index) => {
+      const x = margin + index * (colW + gap);
+      let y = yBase;
+      ctx.fillStyle = "#f4f7fb";
+      ctx.fillRect(x, y, colW, 34);
+      ctx.fillStyle = "#1e3a5f";
+      ctx.font = "700 22px 'Barlow Condensed', sans-serif";
       ctx.textAlign = "left";
-      ctx.font = "600 15px 'Source Sans 3', sans-serif";
-      let rotulo = linha.rotulo;
-      while (ctx.measureText(rotulo).width > colW - 120 && rotulo.length > 4) rotulo = `${rotulo.slice(0, -2)}…`;
-      ctx.fillText(rotulo, x + 20, y + 1);
+      ctx.fillText(item.nome, x + 10, y + 17);
       ctx.textAlign = "right";
-      ctx.font = "600 15px 'Source Sans 3', sans-serif";
-      ctx.fillText(String(linha.pares), x + colW - 62, y + 1);
-      ctx.fillStyle = "#3d4a5c";
-      ctx.fillText(linha.percentual, x + colW - 10, y + 1);
-      y += 26;
+      ctx.font = "600 16px 'Source Sans 3', sans-serif";
+      ctx.fillText(`${item.total} pares`, x + colW - 10, y + 17);
+      y += 34;
+      ctx.fillStyle = "#1e3a5f";
+      ctx.font = "700 13px 'Source Sans 3', sans-serif";
+      ctx.textAlign = "left";
+      ctx.fillText("NÚMERO", x + 18, y + 15);
+      ctx.textAlign = "right";
+      ctx.fillText("PARES", x + colW - 62, y + 15);
+      ctx.fillText("%", x + colW - 10, y + 15);
+      y += 30;
+      item.linhas.forEach((linha, linhaIndex) => {
+        if (linhaIndex % 2 === 1) {
+          ctx.fillStyle = "#f7f9fc";
+          ctx.fillRect(x, y - 12, colW, 26);
+        }
+        ctx.fillStyle = COR_POSICAO_FICHA[Math.min(linhaIndex, COR_POSICAO_FICHA.length - 1)] ?? "#4682B4";
+        ctx.beginPath();
+        ctx.arc(x + 10, y + 1, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#1c1c1c";
+        ctx.textAlign = "left";
+        ctx.font = "600 15px 'Source Sans 3', sans-serif";
+        let rotulo = linha.rotulo;
+        while (ctx.measureText(rotulo).width > colW - 120 && rotulo.length > 4) rotulo = `${rotulo.slice(0, -2)}…`;
+        ctx.fillText(rotulo, x + 20, y + 1);
+        ctx.textAlign = "right";
+        ctx.font = "600 15px 'Source Sans 3', sans-serif";
+        ctx.fillText(String(linha.pares), x + colW - 62, y + 1);
+        ctx.fillStyle = "#3d4a5c";
+        ctx.fillText(linha.percentual, x + colW - 10, y + 1);
+        y += 26;
+      });
+      y += 8;
+      ctx.fillStyle = "#1e3a5f";
+      ctx.textAlign = "left";
+      ctx.font = "700 12px 'Source Sans 3', sans-serif";
+      ctx.fillText("PRINCIPAIS MOTIVOS", x + 10, y + 8);
+      ctx.fillStyle = "#1c1c1c";
+      ctx.font = "600 14px 'Source Sans 3', sans-serif";
+      const linhasMotivo = quebrarTexto(ctx, item.motivos || "Sem motivo.", colW - 20);
+      linhasMotivo.slice(0, 3).forEach((texto, motivoIndex) => {
+        ctx.fillText(texto, x + 10, y + 28 + motivoIndex * 18);
+      });
     });
-    y += 8;
-    ctx.fillStyle = "#1e3a5f";
-    ctx.textAlign = "left";
-    ctx.font = "700 12px 'Source Sans 3', sans-serif";
-    ctx.fillText("PRINCIPAIS MOTIVOS", x + 10, y + 8);
-    ctx.fillStyle = "#1c1c1c";
-    ctx.font = "600 14px 'Source Sans 3', sans-serif";
-    const linhasMotivo = quebrarTexto(ctx, item.motivos || "Sem motivo.", colW - 20);
-    linhasMotivo.slice(0, 3).forEach((texto, motivoIndex) => {
-      ctx.fillText(texto, x + 10, y + 28 + motivoIndex * 18);
-    });
-  });
+    yBase += Math.max(...fatia.map((item) => alturaRanking(item.linhas.length))) + gap;
+  }
 }
 
 function quebrarTexto(ctx: CanvasRenderingContext2D, texto: string, maxW: number): string[] {
