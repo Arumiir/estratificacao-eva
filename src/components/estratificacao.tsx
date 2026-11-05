@@ -541,7 +541,7 @@ function usePerdas() {
       }
       if (document.visibilityState === "hidden") return;
       void refresh().catch(() => setCloud(false));
-    }, 30000);
+    }, 60000);
     return () => window.clearInterval(timer);
   }, [Boolean(state)]);
 
