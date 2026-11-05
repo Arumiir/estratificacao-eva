@@ -1,4 +1,3 @@
-import { PDFDocument } from "pdf-lib";
 import {
   PROBLEMS,
   SIDE_SHORT,
@@ -58,6 +57,7 @@ export async function renderFichaPng(state: State, machine: MachineId): Promise<
 }
 
 export async function renderFichasPdf(state: State, machines: MachineId[]): Promise<Blob> {
+  const { PDFDocument } = await import("pdf-lib");
   const pdf = await PDFDocument.create();
   for (const machine of machines) {
     const grupos = await renderFichasDaMaquina(state, machine);

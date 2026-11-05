@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { startTransition, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, Eraser, ImageDown, X } from "lucide-react";
 import {
   MACHINES,
@@ -39,9 +39,9 @@ import {
   type StationConfig,
   type Turno,
 } from "@/lib/perdas";
-import { downloadBlob, renderFichasDaMaquina, renderRankingPng } from "@/lib/ficha-image";
 import { pullEvolucaoMolde, pullHistorico } from "@/lib/apontamentos.functions";
 import { cx, pares, paresDasEntradas, percentualPerda, textoPercentual } from "@/components/comum";
+import { perdasPorEstacao, perdasPorMaquina, perdasPorProblema, separarEntradas, somarProducao } from "@/components/painel-calculo";
 
 type Papel = "preparador" | "lider" | "teste";
 
@@ -256,6 +256,7 @@ export function SheetScreen({
     setEscolherFoto(false);
     setBusy("foto");
     try {
+      const { downloadBlob, renderFichasDaMaquina } = await import("@/lib/ficha-image");
       const files: { name: string; blob: Blob }[] = [];
       for (const item of machines) {
         const grupos = await renderFichasDaMaquina(view, item);
@@ -672,7 +673,7 @@ function PainelHistorico({
   const salvos = lerFiltros();
   const [remoto, setRemoto] = useState<Entry[] | null>(null);
   const [producaoRemota, setProducaoRemota] = useState<ProducaoPares[]>([]);
-  const [erro, setErro] = useState(false);
+  const [carga, setCarga] = useState<"carregando" | "pronto" | "erro">("carregando");
   const [maquina, setMaquina] = useState<MachineId | null>(salvos.maquina);
   const [estacao, setEstacao] = useState<number | null>(salvos.estacao);
   const [numero, setNumero] = useState<string | null>(salvos.numero);
@@ -685,26 +686,29 @@ function PainelHistorico({
   const [rankingRecorte, setRankingRecorte] = useState<RecorteBloco>({ periodo: "dia", turno: null });
   const [graficoRecorte, setGraficoRecorte] = useState<RecorteBloco>({ periodo: "mes", turno: null });
   const diasMes = diasDoMes(state.date);
-  const diasSemana = diasDaSemana(state.date);
   const querAno =
     resumoRecorte.periodo === "ano" ||
     producaoRecorte.periodo === "ano" ||
     rankingRecorte.periodo === "ano" ||
     graficoRecorte.periodo === "ano";
-  const desdeHistorico = querAno ? `${state.date.slice(0, 4)}-01-01` : (diasDoMes(state.date)[0] ?? state.date);
+  const desdeHistorico = querAno ? `${state.date.slice(0, 4)}-01-01` : (diasMes[0] ?? state.date);
   const cobertura = useMemo(() => new Set(querAno ? diasDoAno(state.date) : diasDoMes(state.date)), [querAno, state.date]);
 
   useEffect(() => {
     let ativo = true;
+    setCarga("carregando");
     pullHistorico({ data: { ate: state.date, desde: desdeHistorico } })
       .then((resultado) => {
         if (!ativo) return;
-        setRemoto(resultado.entries);
-        setProducaoRemota(resultado.producao ?? []);
-        setErro(false);
+        startTransition(() => {
+          setRemoto(resultado.entries);
+          setProducaoRemota(resultado.producao ?? []);
+          setCarga("pronto");
+        });
       })
       .catch(() => {
-        if (ativo) setErro(true);
+        if (!ativo) return;
+        setCarga("erro");
       });
     return () => {
       ativo = false;
@@ -720,38 +724,94 @@ function PainelHistorico({
     }
   }, [maquina, estacao, numero, referencia, lado, problema]);
 
+  const pronto = carga === "pronto";
   const base = useMemo(
-    () => juntarHistorico(remoto ?? [], state.entries, cobertura),
-    [remoto, state.entries, cobertura],
+    () => (pronto ? juntarHistorico(remoto ?? [], state.entries, cobertura) : []),
+    [pronto, remoto, state.entries, cobertura],
   );
-  const recorteLista = base.filter((entry) => {
-    if (maquina && entry.machine !== maquina) return false;
-    if (estacao !== null && entry.station !== estacao) return false;
-    return true;
-  });
-  const numerosJanela = [...new Set(recorteLista.map((entry) => numeroLimpo(entry.matrizNumero)).filter(Boolean))].sort((a, b) =>
-    a.localeCompare(b, "pt-BR", { numeric: true }),
+  const producaoBase = useMemo(
+    () => (pronto ? juntarProducao(producaoRemota, state.producao ?? [], cobertura) : []),
+    [pronto, producaoRemota, state.producao, cobertura],
   );
-  const referenciasJanela = [...new Set(recorteLista.map((entry) => referenciaLimpa(entry.matrizRel) || "sem ref."))].sort((a, b) =>
-    a.localeCompare(b, "pt-BR", { numeric: true }),
+  const calculo = useMemo(() => {
+    const recorteLista = base.filter((entry) => {
+      if (maquina && entry.machine !== maquina) return false;
+      if (estacao !== null && entry.station !== estacao) return false;
+      return true;
+    });
+    const numerosJanela = [...new Set(recorteLista.map((entry) => numeroLimpo(entry.matrizNumero)).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b, "pt-BR", { numeric: true }),
+    );
+    const referenciasJanela = [...new Set(recorteLista.map((entry) => referenciaLimpa(entry.matrizRel) || "sem ref."))].sort((a, b) =>
+      a.localeCompare(b, "pt-BR", { numeric: true }),
+    );
+    const numeroAtivo = numero && numerosJanela.includes(numero) ? numero : null;
+    const refAtiva = referencia && referenciasJanela.includes(referencia) ? referencia : null;
+    const passa = (entry: Entry) => {
+      if (maquina && entry.machine !== maquina) return false;
+      if (estacao !== null && entry.station !== estacao) return false;
+      if (numeroAtivo !== null && numeroLimpo(entry.matrizNumero) !== numeroAtivo) return false;
+      if (refAtiva !== null && (referenciaLimpa(entry.matrizRel) || "sem ref.") !== refAtiva) return false;
+      if (lado && entry.side !== lado) return false;
+      if (problema && entry.problem !== problema) return false;
+      return true;
+    };
+    const datas = {
+      dia: new Set([state.date]),
+      semana: new Set(diasDaSemana(state.date)),
+      mes: new Set(diasDoMes(state.date)),
+      ano: new Set(diasDoAno(state.date)),
+    };
+    const separado = separarEntradas(base, passa, datas);
+    const faixas = ["todos", "1", "2", "3"] as const;
+    const periodos = ["dia", "semana", "mes", "ano"] as const;
+    const paresPeriodo = {
+      dia: { todos: 0, "1": 0, "2": 0, "3": 0 },
+      semana: { todos: 0, "1": 0, "2": 0, "3": 0 },
+      mes: { todos: 0, "1": 0, "2": 0, "3": 0 },
+      ano: { todos: 0, "1": 0, "2": 0, "3": 0 },
+    };
+    for (const periodo of periodos) {
+      for (const faixa of faixas) paresPeriodo[periodo][faixa] = paresDasEntradas(separado.listas[periodo][faixa]);
+    }
+    return { numerosJanela, referenciasJanela, numeroAtivo, refAtiva, ...separado, pares: paresPeriodo };
+  }, [base, maquina, estacao, numero, referencia, lado, problema, state.date]);
+  const totaisProducao = useMemo(() => {
+    const dia = new Set([state.date]);
+    const semana = new Set(diasDaSemana(state.date));
+    const mes = new Set(diasDoMes(state.date));
+    const ano = new Set(diasDoAno(state.date));
+    const doPeriodo = (periodo: PeriodoBloco) => (periodo === "dia" ? dia : periodo === "semana" ? semana : periodo === "ano" ? ano : mes);
+    return somarProducao(producaoBase, maquina, [
+      { id: "resumo", datas: doPeriodo(resumoRecorte.periodo), turno: resumoRecorte.turno },
+      { id: "resumo-dia", datas: dia, turno: resumoRecorte.turno },
+      { id: "resumo-semana", datas: semana, turno: resumoRecorte.turno },
+      { id: "resumo-mes", datas: mes, turno: resumoRecorte.turno },
+      { id: "barra-dia", datas: dia, turno: producaoRecorte.turno },
+      { id: "barra-semana", datas: semana, turno: producaoRecorte.turno },
+      { id: "barra-mes", datas: mes, turno: producaoRecorte.turno },
+      { id: "barra-ano", datas: ano, turno: producaoRecorte.turno },
+      { id: "turno-1", datas: doPeriodo(producaoRecorte.periodo), turno: "1" },
+      { id: "turno-2", datas: doPeriodo(producaoRecorte.periodo), turno: "2" },
+      { id: "turno-3", datas: doPeriodo(producaoRecorte.periodo), turno: "3" },
+    ]);
+  }, [producaoBase, maquina, state.date, resumoRecorte, producaoRecorte]);
+  const graficoLista = useMemo(() => {
+    const listas = calculo.listas[graficoRecorte.periodo];
+    return graficoRecorte.turno ? listas[graficoRecorte.turno] : listas.todos;
+  }, [calculo, graficoRecorte]);
+  const porProblema = useMemo(() => perdasPorProblema(graficoLista), [graficoLista]);
+  const porMaquina = useMemo(() => perdasPorMaquina(graficoLista), [graficoLista]);
+  const rankingNumeros = useMemo(() => rankNumeros(graficoLista, 5), [graficoLista]);
+  const rankingEstacao = useMemo(
+    () =>
+      perdasPorEstacao(graficoLista).map((item) => ({
+        ...item,
+        ativo: estacao === null ? undefined : estacao === Number(item.id),
+      })),
+    [graficoLista, estacao],
   );
-  const numeroAtivo = numero && numerosJanela.includes(numero) ? numero : null;
-  const refAtiva = referencia && referenciasJanela.includes(referencia) ? referencia : null;
-  function passaRecorte(entry: Entry) {
-    if (maquina && entry.machine !== maquina) return false;
-    if (estacao !== null && entry.station !== estacao) return false;
-    if (numeroAtivo !== null && numeroLimpo(entry.matrizNumero) !== numeroAtivo) return false;
-    if (refAtiva !== null && (referenciaLimpa(entry.matrizRel) || "sem ref.") !== refAtiva) return false;
-    if (lado && entry.side !== lado) return false;
-    if (problema && entry.problem !== problema) return false;
-    return true;
-  }
-  function datasPeriodo(periodo: PeriodoBloco) {
-    if (periodo === "dia") return [state.date];
-    if (periodo === "semana") return diasSemana;
-    if (periodo === "ano") return diasDoAno(state.date);
-    return diasMes;
-  }
+  const { numerosJanela, referenciasJanela, numeroAtivo, refAtiva } = calculo;
   const nomeDoMes = nomeMes(state.date);
   function nomePeriodo(periodo: PeriodoBloco) {
     if (periodo === "dia") return "Dia";
@@ -759,58 +819,21 @@ function PainelHistorico({
     if (periodo === "ano") return "Ano";
     return nomeDoMes;
   }
-  function entradasDe(periodo: PeriodoBloco, turno: Turno | null) {
-    const datas = new Set(datasPeriodo(periodo));
-    return base.filter((entry) => datas.has(entry.date) && (!turno || entry.turno === turno) && passaRecorte(entry));
-  }
-  const producaoBase = useMemo(
-    () => juntarProducao(producaoRemota, state.producao ?? [], cobertura),
-    [producaoRemota, state.producao, cobertura],
-  );
-  function somaProducao(datasAlvo: string[], turno: Turno | null) {
-    const permitidas = new Set(datasAlvo);
-    return producaoBase.reduce((soma, item) => {
-      if (item.pares <= 0 || !permitidas.has(item.date)) return soma;
-      if (turno && item.turno !== turno) return soma;
-      if (maquina && item.machine !== maquina && maquinaBase(item.machine) !== maquina && maquinaBase(maquina) !== item.machine) return soma;
-      return soma + item.pares;
-    }, 0);
-  }
-  const entradasResumo = entradasDe(resumoRecorte.periodo, resumoRecorte.turno);
-  const perdasResumo = paresDasEntradas(entradasResumo);
-  const producaoResumo = somaProducao(datasPeriodo(resumoRecorte.periodo), resumoRecorte.turno);
+  const turnoResumo = resumoRecorte.turno ?? "todos";
+  const perdasResumo = calculo.pares[resumoRecorte.periodo][turnoResumo];
+  const producaoResumo = totaisProducao.resumo ?? 0;
   const tituloResumo = nomePeriodo(resumoRecorte.periodo);
-  const entradasGrafico = entradasDe(graficoRecorte.periodo, graficoRecorte.turno);
-  const entradasGraficoTurnos = entradasDe(graficoRecorte.periodo, null);
-  const turnos = (["1", "2", "3"] as const).map((turno) => {
-    const lista = entradasGraficoTurnos.filter((entry) => entry.turno === turno);
-    return { turno, pares: paresDasEntradas(lista) };
-  });
-  const porProblema = PROBLEMS.map((problem) => ({
-    name: problem.name,
-    id: problem.id,
-    total: paresDasEntradas(entradasGrafico.filter((entry) => entry.problem === problem.id)),
-  }))
-    .filter((item) => item.total > 0)
-    .sort((a, b) => b.total - a.total);
-  const porMaquina = MACHINES.map((machine) => ({
-    machine,
-    total: paresDasEntradas(entradasGrafico.filter((entry) => entry.machine === machine)),
-  }))
-    .filter((item) => item.total > 0)
-    .sort((a, b) => b.total - a.total);
-  const rankingNumeros = rankNumeros(entradasGrafico, 5);
-  const rankingEstacao = STATIONS.map((station) => ({
-    id: String(station),
-    nome: `Estação ${pad2(station)}`,
-    valor: paresDasEntradas(entradasGrafico.filter((entry) => entry.station === station)),
-    ativo: estacao === null ? undefined : estacao === station,
-  }))
-    .filter((item) => item.valor > 0)
-    .sort((a, b) => b.valor - a.valor);
-  const entradasRanking = entradasDe(rankingRecorte.periodo, rankingRecorte.turno);
+  const turnos = (["1", "2", "3"] as const).map((turno) => ({
+    turno,
+    pares: calculo.pares[graficoRecorte.periodo][turno],
+  }));
+  const entradasRanking = rankingRecorte.turno
+    ? calculo.listas[rankingRecorte.periodo][rankingRecorte.turno]
+    : calculo.listas[rankingRecorte.periodo].todos;
+  const historicoRanking = calculo.historico;
   const nomeRanking = `${nomePeriodo(rankingRecorte.periodo)}${rankingRecorte.turno ? ` · ${TURNO_LABEL[rankingRecorte.turno]}` : " · Todos"}`;
-  const historicoRanking = base.filter((entry) => passaRecorte(entry));
+  const avisoIndicador = carga === "carregando" ? "Carregando o mês…" : carga === "erro" ? "Sem nuvem." : undefined;
+  const valorOculto = carga === "erro" ? "—" : "…";
 
   const problemaNome = PROBLEMS.find((item) => item.id === problema)?.name ?? null;
   const filtrosAtivos = [maquina !== null, estacao !== null, numeroAtivo !== null, refAtiva !== null, lado !== null, problema !== null].filter(Boolean).length;
@@ -836,9 +859,9 @@ function PainelHistorico({
 
   const chips = resumoFiltro ? resumoFiltro.split(" · ") : [];
   const resumoLinhas = [
-    { nome: "Dia", producao: somaProducao([state.date], resumoRecorte.turno), perdas: paresDasEntradas(entradasDe("dia", resumoRecorte.turno)) },
-    { nome: "Semana", producao: somaProducao(diasSemana, resumoRecorte.turno), perdas: paresDasEntradas(entradasDe("semana", resumoRecorte.turno)) },
-    { nome: nomeDoMes, producao: somaProducao(diasMes, resumoRecorte.turno), perdas: paresDasEntradas(entradasDe("mes", resumoRecorte.turno)) },
+    { nome: "Dia", producao: totaisProducao["resumo-dia"] ?? 0, perdas: calculo.pares.dia[turnoResumo] },
+    { nome: "Semana", producao: totaisProducao["resumo-semana"] ?? 0, perdas: calculo.pares.semana[turnoResumo] },
+    { nome: nomeDoMes, producao: totaisProducao["resumo-mes"] ?? 0, perdas: calculo.pares.mes[turnoResumo] },
   ];
 
   return (
@@ -878,7 +901,7 @@ function PainelHistorico({
           </button>
         ) : null}
         <div className="flex min-w-0 flex-1 flex-wrap justify-end gap-1.5">
-          {erro ? <span className="self-center text-sm text-muted">Sem nuvem.</span> : null}
+          {avisoIndicador ? <span className="self-center text-sm text-muted">{avisoIndicador}</span> : null}
           {chips.map((chip) => (
             <span key={chip} className="inline-flex h-8 items-center rounded-lg border border-[#d5dee8] bg-[#f7f9fc] px-2.5 text-sm font-semibold">
               {chip}
@@ -913,28 +936,31 @@ function PainelHistorico({
         <CartaoResumo
           titulo="Produção"
           unidade="pares"
-          valor={producaoResumo}
+          valor={avisoIndicador ? valorOculto : producaoResumo}
           periodo={tituloResumo}
           tom="azul"
-          linhas={resumoLinhas.map((item) => ({ nome: item.nome, valor: item.producao }))}
+          aviso={avisoIndicador}
+          linhas={resumoLinhas.map((item) => ({ nome: item.nome, valor: avisoIndicador ? valorOculto : item.producao }))}
         />
         <CartaoResumo
           titulo="Perdas"
           unidade="pares"
-          valor={perdasResumo}
+          valor={avisoIndicador ? valorOculto : perdasResumo}
           periodo={tituloResumo}
           tom="escuro"
-          linhas={resumoLinhas.map((item) => ({ nome: item.nome, valor: item.perdas }))}
+          aviso={avisoIndicador}
+          linhas={resumoLinhas.map((item) => ({ nome: item.nome, valor: avisoIndicador ? valorOculto : item.perdas }))}
         />
         <CartaoResumo
           titulo="% de perda"
           unidade=""
-          valor={textoPercentual(percentualPerda(perdasResumo, producaoResumo))}
+          valor={avisoIndicador ? valorOculto : textoPercentual(percentualPerda(perdasResumo, producaoResumo))}
           periodo={tituloResumo}
           tom="claro"
+          aviso={avisoIndicador}
           linhas={resumoLinhas.map((item) => ({
             nome: item.nome,
-            valor: textoPercentual(percentualPerda(item.perdas, item.producao)),
+            valor: avisoIndicador ? valorOculto : textoPercentual(percentualPerda(item.perdas, item.producao)),
           }))}
         />
         </div>
@@ -1060,6 +1086,7 @@ function PainelHistorico({
         <div className="grid grid-cols-2 gap-3">
         <BarrasDuplas
           titulo="Produção e perdas"
+          aviso={avisoIndicador}
           grupos={(
             [
               ["dia", "Dia"],
@@ -1070,17 +1097,18 @@ function PainelHistorico({
           ).map(([id, nome]) => ({
             id,
             nome,
-            producao: somaProducao(datasPeriodo(id), producaoRecorte.turno),
-            perdas: paresDasEntradas(entradasDe(id, producaoRecorte.turno)),
+            producao: totaisProducao[`barra-${id}`] ?? 0,
+            perdas: calculo.pares[id][producaoRecorte.turno ?? "todos"],
           }))}
         />
         <BarrasDuplas
           titulo="Por turno"
+          aviso={avisoIndicador}
           grupos={(["1", "2", "3"] as const).map((turno) => ({
             id: turno,
             nome: TURNO_LABEL[turno].replace(" TURNO", ""),
-            producao: somaProducao(datasPeriodo(producaoRecorte.periodo), turno),
-            perdas: paresDasEntradas(entradasDe(producaoRecorte.periodo, turno)),
+            producao: totaisProducao[`turno-${turno}`] ?? 0,
+            perdas: calculo.pares[producaoRecorte.periodo][turno],
           }))}
         />
         </div>
@@ -1097,6 +1125,7 @@ function PainelHistorico({
           problema={problema}
           periodoNome={nomeRanking}
           turno={rankingRecorte.turno ?? "24"}
+          avisoCarga={avisoIndicador}
         />
       </BlocoDash>
 
@@ -1105,6 +1134,7 @@ function PainelHistorico({
       <div className="grid gap-4 xl:grid-cols-2">
         <GraficoCircular
           titulo="Piores máquinas"
+          aviso={avisoIndicador}
           itens={porMaquina.map((item) => ({
             id: item.machine,
             nome: item.machine,
@@ -1115,6 +1145,7 @@ function PainelHistorico({
         />
         <GraficoCircular
           titulo="Piores turnos"
+          aviso={avisoIndicador}
           itens={[...turnos]
             .sort((a, b) => b.pares - a.pares || a.turno.localeCompare(b.turno))
             .filter((item) => item.pares > 0)
@@ -1133,6 +1164,7 @@ function PainelHistorico({
         <RankingBarras
           vertical
           titulo="Piores problemas"
+          aviso={avisoIndicador}
           itens={porProblema.slice(0, 5).map((item) => ({
             id: item.id,
             nome: item.name,
@@ -1144,6 +1176,7 @@ function PainelHistorico({
         <RankingBarras
           vertical
           titulo="Piores números"
+          aviso={avisoIndicador}
           itens={rankingNumeros.map((item) => ({
             id: item.chave,
             nome: `${item.machine}\nNº ${item.numero}${item.referencia ? `\nRef. ${item.referencia}` : ""}`,
@@ -1163,6 +1196,7 @@ function PainelHistorico({
         <RankingBarras
           vertical
           titulo="Piores estações"
+          aviso={avisoIndicador}
           itens={rankingEstacao}
           onPick={(id) => {
             const station = Number(id);
@@ -1293,6 +1327,7 @@ function RankingDoDia({
   problema,
   periodoNome,
   turno,
+  avisoCarga,
 }: {
   entries: Entry[];
   historico: Entry[];
@@ -1302,6 +1337,7 @@ function RankingDoDia({
   problema: string | null;
   periodoNome: string;
   turno: "24" | Turno;
+  avisoCarga?: string;
 }) {
   const [gerando, setGerando] = useState(false);
   const [aviso, setAviso] = useState("");
@@ -1317,6 +1353,7 @@ function RankingDoDia({
     setGerando(true);
     setAviso("");
     try {
+      const { downloadBlob, renderRankingPng } = await import("@/lib/ficha-image");
       const blob = await renderRankingPng({
         data: formatDateBR(data),
         periodo: periodoNome,
@@ -1351,7 +1388,7 @@ function RankingDoDia({
         </div>
         <button
           type="button"
-          disabled={gerando}
+          disabled={gerando || Boolean(avisoCarga)}
           onClick={() => void baixar()}
           className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-semibold shadow-[0_6px_16px_rgba(47,84,150,0.08)] disabled:opacity-50"
         >
@@ -1367,7 +1404,11 @@ function RankingDoDia({
           {aviso ? ` · ${aviso}` : ""}
         </p>
       </div>
-      {maquinas.length === 0 ? (
+      {avisoCarga ? (
+        <p className="rounded-2xl border border-dashed border-[#d5dee8] bg-white px-4 py-6 text-center text-sm text-muted">
+          {avisoCarga}
+        </p>
+      ) : maquinas.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-[#d5dee8] bg-white px-4 py-6 text-center text-sm text-muted">
           Sem perdas neste recorte.
         </p>
@@ -1703,6 +1744,7 @@ function CartaoResumo({
   periodo,
   tom,
   linhas,
+  aviso,
 }: {
   titulo: string;
   unidade: string;
@@ -1710,6 +1752,7 @@ function CartaoResumo({
   periodo: string;
   tom: "azul" | "escuro" | "claro";
   linhas: { nome: string; valor: number | string }[];
+  aviso?: string;
 }) {
   const claro = tom === "claro";
   return (
@@ -1723,6 +1766,7 @@ function CartaoResumo({
     >
       <p className={cx("text-xs font-semibold uppercase tracking-wide", claro ? "text-muted" : "text-white/75")}>{titulo}</p>
       <p className="mt-2 font-display text-4xl leading-none tabular-nums lg:text-5xl">{valor}</p>
+      {aviso ? <p className={cx("mt-1 text-xs", claro ? "text-muted" : "text-white/80")}>{aviso}</p> : null}
       <p className={cx("mt-2 text-sm", claro ? "text-muted" : "text-white/75")}>
         {unidade ? `${unidade} · ` : ""}
         {periodo}
@@ -1745,9 +1789,11 @@ const COR_PERDA = "#e23b3b";
 function BarrasDuplas({
   titulo,
   grupos,
+  aviso,
 }: {
   titulo: string;
   grupos: { id: string; nome: string; producao: number; perdas: number }[];
+  aviso?: string;
 }) {
   const maximo = Math.max(1, ...grupos.flatMap((item) => [item.producao, item.perdas]));
   const vazio = grupos.every((item) => item.producao === 0 && item.perdas === 0);
@@ -1766,7 +1812,9 @@ function BarrasDuplas({
           </span>
         </div>
       </div>
-      {vazio ? (
+      {aviso ? (
+        <p className="mt-3 text-sm text-muted">{aviso}</p>
+      ) : vazio ? (
         <p className="mt-3 text-sm text-muted">Sem apontamento neste recorte.</p>
       ) : (
         <div className="mt-4">
@@ -1809,10 +1857,12 @@ function GraficoCircular({
   titulo,
   itens,
   onPick,
+  aviso,
 }: {
   titulo: string;
   itens: { id: string; nome: string; valor: number; ativo?: boolean }[];
   onPick?: (id: string) => void;
+  aviso?: string;
 }) {
   const total = itens.reduce((soma, item) => soma + item.valor, 0);
   const raio = 42;
@@ -1830,7 +1880,9 @@ function GraficoCircular({
   return (
     <section className="min-w-0 max-w-full rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
       <h3 className="text-base font-semibold">{titulo}</h3>
-      {fatias.length === 0 || !frente ? (
+      {aviso ? (
+        <p className="mt-3 text-sm text-muted">{aviso}</p>
+      ) : fatias.length === 0 || !frente ? (
         <p className="mt-3 text-sm text-muted">Sem apontamento neste recorte.</p>
       ) : (
         <>
@@ -1900,18 +1952,22 @@ function RankingBarras({
   itens,
   onPick,
   vertical = false,
+  aviso,
 }: {
   titulo: string;
   itens: { id: string; nome: string; valor: number; extra?: string; ativo?: boolean }[];
   onPick?: (id: string) => void;
   vertical?: boolean;
+  aviso?: string;
 }) {
   const maximo = Math.max(1, ...itens.map((item) => item.valor));
   const total = itens.reduce((soma, item) => soma + item.valor, 0);
   return (
     <section className="min-w-0 max-w-full rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
       <h3 className="text-base font-semibold">{titulo}</h3>
-      {itens.length === 0 || total === 0 ? (
+      {aviso ? (
+        <p className="mt-3 text-sm text-muted">{aviso}</p>
+      ) : itens.length === 0 || total === 0 ? (
         <p className="mt-3 text-sm text-muted">Sem apontamento neste recorte.</p>
       ) : vertical ? (
         <div className="mt-4">

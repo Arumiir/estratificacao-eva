@@ -54,7 +54,6 @@ import {
   type State,
   type StationConfig,
 } from "@/lib/perdas";
-import { downloadBlob, renderFichasDaMaquina } from "@/lib/ficha-image";
 import { enviarPlanilha, pullApontamentos, pushApontamentos } from "@/lib/apontamentos.functions";
 
 type Papel = "preparador" | "lider" | "teste";
@@ -895,6 +894,7 @@ export function EstratificacaoApp() {
     const current = read();
     if (!current) return;
     try {
+      const { downloadBlob, renderFichasDaMaquina } = await import("@/lib/ficha-image");
       const grupos = await renderFichasDaMaquina(current, machine);
       if (grupos.length === 0) {
         flash("Nenhuma ficha nesta máquina.");
