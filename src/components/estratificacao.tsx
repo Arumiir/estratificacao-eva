@@ -170,17 +170,50 @@ function mesmasEntradas(proximas: Entry[], atuais: Entry[]) {
   });
 }
 
+function diaMenos(iso: string, dias: number) {
+  const [year, month, day] = iso.split("-").map(Number);
+  if (!year || !month || !day) return iso;
+  const cursor = new Date(Date.UTC(year, month - 1, day));
+  cursor.setUTCDate(cursor.getUTCDate() - dias);
+  const mes = String(cursor.getUTCMonth() + 1).padStart(2, "0");
+  const dia = String(cursor.getUTCDate()).padStart(2, "0");
+  return `${cursor.getUTCFullYear()}-${mes}-${dia}`;
+}
+
+function enxugar(state: State): State {
+  const limitePerda = diaMenos(state.date, 2);
+  const limiteProducao = diaMenos(state.date, 45);
+  const entries = state.entries.filter((entry) => entry.date >= limitePerda);
+  const producao = (state.producao ?? []).filter((item) => item.date >= limiteProducao);
+  const outros = state.outros.filter((item) => item.date >= limitePerda);
+  const cores = state.cores.filter((item) => item.date >= limitePerda);
+  const fechamentos = (state.fechamentos ?? []).filter((item) => item.date >= limitePerda);
+  if (
+    entries.length === state.entries.length &&
+    producao.length === (state.producao ?? []).length &&
+    outros.length === state.outros.length &&
+    cores.length === state.cores.length &&
+    fechamentos.length === (state.fechamentos ?? []).length
+  ) {
+    return state;
+  }
+  return { ...state, entries, producao, outros, cores, fechamentos };
+}
+
 function usePerdas() {
   const [state, setState] = useState<State | null>(null);
   const [cloud, setCloud] = useState<boolean | null>(null);
   const ref = useRef<State | null>(null);
 
   useEffect(() => {
-    const loaded = loadState();
-    loaded.entries = loaded.entries.map((entry) => {
-      if (entry.turno !== "3" || !entry.at) return entry;
-      const dia = diaOperacional("3", entry.at);
-      return dia && dia !== entry.date ? { ...entry, date: dia } : entry;
+    const bruto = loadState();
+    const loaded = enxugar({
+      ...bruto,
+      entries: bruto.entries.map((entry) => {
+        if (entry.turno !== "3" || !entry.at) return entry;
+        const dia = diaOperacional("3", entry.at);
+        return dia && dia !== entry.date ? { ...entry, date: dia } : entry;
+      }),
     });
     ref.current = loaded;
     setState(loaded);
@@ -208,7 +241,9 @@ function usePerdas() {
   }, []);
 
   useEffect(() => {
-    if (state) saveState(state);
+    if (!state) return;
+    const timer = window.setTimeout(() => saveState(enxugar(state)), 700);
+    return () => window.clearTimeout(timer);
   }, [state]);
 
   const synced = useRef<Set<string> | null>(null);
@@ -228,7 +263,8 @@ function usePerdas() {
   const excelSent = useRef<Set<string>>(loadExcelSent());
   const excelQueue = useRef<Array<{ entry: Entry; solas: 1 | -1 }>>([]);
   const excelBusy = useRef(false);
-  const skipExcelBacklog = useRef(true);
+  const envioTimer = useRef<number | null>(null);
+  const puxando = useRef(false);
 
   function storeExcelSent() {
     const ids = [...excelSent.current].slice(-4000);
@@ -331,35 +367,45 @@ function usePerdas() {
     const producaoMudou = JSON.stringify(producao) !== lastProducao.current;
     const modelosMudou = state.modelosEm > lastModelosEm.current;
     if (upserts.length === 0 && removed.length === 0 && Object.keys(grades).length === 0 && !outrosMudou && !coresMudou && !fechamentosMudou && !producaoMudou && !modelosMudou) {
-      skipExcelBacklog.current = false;
       return;
-    }
-    if (skipExcelBacklog.current) skipExcelBacklog.current = false;
-    else {
-      for (const entry of upserts) enqueueExcel(entry, 1);
-      for (const entry of removedNow) queueRemoval(entry);
     }
     if (!booted.current && removed.length === 0 && reviveIds.length === 0) return;
     const sentGrades = Object.keys(grades);
     const gen = gradesGen.current;
     const sentRevives = reviveIds;
     const modeloEnviado = modelosMudou ? { machines: state.modelos, salvoEm: state.modelosEm } : null;
-    void pushApontamentos({ data: { upserts: booted.current ? upserts : [], removed, grades: booted.current ? grades : {}, date: state.date, outros: booted.current ? outros : [], cores: booted.current ? cores : [], fechamentos: booted.current ? fechamentos : [], producao: booted.current ? producao : [], revives: sentRevives, modelos: booted.current ? modeloEnviado : null } })
-      .then((result) => {
-        setCloud(result.cloud);
-        if (booted.current) {
-          for (const entry of upserts) known.add(entry.id);
-          lastOutros.current = JSON.stringify(outros);
-          lastCores.current = JSON.stringify(cores);
-          lastFechamentos.current = JSON.stringify(fechamentos);
-          lastProducao.current = JSON.stringify(producao);
-          if (modeloEnviado) lastModelosEm.current = modeloEnviado.salvoEm;
-        }
-        for (const id of sentRevives) revives.current.delete(id);
-        if (gradesGen.current !== gen) return;
-        for (const key of sentGrades) dirtyGrades.current.delete(key);
-      })
-      .catch(() => setCloud(false));
+    const pacote = {
+      upserts: booted.current ? upserts : [],
+      removed,
+      grades: booted.current ? grades : {},
+      date: state.date,
+      outros: booted.current && outrosMudou ? outros : [],
+      cores: booted.current && coresMudou ? cores : [],
+      fechamentos: booted.current && fechamentosMudou ? fechamentos : [],
+      producao: booted.current && producaoMudou ? producao : [],
+      revives: sentRevives,
+      modelos: booted.current ? modeloEnviado : null,
+    };
+    if (envioTimer.current) window.clearTimeout(envioTimer.current);
+    envioTimer.current = window.setTimeout(() => {
+      envioTimer.current = null;
+      void pushApontamentos({ data: pacote })
+        .then((result) => {
+          setCloud(result.cloud);
+          if (booted.current) {
+            for (const entry of upserts) known.add(entry.id);
+            if (outrosMudou) lastOutros.current = JSON.stringify(outros);
+            if (coresMudou) lastCores.current = JSON.stringify(cores);
+            if (fechamentosMudou) lastFechamentos.current = JSON.stringify(fechamentos);
+            if (producaoMudou) lastProducao.current = JSON.stringify(producao);
+            if (modeloEnviado) lastModelosEm.current = modeloEnviado.salvoEm;
+          }
+          for (const id of sentRevives) revives.current.delete(id);
+          if (gradesGen.current !== gen) return;
+          for (const key of sentGrades) dirtyGrades.current.delete(key);
+        })
+        .catch(() => setCloud(false));
+    }, 350);
   }, [state, ligado]);
 
   function takeRemote(
@@ -422,22 +468,29 @@ function usePerdas() {
   }
 
   async function refresh() {
-    const current = ref.current;
-    if (!current) return false;
+    if (puxando.current) return false;
+    const started = ref.current;
+    if (!started) return false;
+    puxando.current = true;
     const gen = gradesGen.current;
-    const remote = await pullApontamentos({ data: { date: current.date } });
-    if (gradesGen.current !== gen) return true;
-    setCloud(remote.cloud);
-    if (!booted.current) {
-      booted.current = true;
-      setLigado(true);
+    try {
+      const remote = await pullApontamentos({ data: { date: started.date } });
+      const current = ref.current;
+      if (!current || current.date !== started.date || gradesGen.current !== gen) return true;
+      setCloud(remote.cloud);
+      if (!booted.current) {
+        booted.current = true;
+        setLigado(true);
+      }
+      const next = enxugar(takeRemote(current, remote));
+      if (next === current) return true;
+      ref.current = next;
+      lastEntries.current = next.entries;
+      setState(next);
+      return true;
+    } finally {
+      puxando.current = false;
     }
-    const next = takeRemote(current, remote);
-    if (next === current) return true;
-    ref.current = next;
-    lastEntries.current = next.entries;
-    setState(next);
-    return true;
   }
 
   useEffect(() => {
@@ -460,23 +513,35 @@ function usePerdas() {
         const modelosMudou = current.modelosEm > lastModelosEm.current;
         if (booted.current && (upserts.length > 0 || removed.length > 0 || reviveIds.length > 0 || outrosMudou || coresMudou || fechamentosMudou || producaoMudou || modelosMudou)) {
           const modeloEnviado = modelosMudou ? { machines: current.modelos, salvoEm: current.modelosEm } : null;
-          void pushApontamentos({ data: { upserts, removed, revives: reviveIds, date: current.date, outros, cores, fechamentos, producao, modelos: modeloEnviado } })
+          void pushApontamentos({
+            data: {
+              upserts,
+              removed,
+              revives: reviveIds,
+              date: current.date,
+              outros: outrosMudou ? outros : [],
+              cores: coresMudou ? cores : [],
+              fechamentos: fechamentosMudou ? fechamentos : [],
+              producao: producaoMudou ? producao : [],
+              modelos: modeloEnviado,
+            },
+          })
             .then((result) => {
               setCloud(result.cloud);
               for (const entry of upserts) known.add(entry.id);
               for (const id of reviveIds) revives.current.delete(id);
-              lastOutros.current = JSON.stringify(outros);
-              lastCores.current = JSON.stringify(cores);
-              lastFechamentos.current = JSON.stringify(fechamentos);
-              lastProducao.current = JSON.stringify(producao);
+              if (outrosMudou) lastOutros.current = JSON.stringify(outros);
+              if (coresMudou) lastCores.current = JSON.stringify(cores);
+              if (fechamentosMudou) lastFechamentos.current = JSON.stringify(fechamentos);
+              if (producaoMudou) lastProducao.current = JSON.stringify(producao);
               if (modeloEnviado) lastModelosEm.current = modeloEnviado.salvoEm;
             })
             .catch(() => setCloud(false));
         }
       }
+      if (document.visibilityState === "hidden") return;
       void refresh().catch(() => setCloud(false));
-      void pumpExcel();
-    }, 15000);
+    }, 30000);
     return () => window.clearInterval(timer);
   }, [Boolean(state)]);
 
@@ -492,7 +557,7 @@ function usePerdas() {
           booted.current = true;
           setLigado(true);
         }
-        const next = takeRemote(ref.current, remote);
+        const next = enxugar(takeRemote(ref.current, remote));
         if (next === ref.current) return;
         ref.current = next;
         lastEntries.current = next.entries;
@@ -1102,11 +1167,6 @@ export function EstratificacaoApp() {
       return { ...stateNow, turno, date: dia, entries: [...stateNow.entries, entry] };
     });
     navigator.vibrate?.(12);
-    const where = `${problemName(problem)} · ${SIDE_LABEL[side].toLowerCase()}`;
-    flash(
-      turno === current.turno ? `Lançado: ${where}` : `Lançado no ${TURNO_LABEL[turno]}: ${where}`,
-      () => removeEntry(id, "Lançamento desfeito"),
-    );
   }
 
   function sameAuthor(_entry: Entry) {
@@ -1139,10 +1199,11 @@ export function EstratificacaoApp() {
     removeMany(
       matches.map((entry) => entry.id),
       matches.length === 1 ? "1 sola excluída" : `${matches.length} solas excluídas`,
+      false,
     );
   }
 
-  function removeMany(ids: string[], label: string) {
+  function removeMany(ids: string[], label: string, avisar = true) {
     const current = read();
     if (!current || ids.length === 0) return;
     const gone = current.entries.filter((entry) => ids.includes(entry.id) && podeAlterarApontamento(entry));
@@ -1154,6 +1215,7 @@ export function EstratificacaoApp() {
     holdRemovals(gone);
     const drop = new Set(gone.map((entry) => entry.id));
     commit((s) => ({ ...s, entries: s.entries.filter((entry) => !drop.has(entry.id)) }));
+    if (!avisar) return;
     flash(label, () => {
       releaseHold(gone.map((entry) => entry.id));
       commit((s) => ({
@@ -2611,6 +2673,8 @@ function ProblemsScreen({
     const who = entry.autor.trim().toLocaleLowerCase("pt-BR");
     return who === mine || who === "";
   });
+  const counts = new Map<string, number>();
+  for (const entry of rows) counts.set(entry.problem, (counts.get(entry.problem) ?? 0) + 1);
 
   return (
     <div>
@@ -2621,7 +2685,7 @@ function ProblemsScreen({
       {matrix ? <p className="mt-2 text-base font-semibold">{matrix}</p> : null}
       <div className="mt-4 grid gap-2 lg:grid-cols-2">
         {PROBLEMS.map((problem) => {
-          const count = rows.filter((entry) => entry.problem === problem.id).length;
+          const count = counts.get(problem.id) ?? 0;
           return (
             <div key={problem.id} className="rounded-tile border border-line bg-surface p-2">
               <div className="flex items-center gap-2">

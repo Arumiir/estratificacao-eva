@@ -25,6 +25,16 @@ function cloudOn() {
   return dbSource === "neon" || Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim());
 }
 
+let acertoPronto: Promise<void> | null = null;
+
+function garantirAcerto() {
+  acertoPronto ??= acertarTerceiroTurno().catch((error) => {
+    acertoPronto = null;
+    throw error;
+  });
+  return acertoPronto;
+}
+
 async function acertarTerceiroTurno() {
   if (usesBlob() || dbSource !== "neon") return;
   const sql = await getSql();
@@ -109,7 +119,7 @@ function cleanRemoved(value: unknown): Entry[] {
       const entry = coerceEntry(item);
       return entry && /^\d{4}-\d{2}-\d{2}$/.test(entry.date) ? [entry] : [];
     })
-    .slice(0, 2000);
+    .slice(0, 8000);
 }
 
 function cleanEntries(value: unknown): Entry[] {
@@ -119,7 +129,105 @@ function cleanEntries(value: unknown): Entry[] {
       const entry = coerceEntry(item);
       return entry && /^\d{4}-\d{2}-\d{2}$/.test(entry.date) ? [entry] : [];
     })
-    .slice(0, 2000);
+    .slice(0, 8000);
+}
+
+function linhaTravada(row: { date: string; turno: string; at: number }) {
+  const entry = { date: String(row.date).slice(0, 10), turno: row.turno, at: Number(row.at) };
+  return apontamentoBloqueado(entry) || !podeAlterarApontamento(entry);
+}
+
+async function gravarLote(
+  sql: Awaited<ReturnType<typeof getSql>>,
+  removed: Entry[],
+  revives: string[],
+  upserts: Entry[],
+) {
+  if (removed.length > 0) {
+    const ids = removed.map((item) => item.id);
+    const rows = await sql.query<{ id: string; date: string; turno: string; at: number }>(
+      "select id, date::text as date, turno, at from apontamentos where id = any($1::text[])",
+      [ids],
+    );
+    const bloqueados = new Set(rows.filter(linhaTravada).map((row) => row.id));
+    const apagar = removed.filter((item) => !bloqueados.has(item.id));
+    if (apagar.length > 0) {
+      const apagarIds = apagar.map((item) => item.id);
+      await sql.query("delete from apontamentos where id = any($1::text[])", [apagarIds]);
+      await sql.query(
+        `insert into apontamentos_removidos (id, date)
+         select * from unnest($1::text[], $2::text[])
+         on conflict (id) do update set date = excluded.date`,
+        [apagarIds, apagar.map((item) => item.date)],
+      );
+    }
+  }
+  if (revives.length > 0) {
+    await sql.query("delete from apontamentos_removidos where id = any($1::text[])", [revives]);
+  }
+  const removedIds = new Set(removed.map((item) => item.id));
+  const reviveIds = new Set(revives);
+  const candidatos = upserts.filter((entry) => !removedIds.has(entry.id));
+  if (candidatos.length === 0) return;
+  const ids = candidatos.map((entry) => entry.id);
+  const [tombs, existentes] = await Promise.all([
+    sql.query<{ id: string }>("select id from apontamentos_removidos where id = any($1::text[])", [ids]),
+    sql.query<{ id: string; date: string; turno: string; at: number }>(
+      "select id, date::text as date, turno, at from apontamentos where id = any($1::text[])",
+      [ids],
+    ),
+  ]);
+  const tombados = new Set(tombs.map((row) => row.id));
+  const porId = new Map(existentes.map((row) => [row.id, row]));
+  const gravar = candidatos.flatMap((entry) => {
+    if (!reviveIds.has(entry.id) && tombados.has(entry.id)) return [];
+    const row = porId.get(entry.id);
+    if (row && linhaTravada(row)) return [];
+    const turnoInformado = entry.turno === "1" || entry.turno === "2" || entry.turno === "3" ? entry.turno : turnoPeloRelogio(entry.at);
+    const dia = diaOperacional(turnoInformado, Number(entry.at) || Date.now());
+    const salvo = row ? entry : { ...entry, date: dia, turno: turnoInformado };
+    if (!row && salvo.date !== dia) return [];
+    return [salvo];
+  });
+  if (gravar.length === 0) return;
+  await sql.query("delete from apontamentos_removidos where id = any($1::text[])", [gravar.map((entry) => entry.id)]);
+  await sql.query(
+    `insert into apontamentos (id, date, turno, machine, station, side, problem, at, numero, referencia, autor, outro, cor, cor_nome)
+     select * from unnest(
+       $1::text[], $2::text[], $3::text[], $4::text[], $5::int[], $6::text[], $7::text[],
+       $8::bigint[], $9::text[], $10::text[], $11::text[], $12::text[], $13::text[], $14::text[]
+     )
+     on conflict (id) do update set
+       date = excluded.date,
+       turno = excluded.turno,
+       machine = excluded.machine,
+       station = excluded.station,
+       side = excluded.side,
+       problem = excluded.problem,
+       at = excluded.at,
+       numero = excluded.numero,
+       referencia = excluded.referencia,
+       autor = excluded.autor,
+       outro = excluded.outro,
+       cor = excluded.cor,
+       cor_nome = excluded.cor_nome`,
+    [
+      gravar.map((entry) => entry.id),
+      gravar.map((entry) => entry.date),
+      gravar.map((entry) => entry.turno),
+      gravar.map((entry) => entry.machine),
+      gravar.map((entry) => entry.station),
+      gravar.map((entry) => entry.side),
+      gravar.map((entry) => entry.problem),
+      gravar.map((entry) => entry.at),
+      gravar.map((entry) => entry.matrizNumero),
+      gravar.map((entry) => entry.matrizRel),
+      gravar.map((entry) => entry.autor),
+      gravar.map((entry) => entry.outroId),
+      gravar.map((entry) => entry.corId),
+      gravar.map((entry) => entry.corNome),
+    ],
+  );
 }
 
 export const pushApontamentos = createServerFn({ method: "POST" })
@@ -146,63 +254,7 @@ export const pushApontamentos = createServerFn({ method: "POST" })
       return { ok: true as const, cloud: true };
     }
     const sql = await getSql();
-    for (const item of data.removed) {
-      const existing = await sql<{ date: string; turno: string; at: number }>`
-        select date, turno, at from apontamentos where id = ${item.id}
-      `;
-      const row = existing[0];
-      if (row && (apontamentoBloqueado({ date: row.date, turno: row.turno, at: Number(row.at) }) || !podeAlterarApontamento({ date: row.date, turno: row.turno, at: Number(row.at) }))) continue;
-      await sql`delete from apontamentos where id = ${item.id}`;
-      await sql`
-        insert into apontamentos_removidos (id, date)
-        values (${item.id}, ${item.date})
-        on conflict (id) do update set date = excluded.date
-      `;
-    }
-    const removedIds = new Set(data.removed.map((item) => item.id));
-    const reviveIds = new Set(data.revives);
-    for (const id of reviveIds) {
-      await sql`delete from apontamentos_removidos where id = ${id}`;
-    }
-    for (const entry of data.upserts) {
-      if (removedIds.has(entry.id)) continue;
-      if (!reviveIds.has(entry.id)) {
-        const tomb = await sql<{ id: string }>`select id from apontamentos_removidos where id = ${entry.id}`;
-        if (tomb[0]) continue;
-      }
-      const existing = await sql<{ date: string; turno: string; at: number }>`
-        select date, turno, at from apontamentos where id = ${entry.id}
-      `;
-      const row = existing[0];
-      if (row && (apontamentoBloqueado({ date: row.date, turno: row.turno, at: Number(row.at) }) || !podeAlterarApontamento({ date: row.date, turno: row.turno, at: Number(row.at) }))) continue;
-      const turnoInformado = entry.turno === "1" || entry.turno === "2" || entry.turno === "3" ? entry.turno : turnoPeloRelogio(entry.at);
-      const dia = diaOperacional(turnoInformado, Number(entry.at) || Date.now());
-      const salvo = row ? entry : { ...entry, date: dia, turno: turnoInformado };
-      if (!row && salvo.date !== dia) continue;
-      await sql`delete from apontamentos_removidos where id = ${entry.id}`;
-      await sql`
-        insert into apontamentos (id, date, turno, machine, station, side, problem, at, numero, referencia, autor, outro, cor, cor_nome)
-        values (
-          ${salvo.id}, ${salvo.date}, ${salvo.turno}, ${salvo.machine}, ${salvo.station}, ${salvo.side},
-          ${salvo.problem}, ${salvo.at}, ${salvo.matrizNumero}, ${salvo.matrizRel}, ${salvo.autor}, ${salvo.outroId},
-          ${salvo.corId}, ${salvo.corNome}
-        )
-        on conflict (id) do update set
-          date = excluded.date,
-          turno = excluded.turno,
-          machine = excluded.machine,
-          station = excluded.station,
-          side = excluded.side,
-          problem = excluded.problem,
-          at = excluded.at,
-          numero = excluded.numero,
-          referencia = excluded.referencia,
-          autor = excluded.autor,
-          outro = excluded.outro,
-          cor = excluded.cor,
-          cor_nome = excluded.cor_nome
-      `;
-    }
+    await gravarLote(sql, data.removed, data.revives, data.upserts);
     if (data.date) {
       for (const [key, config] of Object.entries(data.grades)) {
         const existing = await sql<{ config: StationConfig }>`
@@ -296,7 +348,7 @@ export const pullApontamentos = createServerFn({ method: "POST" })
       const day = await pullDay(data.date);
       return { entries: day.entries, removed: day.removed, grades: day.grades, outros: day.outros, cores: [], fechamentos: [], producao: [], modelos: null, cloud: true };
     }
-    await acertarTerceiroTurno();
+    await garantirAcerto();
     const sql = await getSql();
     const rows = await sql<{
       id: string;
@@ -387,7 +439,7 @@ export const pullHistorico = createServerFn({ method: "POST" })
       const days = await Promise.all(datas.map((date) => pullDay(date)));
       return { entries: days.flatMap((day) => day.entries), producao: [], cloud: true };
     }
-    await acertarTerceiroTurno();
+    await garantirAcerto();
     const sql = await getSql();
     const rows = await sql<{
       id: string;
