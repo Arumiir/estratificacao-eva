@@ -588,7 +588,7 @@ function ConfigModelos({ state, onToggle }: { state: State; onToggle: (machine: 
           <circle cx="12" cy="12" r="3" />
           <path d="M12 3.5v2.2M12 18.3v2.2M3.5 12h2.2M18.3 12h2.2M5.8 5.8l1.6 1.6M16.6 16.6l1.6 1.6M18.2 5.8l-1.6 1.6M7.4 16.6l-1.6 1.6" strokeLinecap="round" />
         </svg>
-        Configurar
+        Configuração
       </button>
       {aberto ? (
         <div
@@ -600,22 +600,28 @@ function ConfigModelos({ state, onToggle }: { state: State; onToggle: (machine: 
           <div className="w-full max-w-sm rounded-3xl bg-white p-5 shadow-xl">
             <h3 className="text-base font-semibold">A e B</h3>
             <p className="mt-1 text-sm text-muted">Ligado, a máquina pede A ou B. Desligado, entra direto.</p>
-            <div className="mt-4 grid grid-cols-2 gap-2">
+            <div className="mt-4 grid gap-2">
               {MAQUINAS_PISO.map((machine) => {
                 const ligado = state.modelos.includes(machine);
                 return (
-                  <button
-                    key={machine}
-                    type="button"
-                    onClick={() => onToggle(machine)}
-                    className={cx(
-                      "rounded-xl border px-3 py-3 text-sm font-semibold",
-                      ligado ? "border-[#4682B4] bg-[#4682B4] text-white" : "border-[#d5dee8] bg-white text-fg",
-                    )}
-                  >
-                    {machine}
-                    {ligado ? " A/B" : ""}
-                  </button>
+                  <div key={machine} className="flex items-center justify-between gap-3 rounded-xl border border-[#d5dee8] px-3 py-2.5">
+                    <span className="font-display text-2xl leading-none">{machine}</span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={ligado}
+                      aria-label={`${ligado ? "Desativar" : "Ativar"} A e B na ${machine}`}
+                      onClick={() => onToggle(machine)}
+                      className={cx("relative h-8 w-14 shrink-0 rounded-full", ligado ? "bg-[#4682B4]" : "bg-[#d5dee8]")}
+                    >
+                      <span
+                        className={cx(
+                          "absolute top-1 size-6 rounded-full bg-white shadow",
+                          ligado ? "left-7" : "left-1",
+                        )}
+                      />
+                    </button>
+                  </div>
                 );
               })}
             </div>
@@ -875,9 +881,16 @@ function PainelHistorico({
     const listas = calculo.listas[graficoRecorte.periodo];
     return graficoRecorte.turno ? listas[graficoRecorte.turno] : listas.todos;
   }, [calculo, graficoRecorte]);
+  const ativas = useMemo(() => new Set(maquinasDoFiltro(state.modelos)), [state.modelos]);
   const porProblema = useMemo(() => perdasPorProblema(graficoLista), [graficoLista]);
-  const porMaquina = useMemo(() => perdasPorMaquina(graficoLista), [graficoLista]);
-  const rankingNumeros = useMemo(() => rankNumeros(graficoLista, 5), [graficoLista]);
+  const porMaquina = useMemo(
+    () => perdasPorMaquina(graficoLista).filter((item) => ativas.has(item.machine)),
+    [graficoLista, ativas],
+  );
+  const rankingNumeros = useMemo(
+    () => rankNumeros(graficoLista.filter((entry) => ativas.has(entry.machine)), 5),
+    [graficoLista, ativas],
+  );
   const rankingEstacao = useMemo(
     () =>
       perdasPorEstacao(graficoLista).map((item) => ({
@@ -902,10 +915,11 @@ function PainelHistorico({
     turno,
     pares: calculo.pares[graficoRecorte.periodo][turno],
   }));
-  const entradasRanking = rankingRecorte.turno
+  const entradasRanking = (rankingRecorte.turno
     ? calculo.listas[rankingRecorte.periodo][rankingRecorte.turno]
-    : calculo.listas[rankingRecorte.periodo].todos;
-  const historicoRanking = calculo.historico;
+    : calculo.listas[rankingRecorte.periodo].todos
+  ).filter((entry) => ativas.has(entry.machine));
+  const historicoRanking = calculo.historico.filter((entry) => ativas.has(entry.machine));
   const nomeRanking = `${nomePeriodo(rankingRecorte.periodo)}${rankingRecorte.turno ? ` · ${TURNO_LABEL[rankingRecorte.turno]}` : " · Todos"}`;
   const avisoIndicador = carga === "carregando" ? "Carregando o mês…" : carga === "erro" ? "Sem nuvem." : undefined;
   const valorOculto = carga === "erro" ? "—" : "…";
@@ -3206,16 +3220,7 @@ function AcompanhamentoDiario({
   const [painel, setPainel] = useState<{ machine: MachineId; tipo: "apontamentos" | "matrizaria" } | null>(null);
   const [pedir, setPedir] = useState(false);
   const [edicao, setEdicao] = useState<{ machine: MachineId; passo: "escolha" | "producao" | "perdas" } | null>(null);
-  const visiveis = [
-    ...MAQUINAS_PISO,
-    ...MACHINES.filter((machine) => {
-      if ((MAQUINAS_PISO as readonly string[]).includes(machine)) return false;
-      if (shown.includes(machine)) return true;
-      return (state.producao ?? []).some(
-        (item) => diaDoApontamento(item) === state.date && item.turno === state.turno && item.machine === machine && item.pares > 0,
-      );
-    }),
-  ];
+  const visiveis = maquinasDoFiltro(state.modelos);
   const aberta = painel ? visiveis.find((machine) => machine === painel.machine) ?? null : null;
   const linhas = aberta ? fichaLines(state, aberta) : [];
   const estacoes = aberta ? estacoesDoDia(state, aberta, linhas).filter((item) => item.pares > 0) : [];

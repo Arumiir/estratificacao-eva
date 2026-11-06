@@ -375,16 +375,12 @@ export function readModelos(value: unknown): { machines: MaquinaPiso[]; salvoEm:
   return { machines, salvoEm };
 }
 
-export function maquinasDoFiltro(modelos: readonly MaquinaPiso[], comDado: Iterable<MachineId>): MachineId[] {
-  const tem = new Set(comDado);
+export function maquinasDoFiltro(modelos: readonly MaquinaPiso[], _comDado: Iterable<MachineId> = []): MachineId[] {
   const ligados = new Set(modelos);
   const lista: MachineId[] = [];
   for (const base of MAQUINAS_PISO) {
-    const [ladoA, ladoB] = variantesDe(base);
-    const ligado = ligados.has(base);
-    if (!ligado || tem.has(base)) lista.push(base);
-    if (ligado || tem.has(ladoA)) lista.push(ladoA);
-    if (ligado || tem.has(ladoB)) lista.push(ladoB);
+    if (ligados.has(base)) lista.push(...variantesDe(base));
+    else lista.push(base);
   }
   return lista;
 }
