@@ -1185,7 +1185,7 @@ function PainelHistorico({
 
       <BlocoDash id="producao" titulo="Produção e perdas">
         <FiltroBloco recorte={producaoRecorte} onChange={setProducaoRecorte} />
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="grid gap-3">
         <BarrasDuplas
           titulo="Produção e perdas"
           aviso={avisoIndicador}
