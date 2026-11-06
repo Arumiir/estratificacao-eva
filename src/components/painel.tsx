@@ -44,6 +44,7 @@ import {
 } from "@/lib/perdas";
 import { pullEvolucaoMolde, pullHistorico } from "@/lib/apontamentos.functions";
 import { cx, pares, paresDasEntradas, percentualPerda, textoPercentual } from "@/components/comum";
+import { AvisoSair, Teclado, campoInicial, dicaDoCampo, teclaConta, type Campo } from "@/components/teclado";
 import { perdasPorEstacao, perdasPorMaquina, perdasPorProblema, separarEntradas, somarProducao } from "@/components/painel-calculo";
 
 type Papel = "preparador" | "lider";
@@ -3218,57 +3219,108 @@ function EditarPerdas({
   onApagar: (id: string) => void;
 }) {
   const grupos = gruposDePerda(state, machine);
+  const [campos, setCampos] = useState<Record<string, Campo>>(() => {
+    const inicial: Record<string, Campo> = {};
+    for (const grupo of gruposDePerda(state, machine)) inicial[grupo.ids[0]] = campoInicial(grupo.ids.length);
+    return inicial;
+  });
+  const [foco, setFoco] = useState<string | null>(null);
+  const [aviso, setAviso] = useState(false);
+  const sujo = grupos.some((grupo) => Number(campos[grupo.ids[0]]?.texto ?? grupo.ids.length) !== grupo.ids.length);
+
+  function pedirFechar() {
+    if (sujo) {
+      setAviso(true);
+      return;
+    }
+    onClose();
+  }
+
+  function salvar() {
+    for (const grupo of grupos) {
+      const alvo = Number(campos[grupo.ids[0]]?.texto) || 0;
+      const atual = grupo.ids.length;
+      if (alvo > atual) {
+        for (let i = 0; i < alvo - atual; i += 1) onLancar(grupo.amostra);
+      } else if (alvo < atual) {
+        for (const id of grupo.ids.slice(alvo)) onApagar(id);
+      }
+    }
+    onClose();
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center"
       onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        if (event.target === event.currentTarget) pedirFechar();
       }}
     >
-      <div className="max-h-[90dvh] w-full max-w-lg overflow-x-hidden overflow-y-auto rounded-3xl bg-white p-4 shadow-xl">
-        <div className="flex items-start justify-between gap-3">
+      <div className="flex max-h-[92dvh] w-full max-w-lg flex-col overflow-hidden rounded-3xl bg-white shadow-xl">
+        <div className="flex shrink-0 items-start justify-between gap-3 p-4">
           <div>
             <h3 className="text-base font-semibold">Perdas · {machine}</h3>
             <p className="text-sm text-muted">
-              {formatDateBR(state.date)} · {TURNO_LABEL[state.turno]}. Cada mais é uma sola.
+              {formatDateBR(state.date)} · {TURNO_LABEL[state.turno]}. Digite o total. Só grava em Salvar.
             </p>
           </div>
-          <button type="button" onClick={onClose} aria-label="Fechar" className="grid size-10 place-items-center rounded-xl text-[#1e3a5f]">
+          <button type="button" onClick={pedirFechar} aria-label="Fechar" className="grid size-10 place-items-center rounded-xl text-[#1e3a5f]">
             <X className="size-5" />
           </button>
         </div>
         {grupos.length === 0 ? (
-          <p className="mt-4 text-sm text-muted">Nenhuma perda nesta máquina neste turno.</p>
+          <p className="px-4 pb-4 text-sm text-muted">Nenhuma perda nesta máquina neste turno.</p>
         ) : (
-          <div className="mt-3 grid gap-2">
-            {grupos.map((grupo) => (
-              <div key={grupo.ids[0]} className="flex items-center gap-2 rounded-2xl border border-[#d5dee8] px-3 py-2.5">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold leading-snug">{grupo.rotulo}</p>
-                  <p className="text-xs leading-snug text-muted">{grupo.detalhe}</p>
-                </div>
-                <button
-                  type="button"
-                  aria-label={`Diminuir ${grupo.rotulo}`}
-                  onClick={() => onApagar(grupo.ids[grupo.ids.length - 1] ?? "")}
-                  className="grid size-11 shrink-0 place-items-center rounded-xl bg-[#f3f6fb] text-lg font-semibold"
-                >
-                  −
-                </button>
-                <p className="w-8 shrink-0 text-center font-display text-2xl leading-none tabular-nums">{grupo.ids.length}</p>
-                <button
-                  type="button"
-                  aria-label={`Lançar ${grupo.rotulo}`}
-                  onClick={() => onLancar(grupo.amostra)}
-                  className="grid size-11 shrink-0 place-items-center rounded-xl bg-[#2457b8] text-lg font-semibold text-white"
-                >
-                  +
-                </button>
-              </div>
-            ))}
+          <div className="min-h-0 flex-1 overflow-y-auto px-4">
+            <div className="grid gap-2 pb-2">
+              {grupos.map((grupo) => {
+                const campo = campos[grupo.ids[0]] ?? campoInicial(grupo.ids.length);
+                const ativo = foco === grupo.ids[0];
+                return (
+                  <div key={grupo.ids[0]} className="flex items-center gap-2 rounded-2xl border border-[#d5dee8] px-3 py-2.5">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold leading-snug">{grupo.rotulo}</p>
+                      <p className="text-xs leading-snug text-muted">{grupo.detalhe}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setFoco(grupo.ids[0])}
+                      className={cx(
+                        "grid h-12 w-16 shrink-0 place-items-center rounded-xl border font-display text-2xl leading-none tabular-nums",
+                        ativo ? "border-[#2457b8] bg-[#e8f0fb] text-[#2457b8]" : "border-[#d5dee8] bg-[#f7f9fc]",
+                      )}
+                    >
+                      {campo.texto}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
+        <div className="shrink-0 border-t border-[#e6ebf2] px-4 py-3">
+          {foco ? (
+            <>
+              <p className="mb-2 text-center text-sm font-semibold text-muted">{dicaDoCampo(campos[foco])}</p>
+              <Teclado
+                modo="conta"
+                onTecla={(tecla) =>
+                  setCampos((atual) => ({ ...atual, [foco]: teclaConta(atual[foco] ?? campoInicial(0), tecla) }))
+                }
+              />
+            </>
+          ) : null}
+          <button
+            type="button"
+            disabled={grupos.length === 0}
+            onClick={salvar}
+            className="mt-2 w-full rounded-2xl bg-[#2457b8] py-3 font-display text-3xl leading-none text-white disabled:opacity-50"
+          >
+            Salvar
+          </button>
+        </div>
       </div>
+      {aviso ? <AvisoSair onFicar={() => setAviso(false)} onSair={onClose} /> : null}
     </div>
   );
 }

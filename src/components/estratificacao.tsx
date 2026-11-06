@@ -1,8 +1,8 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type MutableRefObject } from "react";
 import { cx, paresDasEntradas, percentualPerda, textoPercentual } from "@/components/comum";
 import { InstallPrompt } from "@/components/install-prompt";
 import { UpdateNotice } from "@/components/update-notice";
-import { ChevronLeft, ChevronDown, ImageDown, Minus, Plus } from "lucide-react";
+import { ChevronLeft, ChevronDown, ImageDown } from "lucide-react";
 import {
   MAQUINAS_PISO,
   variantesDe,
@@ -55,6 +55,7 @@ import {
   type StationConfig,
 } from "@/lib/perdas";
 import { enviarPlanilha, pullApontamentos, pushApontamentos } from "@/lib/apontamentos.functions";
+import { AvisoSair, Teclado, campoInicial, dicaDoCampo, teclaConta, teclaTexto, type Campo } from "@/components/teclado";
 
 type Papel = "preparador" | "lider";
 const SheetScreen = lazy(() => import("@/components/painel").then((mod) => ({ default: mod.SheetScreen })));
@@ -617,6 +618,9 @@ export function EstratificacaoApp() {
   const homeRef = useRef<Screen>({ kind: "papel" });
   const depthRef = useRef(1);
   const skipPopRef = useRef(0);
+  const bloqueioRef = useRef<(() => void) | null>(null);
+  const pendenteRef = useRef<(() => void) | null>(null);
+  const desfazerRef = useRef<(() => void) | null>(null);
   const screen = stack[stack.length - 1] ?? { kind: "turnos" as const };
   const key = screenKey(screen);
 
@@ -647,6 +651,13 @@ export function EstratificacaoApp() {
     function onPop() {
       if (skipPopRef.current > 0) {
         skipPopRef.current -= 1;
+        return;
+      }
+      if (bloqueioRef.current) {
+        window.history.pushState(stampDepth(depthRef.current), "");
+        pendenteRef.current = () => window.history.go(-2);
+        desfazerRef.current = () => window.history.back();
+        bloqueioRef.current();
         return;
       }
       const nextState = window.history.state;
@@ -737,8 +748,31 @@ export function EstratificacaoApp() {
     window.history.pushState(stampDepth(stackNext.length), "");
   }
 
+  function confirmarSaida() {
+    const acao = pendenteRef.current;
+    pendenteRef.current = null;
+    desfazerRef.current = null;
+    bloqueioRef.current = null;
+    acao?.();
+  }
+
+  function ficarNaTela() {
+    pendenteRef.current = null;
+    const desfazer = desfazerRef.current;
+    desfazerRef.current = null;
+    if (!desfazer) return;
+    skipPopRef.current += 1;
+    desfazer();
+  }
+
   function back() {
     if (stackRef.current.length <= 1) return;
+    if (bloqueioRef.current) {
+      desfazerRef.current = null;
+      pendenteRef.current = () => window.history.back();
+      bloqueioRef.current();
+      return;
+    }
     window.history.back();
   }
 
@@ -781,15 +815,24 @@ export function EstratificacaoApp() {
   }
 
   function leavePapel() {
-    saveSessao(null);
-    setSessao(null);
-    const home: Screen = { kind: "papel" };
-    homeRef.current = home;
-    stackRef.current = [home];
-    depthRef.current = 1;
-    setDir("back");
-    setStack([home]);
-    window.history.replaceState(stampDepth(1), "");
+    const sair = () => {
+      saveSessao(null);
+      setSessao(null);
+      const home: Screen = { kind: "papel" };
+      homeRef.current = home;
+      stackRef.current = [home];
+      depthRef.current = 1;
+      setDir("back");
+      setStack([home]);
+      window.history.replaceState(stampDepth(1), "");
+    };
+    if (bloqueioRef.current) {
+      desfazerRef.current = null;
+      pendenteRef.current = sair;
+      bloqueioRef.current();
+      return;
+    }
+    sair();
   }
 
   function flash(text: string, undo?: () => void) {
@@ -1141,6 +1184,82 @@ export function EstratificacaoApp() {
     flash(ligados.length > 0 ? "Troca e perdas excluídas" : "Troca excluída");
   }
 
+  function salvarContagens(
+    machine: MachineId,
+    station: number,
+    side: Side,
+    outroId: string,
+    alvos: Record<string, number>,
+  ) {
+    const current = read();
+    if (!current) return false;
+    const at = Date.now();
+    const turno = sessao?.papel === "preparador" ? (sessao.turno ?? "1") : turnoPeloRelogio(at);
+    const dia = diaOperacional(turno, at);
+    if (current.date !== dia) {
+      flash("Dia fechado.");
+      return false;
+    }
+    if (!dentroDaJanela(turno, at)) {
+      flash("Fora do horário.");
+      return false;
+    }
+    const rows = current.entries.filter((entry) => {
+      if (!inShift(entry, current) || entry.machine !== machine) return false;
+      if (outroId) return entry.outroId === outroId && entry.side === side;
+      return !entry.outroId && entry.station === station && entry.side === side;
+    });
+    const remover: Entry[] = [];
+    const faltas = new Map<string, number>();
+    let travou = false;
+    for (const [problem, bruto] of Object.entries(alvos)) {
+      const alvo = Math.max(0, Math.floor(bruto));
+      const doProblema = rows.filter((entry) => entry.problem === problem);
+      const travados = doProblema.filter((entry) => !podeAlterarApontamento(entry));
+      const livres = doProblema.filter((entry) => podeAlterarApontamento(entry)).sort((a, b) => a.at - b.at);
+      if (alvo < travados.length) travou = true;
+      const manter = Math.max(0, alvo - travados.length);
+      remover.push(...livres.slice(manter));
+      const atual = doProblema.length;
+      if (alvo > atual) faltas.set(problem, alvo - atual);
+    }
+    const drop = new Set(remover.map((entry) => entry.id));
+    if (remover.length > 0) holdRemovals(remover);
+    commit((stateNow) => {
+      const outro = outroId ? stateNow.outros.find((item) => item.id === outroId) : undefined;
+      const slot = outro
+        ? { numero: outro.numero, referencia: outro.referencia }
+        : activeMatrix(stateNow.stations[stationKey(machine, station)], side);
+      const numero = numeroLimpo(slot?.numero ?? "");
+      const referencia = numero ? referenciaLimpa(slot?.referencia ?? "") : "";
+      const novas: Entry[] = [];
+      for (const [problem, quantidade] of faltas) {
+        for (let i = 0; i < quantidade; i += 1) {
+          novas.push({
+            id: crypto.randomUUID(),
+            date: dia,
+            turno,
+            machine,
+            station: outro ? outro.station || station : station,
+            side: outro && !outro.ambos ? outro.side : side,
+            problem,
+            at: at + i,
+            matrizNumero: numero,
+            matrizRel: referencia,
+            autor: "",
+            outroId,
+            corId: "",
+            corNome: "",
+          });
+        }
+      }
+      return { ...stateNow, turno, date: dia, entries: [...stateNow.entries.filter((entry) => !drop.has(entry.id)), ...novas] };
+    });
+    if (travou) flash("Parte ficou bloqueada. O resto foi salvo.");
+    else flash("Perdas salvas.");
+    return true;
+  }
+
   function addProblem(machine: MachineId, station: number, side: Side, problem: string, outroId = "", corId = "") {
     const current = read();
     if (!current) return;
@@ -1252,6 +1371,7 @@ export function EstratificacaoApp() {
 
   const header = headerFor(screen);
   const telaFixa = screen.kind === "hub" || screen.kind === "modelo" || screen.kind === "papel";
+  const telaProblemas = screen.kind === "problems";
 
   return (
     <div className="relative flex h-dvh flex-col bg-bg text-fg">
@@ -1337,13 +1457,14 @@ export function EstratificacaoApp() {
         </div>
       ) : null}
 
-      <div ref={scroller} className={cx("min-h-0 flex-1 overflow-x-hidden", telaFixa ? "overflow-hidden" : "overflow-y-auto")}>
+      <div ref={scroller} className={cx("min-h-0 flex-1 overflow-x-hidden", telaFixa || telaProblemas ? "overflow-hidden" : "overflow-y-auto")}>
         <div
           key={key}
           className={cx(
             "mx-auto w-full min-w-0",
-            telaFixa ? "flex h-full items-center justify-center px-6" : "px-4 py-4",
+            telaFixa ? "flex h-full items-center justify-center px-6" : telaProblemas ? "flex h-full min-h-0 flex-col px-4 py-3" : "px-4 py-4",
             !telaFixa &&
+              !telaProblemas &&
               (screen.kind === "producao" || screen.kind === "matrices" || screen.kind === "outros"
                 ? "pb-4"
                 : "pb-28"),
@@ -1462,14 +1583,11 @@ export function EstratificacaoApp() {
               station={screen.station}
               side={screen.side}
               offDay={offDay}
-              autor=""
-              onAdd={(problem) =>
-                addProblem(screen.machine, screen.station, screen.side, problem, screen.outroId ?? "")
-              }
-              onRemove={(problem, quantidade) =>
-                removeCount(screen.machine, screen.station, screen.side, problem, screen.outroId ?? "", quantidade)
-              }
               outroId={screen.outroId ?? ""}
+              bloqueioRef={bloqueioRef}
+              onDescartar={confirmarSaida}
+              onFicar={ficarNaTela}
+              onSave={(alvos) => salvarContagens(screen.machine, screen.station, screen.side, screen.outroId ?? "", alvos)}
             />
           ) : null}
 
@@ -2418,92 +2536,130 @@ function ProblemsScreen({
   station,
   side,
   offDay,
-  autor,
-  onAdd,
-  onRemove,
+  onSave,
   outroId = "",
-  corId = "",
+  bloqueioRef,
+  onDescartar,
+  onFicar,
 }: {
   state: State;
   machine: MachineId;
   station: number;
   side: Side;
   offDay: boolean;
-  autor: string;
-  onAdd: (problem: string) => void;
-  onRemove: (problem: string, quantidade: number) => void;
+  onSave: (alvos: Record<string, number>) => boolean;
   outroId?: string;
-  corId?: string;
+  bloqueioRef: MutableRefObject<(() => void) | null>;
+  onDescartar: () => void;
+  onFicar: () => void;
 }) {
   const outro = state.outros.find((item) => item.id === outroId);
-  const cor = state.cores.find((item) => item.id === corId);
-  const config = cor?.grades[String(station)] ?? state.stations[stationKey(machine, station)];
-  const primeira = coresDaMaquina(state, machine)[0];
-  const matrix = outro
-    ? [outro.numero, outro.referencia].filter(Boolean).join(" · ")
-    : describeMatrix(config, side);
-  const mine = autor.trim().toLocaleLowerCase("pt-BR");
+  const config = state.stations[stationKey(machine, station)];
+  const matrix = outro ? [outro.numero, outro.referencia].filter(Boolean).join(" · ") : describeMatrix(config, side);
   const rows = shiftEntries(state, machine).filter((entry) => {
-    if (outroId) {
-      if (entry.outroId !== outroId || entry.side !== side) return false;
-    } else if (entry.outroId || entry.station !== station || entry.side !== side) {
-      return false;
-    } else if (corId && entry.corId !== corId && (entry.corId !== "" || corId !== primeira?.id)) {
-      return false;
-    }
-    if (!mine) return true;
-    const who = entry.autor.trim().toLocaleLowerCase("pt-BR");
-    return who === mine || who === "";
+    if (outroId) return entry.outroId === outroId && entry.side === side;
+    return !entry.outroId && entry.station === station && entry.side === side;
   });
   const counts = new Map<string, number>();
   for (const entry of rows) counts.set(entry.problem, (counts.get(entry.problem) ?? 0) + 1);
+  const base = PROBLEMS.map((problem) => `${problem.id}:${counts.get(problem.id) ?? 0}`).join("|");
+  const [campos, setCampos] = useState<Record<string, Campo>>(() => camposDasContagens(counts));
+  const [foco, setFoco] = useState<string | null>(null);
+  const [aviso, setAviso] = useState(false);
+  const sujo = PROBLEMS.some((problem) => Number(campos[problem.id]?.texto ?? 0) !== (counts.get(problem.id) ?? 0));
+
+  useEffect(() => {
+    if (sujo) return;
+    setCampos(camposDasContagens(counts));
+  }, [base]);
+
+  useEffect(() => {
+    bloqueioRef.current = sujo && !offDay ? () => setAviso(true) : null;
+    return () => {
+      bloqueioRef.current = null;
+    };
+  }, [sujo, offDay, bloqueioRef]);
+
+  function salvar() {
+    if (offDay) return;
+    const alvos: Record<string, number> = {};
+    for (const problem of PROBLEMS) alvos[problem.id] = Number(campos[problem.id]?.texto) || 0;
+    if (!onSave(alvos)) return;
+    setFoco(null);
+  }
 
   return (
-    <div>
-      <ContextLine state={state} offDay={offDay} />
-      {offDay ? (
-        <p className="mt-2 text-sm font-semibold text-accent">Dia fechado.</p>
-      ) : null}
-      {matrix ? <p className="mt-2 text-base font-semibold">{matrix}</p> : null}
-      <p className="mt-1 text-sm text-muted">Cada mais lança uma sola.</p>
-      <div className="mt-3 grid gap-2">
-        {PROBLEMS.map((problem) => {
-          const count = counts.get(problem.id) ?? 0;
-          return (
-            <div key={problem.id} className="flex items-center gap-2 rounded-tile border border-line bg-surface px-2 py-2">
-              <p className="min-w-0 flex-1 text-sm font-semibold leading-snug">{problem.name}</p>
-              <button
-                type="button"
-                disabled={offDay || count === 0}
-                aria-label={`Diminuir ${problem.name}`}
-                onClick={() => onRemove(problem.id, 1)}
-                className="grid size-12 shrink-0 place-items-center rounded-tile bg-surface-2 text-fg active:scale-95 motion-reduce:active:scale-100 disabled:opacity-30"
-              >
-                <Minus className="size-6" />
-              </button>
-              <p
-                className={cx(
-                  "w-10 shrink-0 text-center font-display text-3xl leading-none tabular-nums",
-                  count > 0 ? "text-accent" : "text-muted",
-                )}
-              >
-                {count}
-              </p>
-              <button
-                type="button"
-                disabled={offDay}
-                aria-label={`Lançar ${problem.name}`}
-                onClick={() => onAdd(problem.id)}
-                className="grid h-12 w-16 shrink-0 place-items-center rounded-tile bg-accent text-accent-ink transition-transform duration-150 ease-out active:scale-95 motion-reduce:transition-none motion-reduce:active:scale-100 disabled:opacity-30"
-              >
-                <Plus className="size-7" />
-              </button>
-            </div>
-          );
-        })}
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="shrink-0">
+        <ContextLine state={state} offDay={offDay} />
+        {offDay ? <p className="mt-2 text-sm font-semibold text-accent">Dia fechado.</p> : null}
+        {matrix ? <p className="mt-2 text-base font-semibold">{matrix}</p> : null}
+        <p className="mt-1 text-sm text-muted">Digite o total de solas. + soma e – tira. Só grava em Salvar.</p>
       </div>
+      <div className="mt-3 min-h-0 flex-1 overflow-y-auto">
+        <div className="grid gap-2 pr-1">
+          {PROBLEMS.map((problem) => {
+            const campo = campos[problem.id] ?? campoInicial(counts.get(problem.id) ?? 0);
+            const ativo = foco === problem.id;
+            return (
+              <div key={problem.id} className="flex items-center gap-2 rounded-tile border border-line bg-surface px-3 py-2">
+                <p className="min-w-0 flex-1 text-sm font-semibold leading-snug">{problem.name}</p>
+                <button
+                  type="button"
+                  disabled={offDay}
+                  onClick={() => setFoco(problem.id)}
+                  className={cx(
+                    "grid h-12 w-16 shrink-0 place-items-center rounded-xl border font-display text-2xl leading-none tabular-nums",
+                    ativo ? "border-accent bg-accent-soft text-accent" : "border-line bg-[#f7f9fd]",
+                  )}
+                >
+                  {campo.texto}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div className="shrink-0 bg-bg pt-2">
+        {foco && !offDay ? (
+          <>
+            <p className="mb-2 text-center text-sm font-semibold text-muted">{dicaDoCampo(campos[foco])}</p>
+            <Teclado
+              modo="conta"
+              onTecla={(tecla) => setCampos((atual) => ({ ...atual, [foco]: teclaConta(atual[foco] ?? campoInicial(0), tecla) }))}
+            />
+          </>
+        ) : null}
+        <button
+          type="button"
+          disabled={offDay}
+          onClick={salvar}
+          className="mt-2 w-full rounded-2xl bg-accent py-4 font-display text-3xl leading-none text-accent-ink disabled:opacity-50"
+        >
+          Salvar
+        </button>
+      </div>
+      {aviso ? (
+        <AvisoSair
+          onFicar={() => {
+            setAviso(false);
+            onFicar();
+          }}
+          onSair={() => {
+            setAviso(false);
+            bloqueioRef.current = null;
+            onDescartar();
+          }}
+        />
+      ) : null}
     </div>
   );
+}
+
+function camposDasContagens(counts: Map<string, number>): Record<string, Campo> {
+  const campos: Record<string, Campo> = {};
+  for (const problem of PROBLEMS) campos[problem.id] = campoInicial(counts.get(problem.id) ?? 0);
+  return campos;
 }
 
 function AskScreen({
@@ -2709,10 +2865,54 @@ function NumberPair({
   onNumero: (value: string) => void;
   onReferencia: (value: string) => void;
 }) {
+  const [aberto, setAberto] = useState(false);
+  useEffect(() => {
+    if (!aberto) return;
+    const fechar = () => setAberto(false);
+    window.addEventListener("teclado-matriz", fechar);
+    return () => window.removeEventListener("teclado-matriz", fechar);
+  }, [aberto]);
+  function abrir() {
+    window.dispatchEvent(new Event("teclado-matriz"));
+    setAberto(true);
+  }
   return (
     <div className="grid grid-cols-2 gap-2">
-      <Field label="Numeração" value={numero} placeholder="39/0" onChange={onNumero} />
-      <Field label="Referência" value={referencia} placeholder="1" onChange={(valor) => onReferencia(referenciaLimpa(valor))} />
+      <label className="block">
+        <span className="mb-1 block text-sm font-semibold text-muted">Numeração</span>
+        <input
+          readOnly
+          inputMode="none"
+          value={numero}
+          placeholder="39/0"
+          onClick={abrir}
+          onFocus={abrir}
+          className="w-full rounded-tile border border-line bg-surface-2 px-3 py-3 text-base text-fg"
+        />
+      </label>
+      <label className="block">
+        <span className="mb-1 block text-sm font-semibold text-muted">Referência</span>
+        <input
+          value={referencia}
+          placeholder="Ex: 1"
+          maxLength={32}
+          autoComplete="off"
+          onChange={(event) => onReferencia(referenciaLimpa(event.target.value))}
+          className="w-full rounded-tile border border-line bg-surface-2 px-3 py-3 text-base text-fg placeholder:text-[#9aa8b8]"
+        />
+      </label>
+      {aberto ? (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-bg px-4 py-3">
+          <Teclado modo="matriz" onTecla={(tecla) => onNumero(teclaTexto(numero, tecla))} />
+          <button
+            type="button"
+            onClick={() => setAberto(false)}
+            className="mt-2 w-full rounded-2xl bg-accent py-3 font-semibold text-accent-ink"
+          >
+            Pronto
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
