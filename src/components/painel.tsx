@@ -279,7 +279,7 @@ export function SheetScreen({
     setEscolherFoto(false);
     setBusy("foto");
     try {
-      const { downloadBlob, renderFichasDaMaquina } = await import("@/lib/ficha-image");
+      const { entregarArquivos, renderFichasDaMaquina } = await import("@/lib/ficha-image");
       const files: { name: string; blob: Blob }[] = [];
       for (const item of machines) {
         const grupos = await renderFichasDaMaquina(view, item);
@@ -292,10 +292,7 @@ export function SheetScreen({
         onNotice("Nenhuma ficha neste turno.");
         return;
       }
-      files.forEach((file, index) => {
-        window.setTimeout(() => downloadBlob(file.name, file.blob), index * 400);
-      });
-      onNotice(files.length === 1 ? "Imagem baixada." : `${files.length} imagens baixadas.`);
+      await entregarArquivos(files);
     } catch {
       onNotice("Não foi possível gerar as imagens.");
     } finally {
@@ -1448,6 +1445,7 @@ function RankingDoDia({
   const [gerando, setGerando] = useState(false);
   const [aviso, setAviso] = useState("");
   const [molde, setMolde] = useState<{ machine: MachineId; numero: string; referencia: string } | null>(null);
+  const toque = useToque();
   const maquinas = montarRanking(entries);
   const faixa = turno === "1" ? "#2a2a2a" : turno === "2" ? "#1f5f99" : turno === "3" ? "#9b2c2c" : "#1d7a45";
 
@@ -1459,7 +1457,7 @@ function RankingDoDia({
     setGerando(true);
     setAviso("");
     try {
-      const { downloadBlob, renderRankingPng } = await import("@/lib/ficha-image");
+      const { entregarArquivos, renderRankingPng } = await import("@/lib/ficha-image");
       const blob = await renderRankingPng({
         data: formatDateBR(data),
         periodo: periodoNome,
@@ -1476,7 +1474,7 @@ function RankingDoDia({
           motivos: fraseMotivos(item.motivos),
         })),
       });
-      downloadBlob(`ranking-${data}-${turno}.png`, blob);
+      await entregarArquivos([{ name: `ranking-${data}-${turno}.png`, blob }]);
     } catch {
       setAviso("Não foi possível gerar a imagem.");
     } finally {
@@ -1499,7 +1497,7 @@ function RankingDoDia({
           className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-semibold shadow-[0_6px_16px_rgba(47,84,150,0.08)] disabled:opacity-50"
         >
           <ImageDown className="size-4" />
-          {gerando ? "Gerando…" : "Baixar imagem"}
+          {gerando ? "Gerando…" : toque ? "Enviar imagem" : "Baixar imagem"}
         </button>
       </div>
       <div>
@@ -2420,6 +2418,7 @@ function PainelMesa({
   const [estacao, setEstacao] = useState<number | null>(null);
   const [numero, setNumero] = useState<string | null>(null);
   const [pedirExclusao, setPedirExclusao] = useState(false);
+  const toque = useToque();
   const recorte = foco && shown.includes(foco) ? shown.filter((machine) => machine === foco) : shown;
   const baseLinhas = linhasDaMesa(state, recorte);
   const numerosMesa = [
@@ -2521,7 +2520,7 @@ function PainelMesa({
               onClick={onPhoto}
               className="rounded-full bg-white px-4 py-2 text-sm font-semibold shadow-[0_6px_16px_rgba(47,84,150,0.08)] disabled:opacity-50"
             >
-              {busy === "foto" ? "Gerando imagens…" : "Baixar imagens"}
+              {busy === "foto" ? "Gerando imagens…" : toque ? "Enviar imagens" : "Baixar imagens"}
             </button>
           </div>
         </div>
@@ -3049,6 +3048,10 @@ function CorrigirProducao({
   const [novo, setNovo] = useState("");
   const numeros = numerosCorrecao(state, machine, date, turno, extras);
   const [valores, setValores] = useState<Record<string, string>>({});
+  const toque = useToque();
+  const [foco, setFoco] = useState<string | null>(null);
+  const [campo, setCampo] = useState<Campo>(campoInicial(0));
+  const sessao = useRef<{ id: string; valor: string } | null>(null);
 
   useEffect(() => {
     let vivo = true;
@@ -3078,6 +3081,29 @@ function CorrigirProducao({
       vivo = false;
     };
   }, [date, turno, machine]);
+
+  function abrirNumero(numero: string) {
+    if (!toque) return;
+    const valor = valores[numero] ?? "";
+    sessao.current = { id: numero, valor };
+    setCampo(campoInicial(Number(valor) || 0));
+    setFoco(numero);
+  }
+
+  function fecharTeclado() {
+    const aberta = sessao.current;
+    if (aberta) setValores((atual) => ({ ...atual, [aberta.id]: aberta.valor }));
+    sessao.current = null;
+    setFoco(null);
+  }
+
+  function confirmarNumero() {
+    if (!foco) return;
+    const gravado = teclaConta(campo, "ok");
+    setValores((atual) => ({ ...atual, [foco]: gravado.texto }));
+    sessao.current = null;
+    setFoco(null);
+  }
 
   function acrescentar() {
     const limpo = numeroLimpo(novo);
@@ -3112,17 +3138,30 @@ function CorrigirProducao({
             {numeros.map((numero) => (
               <label key={numero} className="rounded-2xl border border-[#d5dee8] bg-[#f7f9fc] p-3 text-center">
                 <span className="font-display text-2xl leading-none">{numero}</span>
-                <input
-                  inputMode="numeric"
-                  value={valores[numero] ?? ""}
-                  aria-label={`Pares de ${numero}`}
-                  placeholder="0"
-                  onChange={(event) => {
-                    const limpo = event.target.value.replace(/\D/g, "").slice(0, 6);
-                    setValores((atual) => ({ ...atual, [numero]: limpo }));
-                  }}
-                  className="mt-2 w-full rounded-xl border border-[#d5dee8] bg-white px-2 py-2 text-center font-display text-2xl leading-none tabular-nums outline-none"
-                />
+                {toque ? (
+                  <button
+                    type="button"
+                    onClick={() => abrirNumero(numero)}
+                    className={cx(
+                      "mt-2 w-full rounded-xl border bg-white px-2 py-2 text-center font-display text-2xl leading-none tabular-nums",
+                      foco === numero ? "border-[#2457b8] text-[#2457b8]" : "border-[#d5dee8]",
+                    )}
+                  >
+                    {foco === numero ? campo.texto : valores[numero] || "0"}
+                  </button>
+                ) : (
+                  <input
+                    inputMode="numeric"
+                    value={valores[numero] ?? ""}
+                    aria-label={`Pares de ${numero}`}
+                    placeholder="0"
+                    onChange={(event) => {
+                      const limpo = event.target.value.replace(/\D/g, "").slice(0, 6);
+                      setValores((atual) => ({ ...atual, [numero]: limpo }));
+                    }}
+                    className="mt-2 w-full rounded-xl border border-[#d5dee8] bg-white px-2 py-2 text-center font-display text-2xl leading-none tabular-nums outline-none"
+                  />
+                )}
               </label>
             ))}
           </div>
@@ -3139,22 +3178,34 @@ function CorrigirProducao({
             Incluir
           </button>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            const gravar: Record<string, number> = {};
-            for (const numero of numeros) {
-              const texto = valores[numero];
-              if (texto === undefined || texto === "") continue;
-              gravar[numero] = Number(texto) || 0;
-            }
-            onSave(date, turno, machine, gravar);
-          }}
-          className="mt-4 w-full rounded-2xl bg-[#2457b8] py-3 text-sm font-semibold text-white"
-        >
-          Salvar produção
-        </button>
+        {!(toque && foco) ? (
+          <button
+            type="button"
+            onClick={() => {
+              const gravar: Record<string, number> = {};
+              for (const numero of numeros) {
+                const texto = valores[numero];
+                if (texto === undefined || texto === "") continue;
+                gravar[numero] = Number(texto) || 0;
+              }
+              onSave(date, turno, machine, gravar);
+            }}
+            className="mt-4 w-full rounded-2xl bg-[#2457b8] py-3 text-sm font-semibold text-white"
+          >
+            Salvar produção
+          </button>
+        ) : null}
       </div>
+      {toque && foco ? (
+        <div className="fixed inset-x-0 bottom-0 z-[60] px-3 pb-3">
+          <Teclado
+            modo="conta"
+            onTecla={(tecla) => setCampo((atual) => teclaConta(atual, tecla))}
+            onFechar={fecharTeclado}
+            onConfirmar={confirmarNumero}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -3399,6 +3450,7 @@ function AcompanhamentoDiario({
   const [painel, setPainel] = useState<{ machine: MachineId; tipo: "apontamentos" | "matrizaria" } | null>(null);
   const [pedir, setPedir] = useState(false);
   const [edicao, setEdicao] = useState<{ machine: MachineId; passo: "escolha" | "producao" | "perdas" } | null>(null);
+  const toque = useToque();
   const visiveis = maquinasDoFiltro(state.modelos);
   const aberta = painel ? visiveis.find((machine) => machine === painel.machine) ?? null : null;
   const linhas = aberta ? fichaLines(state, aberta) : [];
@@ -3426,7 +3478,7 @@ function AcompanhamentoDiario({
           className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-semibold shadow-[0_6px_16px_rgba(47,84,150,0.08)] disabled:opacity-50"
         >
           <ImageDown className="size-4" />
-          {busy === "foto" ? "Gerando…" : "Baixar imagens"}
+          {busy === "foto" ? "Gerando…" : toque ? "Enviar imagens" : "Baixar imagens"}
         </button>
       </div>
       <DayControls state={state} today={today} offDay={offDay} teto={todayISO()} onDate={onDate} />

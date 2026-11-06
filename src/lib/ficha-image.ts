@@ -95,6 +95,27 @@ export function downloadBlob(filename: string, blob: Blob) {
   setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
+/** No celular abre o menu de enviar (WhatsApp etc.) e não grava na galeria. No computador baixa. */
+export async function entregarArquivos(arquivos: { name: string; blob: Blob }[]): Promise<"compartilhou" | "baixou" | "cancelou"> {
+  const files = arquivos.map((item) => new File([item.blob], item.name, { type: item.blob.type || "image/png" }));
+  const pode =
+    typeof navigator.share === "function" &&
+    typeof navigator.canShare === "function" &&
+    navigator.canShare({ files });
+  if (pode) {
+    try {
+      await navigator.share({ files, title: arquivos.length === 1 ? arquivos[0].name : "Imagens" });
+      return "compartilhou";
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return "cancelou";
+    }
+  }
+  arquivos.forEach((arquivo, index) => {
+    window.setTimeout(() => downloadBlob(arquivo.name, arquivo.blob), index * 400);
+  });
+  return "baixou";
+}
+
 export type RankingImagem = {
   data: string;
   periodo: string;

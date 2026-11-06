@@ -979,20 +979,19 @@ export function EstratificacaoApp() {
     const current = read();
     if (!current) return;
     try {
-      const { downloadBlob, renderFichasDaMaquina } = await import("@/lib/ficha-image");
+      const { entregarArquivos, renderFichasDaMaquina } = await import("@/lib/ficha-image");
       const grupos = await renderFichasDaMaquina(current, machine);
       if (grupos.length === 0) {
         flash("Nenhuma ficha nesta máquina.");
         return;
       }
       const base = `perdas-${current.date}-turno-${current.turno}`;
-      grupos.forEach((grupo, index) => {
-        const sufixo = grupo.nome
-          ? `-${grupo.nome.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "")}`
-          : "";
-        window.setTimeout(() => downloadBlob(`${base}-maquina-${machine}${sufixo}.png`, grupo.blob), index * 400);
-      });
-      flash(grupos.length === 1 ? "Imagem baixada." : `${grupos.length} imagens baixadas.`);
+      await entregarArquivos(
+        grupos.map((grupo) => {
+          const sufixo = grupo.nome ? `-${grupo.nome.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "")}` : "";
+          return { name: `${base}-maquina-${machine}${sufixo}.png`, blob: grupo.blob };
+        }),
+      );
     } catch {
       flash("Não foi possível gerar a imagem.");
     }
