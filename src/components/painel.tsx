@@ -12,6 +12,7 @@ import {
   STATIONS,
   describeMatrix,
   diaDoApontamento,
+  diaDeHoje,
   diasDaSemana,
   diasDoAno,
   diasDoMes,
@@ -25,9 +26,11 @@ import {
   pad2,
   parseMachine,
   podeAlterarApontamento,
+  problemName,
   referenciaLimpa,
   shiftEntries,
   stationKey,
+  todayISO,
   TURNO_LABEL,
   type Entry,
   type FichaLine,
@@ -43,7 +46,7 @@ import { pullEvolucaoMolde, pullHistorico } from "@/lib/apontamentos.functions";
 import { cx, pares, paresDasEntradas, percentualPerda, textoPercentual } from "@/components/comum";
 import { perdasPorEstacao, perdasPorMaquina, perdasPorProblema, separarEntradas, somarProducao } from "@/components/painel-calculo";
 
-type Papel = "preparador" | "lider" | "teste";
+type Papel = "preparador" | "lider";
 
 function TurnoPicker({ value, onChange }: { value: Turno; onChange: (turno: Turno) => void }) {
   return (
@@ -96,7 +99,18 @@ function celulasDoMes(ano: number, mes: number): Array<string | null> {
   return celulas;
 }
 
-function SeletorDia({ date, today, onDate }: { date: string; today: string; onDate: (date: string) => void }) {
+function SeletorDia({
+  date,
+  today,
+  teto,
+  onDate,
+}: {
+  date: string;
+  today: string;
+  teto?: string;
+  onDate: (date: string) => void;
+}) {
+  const limite = teto && teto > today ? teto : today;
   const [aberto, setAberto] = useState(false);
   const [ano, setAno] = useState(Number(date.slice(0, 4)));
   const [mes, setMes] = useState(Number(date.slice(5, 7)));
@@ -131,7 +145,7 @@ function SeletorDia({ date, today, onDate }: { date: string; today: string; onDa
         <button
           type="button"
           aria-label="Próximo dia"
-          disabled={date >= today}
+          disabled={date >= limite}
           onClick={() => onDate(moverDia(date, 1))}
           className="grid size-11 place-items-center rounded-xl text-[#1e3a5f] disabled:opacity-30"
         >
@@ -166,7 +180,7 @@ function SeletorDia({ date, today, onDate }: { date: string; today: string; onDa
                   <button
                     key={iso}
                     type="button"
-                    disabled={iso > today}
+                    disabled={iso > limite}
                     onClick={() => {
                       onDate(iso);
                       setAberto(false);
@@ -196,16 +210,18 @@ function SeletorDia({ date, today, onDate }: { date: string; today: string; onDa
 function DayControls({
   state,
   today,
+  teto,
   onDate,
 }: {
   state: State;
   today: string;
   offDay: boolean;
+  teto?: string;
   onDate: (date: string) => void;
 }) {
   return (
     <div className="mb-4 w-full max-w-md">
-      <SeletorDia date={state.date} today={today} onDate={onDate} />
+      <SeletorDia date={state.date} today={today} teto={teto} onDate={onDate} />
     </div>
   );
 }
@@ -220,6 +236,9 @@ export function SheetScreen({
   onDelete,
   onNotice,
   onModelo,
+  onCorrigirProducao,
+  onLancarPerda,
+  onApagarPerda,
 }: {
   state: State;
   today: string;
@@ -230,6 +249,9 @@ export function SheetScreen({
   onDelete?: (entries: Entry[]) => void;
   onNotice: (text: string) => void;
   onModelo: (machine: MaquinaPiso) => void;
+  onCorrigirProducao?: (date: string, machine: MachineId, turno: Turno, valores: Record<string, number>) => void;
+  onLancarPerda?: (sola: SolaCorrecao) => void;
+  onApagarPerda?: (id: string) => void;
 }) {
   const [busy, setBusy] = useState<"foto" | "pdf" | null>(null);
   const [abaLider, setAbaLider] = useState<"geral" | "diario">("geral");
@@ -298,7 +320,9 @@ export function SheetScreen({
             onDelete={onDelete}
             aba={abaLider}
             onAba={setAbaLider}
-            onModelo={onModelo}
+            onCorrigirProducao={onCorrigirProducao}
+            onLancarPerda={onLancarPerda}
+            onApagarPerda={onApagarPerda}
           />
         )
       ) : null}
@@ -496,6 +520,19 @@ function GrupoFiltro({ titulo, children }: { titulo: string; children: ReactNode
 }
 
 const FILTROS_KEY = "injecao-filtros-dash-v1";
+const RECORTE_KEY = "injecao-painel-recorte-v1";
+
+const RECORTE_PADRAO: {
+  resumo: RecorteBloco;
+  producao: RecorteBloco;
+  ranking: RecorteBloco;
+  grafico: RecorteBloco;
+} = {
+  resumo: { periodo: "mes", turno: null },
+  producao: { periodo: "mes", turno: null },
+  ranking: { periodo: "dia", turno: null },
+  grafico: { periodo: "mes", turno: null },
+};
 
 type FiltrosDash = {
   maquina: MachineId | null;
@@ -655,6 +692,32 @@ function FiltroBloco({
   );
 }
 
+function lerRecorte(value: unknown, fallback: RecorteBloco): RecorteBloco {
+  if (!value || typeof value !== "object") return fallback;
+  const item = value as { periodo?: unknown; turno?: unknown };
+  const periodo = item.periodo === "dia" || item.periodo === "semana" || item.periodo === "mes" || item.periodo === "ano" ? item.periodo : fallback.periodo;
+  const turno = item.turno === "1" || item.turno === "2" || item.turno === "3" ? item.turno : null;
+  return { periodo, turno };
+}
+
+function lerRecortes() {
+  try {
+    const raw = localStorage.getItem(RECORTE_KEY);
+    if (!raw) return RECORTE_PADRAO;
+    const data: unknown = JSON.parse(raw);
+    if (!data || typeof data !== "object") return RECORTE_PADRAO;
+    const item = data as Partial<typeof RECORTE_PADRAO>;
+    return {
+      resumo: lerRecorte(item.resumo, RECORTE_PADRAO.resumo),
+      producao: lerRecorte(item.producao, RECORTE_PADRAO.producao),
+      ranking: lerRecorte(item.ranking, RECORTE_PADRAO.ranking),
+      grafico: lerRecorte(item.grafico, RECORTE_PADRAO.grafico),
+    };
+  } catch {
+    return RECORTE_PADRAO;
+  }
+}
+
 function PainelHistorico({
   state,
   today,
@@ -671,6 +734,7 @@ function PainelHistorico({
   onModelo: (machine: MaquinaPiso) => void;
 }) {
   const salvos = lerFiltros();
+  const recortes = lerRecortes();
   const [remoto, setRemoto] = useState<Entry[] | null>(null);
   const [producaoRemota, setProducaoRemota] = useState<ProducaoPares[]>([]);
   const [carga, setCarga] = useState<"carregando" | "pronto" | "erro">("carregando");
@@ -681,10 +745,10 @@ function PainelHistorico({
   const [lado, setLado] = useState<Side | null>(salvos.lado);
   const [problema, setProblema] = useState<string | null>(salvos.problema);
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
-  const [resumoRecorte, setResumoRecorte] = useState<RecorteBloco>({ periodo: "mes", turno: null });
-  const [producaoRecorte, setProducaoRecorte] = useState<RecorteBloco>({ periodo: "mes", turno: null });
-  const [rankingRecorte, setRankingRecorte] = useState<RecorteBloco>({ periodo: "dia", turno: null });
-  const [graficoRecorte, setGraficoRecorte] = useState<RecorteBloco>({ periodo: "mes", turno: null });
+  const [resumoRecorte, setResumoRecorte] = useState<RecorteBloco>(recortes.resumo);
+  const [producaoRecorte, setProducaoRecorte] = useState<RecorteBloco>(recortes.producao);
+  const [rankingRecorte, setRankingRecorte] = useState<RecorteBloco>(recortes.ranking);
+  const [graficoRecorte, setGraficoRecorte] = useState<RecorteBloco>(recortes.grafico);
   const diasMes = diasDoMes(state.date);
   const querAno =
     resumoRecorte.periodo === "ano" ||
@@ -723,6 +787,17 @@ function PainelHistorico({
       /* o filtro continua só nesta tela */
     }
   }, [maquina, estacao, numero, referencia, lado, problema]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        RECORTE_KEY,
+        JSON.stringify({ resumo: resumoRecorte, producao: producaoRecorte, ranking: rankingRecorte, grafico: graficoRecorte }),
+      );
+    } catch {
+      /* o recorte continua só nesta tela */
+    }
+  }, [resumoRecorte, producaoRecorte, rankingRecorte, graficoRecorte]);
 
   const pronto = carga === "pronto";
   const base = useMemo(
@@ -857,6 +932,15 @@ function PainelHistorico({
     setProblema(null);
   }
 
+  function voltarPadrao() {
+    setResumoRecorte(RECORTE_PADRAO.resumo);
+    setProducaoRecorte(RECORTE_PADRAO.producao);
+    setRankingRecorte(RECORTE_PADRAO.ranking);
+    setGraficoRecorte(RECORTE_PADRAO.grafico);
+    limparFiltros();
+    onDate(diaDeHoje());
+  }
+
   const chips = resumoFiltro ? resumoFiltro.split(" · ") : [];
   const resumoLinhas = [
     { nome: "Dia", producao: totaisProducao["resumo-dia"] ?? 0, perdas: calculo.pares.dia[turnoResumo] },
@@ -866,7 +950,14 @@ function PainelHistorico({
 
   return (
     <div className="grid min-w-0 gap-4">
-      <SeletorDia date={state.date} today={today} onDate={onDate} />
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <SeletorDia date={state.date} today={today} teto={todayISO()} onDate={onDate} />
+        </div>
+        <button type="button" onClick={voltarPadrao} className="h-11 shrink-0 rounded-xl border border-[#d5dee8] bg-white px-3 text-sm font-semibold text-[#1e3a5f]">
+          Limpar filtros
+        </button>
+      </div>
       <BarraDash aba={aba} onAba={onAba}>
         <button
           type="button"
@@ -1475,6 +1566,21 @@ function RankingDoDia({
 const INICIO_LINHA = "2026-10-26";
 
 type PontoLinha = { id: string; rotulo: string; nome: string; pares: number };
+type MotivoDia = { nome: string; pares: number };
+type DiaMolde = { date: string; pares: number; motivos?: MotivoDia[] };
+
+function motivosDoDia(entries: Entry[]): MotivoDia[] {
+  const porProblema = new Map<string, Entry[]>();
+  for (const entry of entries) {
+    const lista = porProblema.get(entry.problem) ?? [];
+    lista.push(entry);
+    porProblema.set(entry.problem, lista);
+  }
+  return [...porProblema.entries()]
+    .map(([id, itens]) => ({ nome: problemName(id), pares: paresNoRecorte(itens) }))
+    .filter((item) => item.pares > 0)
+    .sort((a, b) => b.pares - a.pares || a.nome.localeCompare(b.nome, "pt-BR"));
+}
 
 function diasDesde(desde: string, ate: string): string[] {
   if (!desde || !ate || ate < desde) return [];
@@ -1496,7 +1602,7 @@ function mesmoMolde(entry: Entry, machine: MachineId, numero: string, referencia
 }
 
 function serieDiaria(
-  dias: { date: string; pares: number }[],
+  dias: DiaMolde[],
   historico: Entry[],
   machine: MachineId,
   numero: string,
@@ -1605,7 +1711,7 @@ function EvolucaoMolde({
   problema: string | null;
   onClose: () => void;
 }) {
-  const [remoto, setRemoto] = useState<{ date: string; pares: number }[] | null>(null);
+  const [remoto, setRemoto] = useState<DiaMolde[] | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [falha, setFalha] = useState(false);
   const [ativo, setAtivo] = useState<string | null>(null);
@@ -1645,6 +1751,13 @@ function EvolucaoMolde({
   const pontos = serieDiaria(remoto ?? [], historico, machine, numero, referencia, turno, ate);
   const leitura = leituraLinha(pontos);
   const escolhido = pontos.find((ponto) => ponto.id === ativo) ?? pontos[pontos.length - 1];
+  const inicioMes = diasDoMes(ate)[0] ?? ate;
+  const motivos =
+    escolhido && escolhido.id >= inicioMes
+      ? motivosDoDia(
+          historico.filter((entry) => entry.date === escolhido.id && mesmoMolde(entry, machine, numero, referencia, turno)),
+        )
+      : (remoto?.find((item) => item.date === escolhido?.id)?.motivos ?? []);
 
   return (
     <div
@@ -1678,9 +1791,27 @@ function EvolucaoMolde({
               <GraficoLinha pontos={pontos} ativo={escolhido?.id ?? null} onAtivo={setAtivo} />
             </div>
             {escolhido ? (
-              <p className="mt-1 text-sm font-semibold">
-                {escolhido.nome}: {escolhido.pares} {escolhido.pares === 1 ? "par" : "pares"}
-              </p>
+              <div className="mt-3 rounded-2xl border border-[#d5dee8] bg-[#f7f9fc] p-3">
+                <p className="text-sm font-semibold">{escolhido.nome}</p>
+                <p className="mt-1 font-display text-3xl leading-none tabular-nums">
+                  {escolhido.pares} {escolhido.pares === 1 ? "par" : "pares"}
+                </p>
+                <p className="mt-3 text-xs font-bold uppercase tracking-wide text-[#1e3a5f]">Perdas deste número</p>
+                {motivos.length === 0 ? (
+                  <p className="mt-1 text-sm text-muted">Sem perda neste dia.</p>
+                ) : (
+                  <ol className="mt-2 grid gap-1">
+                    {motivos.map((item) => (
+                      <li key={item.nome} className="flex items-baseline justify-between gap-3 text-sm">
+                        <span className="font-semibold">{item.nome}</span>
+                        <span className="shrink-0 tabular-nums">
+                          {item.pares} {item.pares === 1 ? "par" : "pares"}
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </div>
             ) : null}
             {leitura ? (
               <p
@@ -2768,6 +2899,279 @@ function GradeSomenteLeitura({ state, machine }: { state: State; machine: Machin
   );
 }
 
+function numerosCorrecao(state: State, machine: MachineId, date: string, turno: Turno, extras: string[]) {
+  const vistos = new Set<string>();
+  const lista: string[] = [];
+  function incluir(numero: string) {
+    const limpo = numeroLimpo(numero);
+    if (!limpo || vistos.has(limpo)) return;
+    vistos.add(limpo);
+    lista.push(limpo);
+  }
+  for (const station of STATIONS) {
+    const config = state.stations[stationKey(machine, station)];
+    if (!config) continue;
+    if (config.ambos) incluir(config.numero);
+    else {
+      incluir(config.esq.numero);
+      incluir(config.dir.numero);
+    }
+  }
+  for (const outro of state.outros) {
+    if (!outroVivo(outro) || outro.machine !== machine || outro.date !== date || outro.turno !== turno) continue;
+    incluir(outro.numero);
+  }
+  for (const item of state.producao ?? []) {
+    if (diaDoApontamento(item) === date && item.turno === turno && item.machine === machine) incluir(item.numero);
+  }
+  for (const extra of extras) incluir(extra);
+  return lista.sort((a, b) => a.localeCompare(b, "pt-BR", { numeric: true }));
+}
+
+function CorrigirProducao({
+  state,
+  date,
+  turno,
+  machine,
+  onClose,
+  onSave,
+}: {
+  state: State;
+  date: string;
+  turno: Turno;
+  machine: MachineId;
+  onClose: () => void;
+  onSave: (date: string, turno: Turno, machine: MachineId, valores: Record<string, number>) => void;
+}) {
+  const [extras, setExtras] = useState<string[]>([]);
+  const [novo, setNovo] = useState("");
+  const numeros = numerosCorrecao(state, machine, date, turno, extras);
+  const [valores, setValores] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let vivo = true;
+    const local: Record<string, string> = {};
+    for (const item of state.producao ?? []) {
+      if (diaDoApontamento(item) !== date || item.turno !== turno || item.machine !== machine || item.pares <= 0) continue;
+      local[numeroLimpo(item.numero)] = String(item.pares);
+    }
+    setValores(local);
+    void pullHistorico({ data: { desde: date, ate: date } })
+      .then((resultado) => {
+        if (!vivo) return;
+        setValores((atual) => {
+          const proximo = { ...atual };
+          for (const item of resultado.producao ?? []) {
+            if (diaDoApontamento(item) !== date || item.turno !== turno || item.machine !== machine || item.pares <= 0) continue;
+            const numero = numeroLimpo(item.numero);
+            if (!proximo[numero]) proximo[numero] = String(item.pares);
+          }
+          return proximo;
+        });
+      })
+      .catch(() => {
+        /* o que já está neste celular continua editável */
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [date, turno, machine]);
+
+  function acrescentar() {
+    const limpo = numeroLimpo(novo);
+    if (!limpo) return;
+    setExtras((atual) => (atual.includes(limpo) ? atual : [...atual, limpo]));
+    setNovo("");
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div className="max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-3xl bg-white p-4 shadow-xl">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-base font-semibold">Produção · {machine}</h3>
+            <p className="text-sm text-muted">
+              {formatDateBR(date)} · {TURNO_LABEL[turno]}. Campo vazio não altera. Zero zera.
+            </p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Fechar" className="grid size-10 place-items-center rounded-xl text-[#1e3a5f]">
+            <X className="size-5" />
+          </button>
+        </div>
+        {numeros.length === 0 ? (
+          <p className="mt-3 text-sm text-muted">Nenhum número nesta máquina. Acrescente o do relatório.</p>
+        ) : (
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {numeros.map((numero) => (
+              <label key={numero} className="rounded-2xl border border-[#d5dee8] bg-[#f7f9fc] p-3 text-center">
+                <span className="font-display text-2xl leading-none">{numero}</span>
+                <input
+                  inputMode="numeric"
+                  value={valores[numero] ?? ""}
+                  aria-label={`Pares de ${numero}`}
+                  placeholder="0"
+                  onChange={(event) => {
+                    const limpo = event.target.value.replace(/\D/g, "").slice(0, 6);
+                    setValores((atual) => ({ ...atual, [numero]: limpo }));
+                  }}
+                  className="mt-2 w-full rounded-xl border border-[#d5dee8] bg-white px-2 py-2 text-center font-display text-2xl leading-none tabular-nums outline-none"
+                />
+              </label>
+            ))}
+          </div>
+        )}
+        <div className="mt-3 flex gap-2">
+          <input
+            value={novo}
+            placeholder="Outro número"
+            maxLength={32}
+            onChange={(event) => setNovo(event.target.value)}
+            className="min-w-0 flex-1 rounded-xl border border-[#d5dee8] bg-[#f7f9fc] px-3 py-3 text-base"
+          />
+          <button type="button" onClick={acrescentar} className="rounded-xl bg-[#f3f6fb] px-3 text-sm font-semibold">
+            Incluir
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            const gravar: Record<string, number> = {};
+            for (const numero of numeros) {
+              const texto = valores[numero];
+              if (texto === undefined || texto === "") continue;
+              gravar[numero] = Number(texto) || 0;
+            }
+            onSave(date, turno, machine, gravar);
+          }}
+          className="mt-4 w-full rounded-2xl bg-[#2457b8] py-3 text-sm font-semibold text-white"
+        >
+          Salvar produção
+        </button>
+      </div>
+    </div>
+  );
+}
+
+type SolaCorrecao = {
+  date: string;
+  turno: Turno;
+  machine: MachineId;
+  station: number;
+  side: Side;
+  problem: string;
+  matrizNumero: string;
+  matrizRel: string;
+  outroId: string;
+  corId: string;
+  corNome: string;
+};
+
+function gruposDePerda(state: State, machine: MachineId) {
+  const grupos = new Map<string, { rotulo: string; detalhe: string; ids: string[]; amostra: SolaCorrecao }>();
+  for (const entry of shiftEntries(state, machine)) {
+    const chave = `${entry.station}|${entry.side}|${entry.problem}|${entry.matrizNumero}|${entry.matrizRel}|${entry.outroId}`;
+    const atual = grupos.get(chave);
+    if (atual) {
+      atual.ids.push(entry.id);
+      continue;
+    }
+    const numero = numeroLimpo(entry.matrizNumero);
+    grupos.set(chave, {
+      rotulo: problemName(entry.problem),
+      detalhe: [`Est. ${pad2(entry.station)}`, SIDE_SHORT[entry.side], numero || "sem nº"].join(" · "),
+      ids: [entry.id],
+      amostra: {
+        date: entry.date,
+        turno: entry.turno,
+        machine: entry.machine,
+        station: entry.station,
+        side: entry.side,
+        problem: entry.problem,
+        matrizNumero: entry.matrizNumero,
+        matrizRel: entry.matrizRel,
+        outroId: entry.outroId,
+        corId: entry.corId,
+        corNome: entry.corNome,
+      },
+    });
+  }
+  return [...grupos.values()].sort((a, b) => b.ids.length - a.ids.length || a.rotulo.localeCompare(b.rotulo, "pt-BR"));
+}
+
+function EditarPerdas({
+  state,
+  machine,
+  onClose,
+  onLancar,
+  onApagar,
+}: {
+  state: State;
+  machine: MachineId;
+  onClose: () => void;
+  onLancar: (sola: SolaCorrecao) => void;
+  onApagar: (id: string) => void;
+}) {
+  const grupos = gruposDePerda(state, machine);
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div className="max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-3xl bg-white p-4 shadow-xl">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-base font-semibold">Perdas · {machine}</h3>
+            <p className="text-sm text-muted">
+              {formatDateBR(state.date)} · {TURNO_LABEL[state.turno]}. Cada mais é uma sola.
+            </p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Fechar" className="grid size-10 place-items-center rounded-xl text-[#1e3a5f]">
+            <X className="size-5" />
+          </button>
+        </div>
+        {grupos.length === 0 ? (
+          <p className="mt-4 text-sm text-muted">Nenhuma perda nesta máquina neste turno.</p>
+        ) : (
+          <div className="mt-3 grid gap-2">
+            {grupos.map((grupo) => (
+              <div key={grupo.ids[0]} className="flex items-center gap-2 rounded-2xl border border-[#d5dee8] px-2 py-2">
+                <button
+                  type="button"
+                  aria-label={`Diminuir ${grupo.rotulo}`}
+                  onClick={() => onApagar(grupo.ids[grupo.ids.length - 1] ?? "")}
+                  className="grid size-11 shrink-0 place-items-center rounded-xl bg-[#f3f6fb] text-lg font-semibold"
+                >
+                  −
+                </button>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold">{grupo.rotulo}</p>
+                  <p className="truncate text-xs text-muted">{grupo.detalhe}</p>
+                </div>
+                <p className="w-8 text-center font-display text-2xl leading-none tabular-nums">{grupo.ids.length}</p>
+                <button
+                  type="button"
+                  aria-label={`Lançar ${grupo.rotulo}`}
+                  onClick={() => onLancar(grupo.amostra)}
+                  className="grid size-11 shrink-0 place-items-center rounded-xl bg-[#2457b8] text-lg font-semibold text-white"
+                >
+                  +
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AcompanhamentoDiario({
   state,
   today,
@@ -2780,7 +3184,9 @@ function AcompanhamentoDiario({
   onDelete,
   aba,
   onAba,
-  onModelo,
+  onCorrigirProducao,
+  onLancarPerda,
+  onApagarPerda,
 }: {
   state: State;
   today: string;
@@ -2793,16 +3199,23 @@ function AcompanhamentoDiario({
   onDelete?: (entries: Entry[]) => void;
   aba: "geral" | "diario";
   onAba: (aba: "geral" | "diario") => void;
-  onModelo: (machine: MaquinaPiso) => void;
+  onCorrigirProducao?: (date: string, machine: MachineId, turno: Turno, valores: Record<string, number>) => void;
+  onLancarPerda?: (sola: SolaCorrecao) => void;
+  onApagarPerda?: (id: string) => void;
 }) {
   const [painel, setPainel] = useState<{ machine: MachineId; tipo: "apontamentos" | "matrizaria" } | null>(null);
   const [pedir, setPedir] = useState(false);
-  const visiveis = MACHINES.filter((machine) => {
-    if (shown.includes(machine)) return true;
-    return (state.producao ?? []).some(
-      (item) => diaDoApontamento(item) === state.date && item.turno === state.turno && item.machine === machine && item.pares > 0,
-    );
-  });
+  const [edicao, setEdicao] = useState<{ machine: MachineId; passo: "escolha" | "producao" | "perdas" } | null>(null);
+  const visiveis = [
+    ...MAQUINAS_PISO,
+    ...MACHINES.filter((machine) => {
+      if ((MAQUINAS_PISO as readonly string[]).includes(machine)) return false;
+      if (shown.includes(machine)) return true;
+      return (state.producao ?? []).some(
+        (item) => diaDoApontamento(item) === state.date && item.turno === state.turno && item.machine === machine && item.pares > 0,
+      );
+    }),
+  ];
   const aberta = painel ? visiveis.find((machine) => machine === painel.machine) ?? null : null;
   const linhas = aberta ? fichaLines(state, aberta) : [];
   const estacoes = aberta ? estacoesDoDia(state, aberta, linhas).filter((item) => item.pares > 0) : [];
@@ -2817,7 +3230,6 @@ function AcompanhamentoDiario({
     <div className="grid min-w-0 gap-3">
       <BarraDash aba={aba} onAba={onAba}>
         <span className="text-sm font-semibold text-muted">{formatDateBR(state.date)}</span>
-        <ConfigModelos state={state} onToggle={onModelo} />
       </BarraDash>
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0 max-w-md flex-1">
@@ -2833,7 +3245,58 @@ function AcompanhamentoDiario({
           {busy === "foto" ? "Gerando…" : "Baixar imagens"}
         </button>
       </div>
-      <DayControls state={state} today={today} offDay={offDay} onDate={onDate} />
+      <DayControls state={state} today={today} offDay={offDay} teto={todayISO()} onDate={onDate} />
+      {edicao?.passo === "escolha" ? (
+        <div
+          className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setEdicao(null);
+          }}
+        >
+          <div className="w-full max-w-sm rounded-3xl bg-white p-5 shadow-xl">
+            <p className="text-center font-display text-3xl leading-none">{edicao.machine}</p>
+            <p className="mt-1 text-center text-sm text-muted">O que editar?</p>
+            <div className="mt-4 grid gap-2">
+              <button
+                type="button"
+                onClick={() => setEdicao({ machine: edicao.machine, passo: "producao" })}
+                className="rounded-2xl bg-[#2457b8] py-3 text-sm font-semibold text-white"
+              >
+                Produção
+              </button>
+              <button
+                type="button"
+                onClick={() => setEdicao({ machine: edicao.machine, passo: "perdas" })}
+                className="rounded-2xl bg-[#f3f6fb] py-3 text-sm font-semibold"
+              >
+                Perdas
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {edicao?.passo === "producao" && onCorrigirProducao ? (
+        <CorrigirProducao
+          state={state}
+          date={state.date}
+          turno={state.turno}
+          machine={edicao.machine}
+          onClose={() => setEdicao(null)}
+          onSave={(date, turno, machine, valores) => {
+            onCorrigirProducao(date, machine, turno, valores);
+            setEdicao(null);
+          }}
+        />
+      ) : null}
+      {edicao?.passo === "perdas" && onLancarPerda && onApagarPerda ? (
+        <EditarPerdas
+          state={state}
+          machine={edicao.machine}
+          onClose={() => setEdicao(null)}
+          onLancar={onLancarPerda}
+          onApagar={onApagarPerda}
+        />
+      ) : null}
       {visiveis.length === 0 ? (
         <p className="rounded-tile border border-dashed border-line bg-surface px-4 py-6 text-center text-base text-muted">
           Nenhuma máquina apontada neste turno.
@@ -2849,7 +3312,16 @@ function AcompanhamentoDiario({
             const piores = topProblems(linhasCard);
             return (
               <article key={machine} className="flex min-w-0 flex-col rounded-3xl bg-white p-3 shadow-[0_10px_30px_rgba(47,84,150,0.08)]">
-                <h3 className="text-center font-display text-3xl leading-none">{machine}</h3>
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="font-display text-3xl leading-none">{machine}</h3>
+                  <button
+                    type="button"
+                    onClick={() => setEdicao({ machine, passo: "escolha" })}
+                    className="rounded-xl border border-[#d5dee8] bg-[#f7f9fc] px-3 py-2 text-sm font-semibold text-[#1e3a5f]"
+                  >
+                    Editar
+                  </button>
+                </div>
                 <div className="mt-3 grid grid-cols-3 gap-1 text-center">
                   <div>
                     <p className="text-[11px] font-semibold text-muted">Produção</p>

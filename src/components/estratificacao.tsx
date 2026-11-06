@@ -56,7 +56,7 @@ import {
 } from "@/lib/perdas";
 import { enviarPlanilha, pullApontamentos, pushApontamentos } from "@/lib/apontamentos.functions";
 
-type Papel = "preparador" | "lider" | "teste";
+type Papel = "preparador" | "lider";
 const SheetScreen = lazy(() => import("@/components/painel").then((mod) => ({ default: mod.SheetScreen })));
 
 type Sessao = { papel: Papel; turno: Turno | null };
@@ -75,7 +75,7 @@ function loadSessao(): Sessao | null {
     const data: unknown = JSON.parse(raw);
     if (!data || typeof data !== "object") return null;
     const row = data as { papel?: unknown; turno?: unknown };
-    if (row.papel !== "preparador" && row.papel !== "lider" && row.papel !== "teste") return null;
+    if (row.papel !== "preparador" && row.papel !== "lider") return null;
     return { papel: row.papel, turno: turnoDaSessao(row.turno, row.papel) };
   } catch {
     return null;
@@ -106,9 +106,7 @@ type Screen =
   | { kind: "outros"; machine: MachineId }
   | { kind: "side"; machine: MachineId; station: number; outroId?: string; corId?: string }
   | { kind: "problems"; machine: MachineId; station: number; side: Side; outroId?: string; corId?: string }
-  | { kind: "sheet"; machine: MachineId | null }
-  | { kind: "teste" }
-  | { kind: "teste-maquina"; machine: MachineId };
+  | { kind: "sheet"; machine: MachineId | null };
 
 type Banner = {
   id: number;
@@ -194,27 +192,6 @@ function usePerdas() {
     });
     ref.current = loaded;
     setState(loaded);
-  }, []);
-
-  useEffect(() => {
-    function snapToToday() {
-      const today = diaDeHoje();
-      setState((current) => {
-        if (!current || current.date === today) return current;
-        const next = { ...current, date: today };
-        ref.current = next;
-        return next;
-      });
-    }
-    function onVisible() {
-      if (document.visibilityState === "visible") snapToToday();
-    }
-    document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("pageshow", snapToToday);
-    return () => {
-      document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("pageshow", snapToToday);
-    };
   }, []);
 
   useEffect(() => {
@@ -613,10 +590,6 @@ function screenKey(screen: Screen): string {
       return `problems-${screen.machine}-${screen.outroId || screen.station}-${screen.side}-${screen.corId ?? ""}`;
     case "sheet":
       return `sheet-${screen.machine ?? "all"}`;
-    case "teste":
-      return "teste";
-    case "teste-maquina":
-      return `teste-${screen.machine}`;
   }
 }
 
@@ -624,8 +597,7 @@ function machineFrom(screen: Screen): MachineId | null {
   if (
     screen.kind === "papel" ||
     screen.kind === "turnos" ||
-    screen.kind === "machines" ||
-    screen.kind === "teste"
+    screen.kind === "machines"
   ) {
     return null;
   }
@@ -699,9 +671,7 @@ export function EstratificacaoApp() {
         ? { kind: "machines" }
         : saved?.papel === "lider"
           ? { kind: "sheet", machine: null }
-          : saved?.papel === "teste"
-            ? { kind: "teste" }
-            : { kind: "papel" };
+          : { kind: "papel" };
     homeRef.current = home;
     stackRef.current = [home];
     setStack([home]);
@@ -710,6 +680,25 @@ export function EstratificacaoApp() {
     depthRef.current = 1;
     window.history.replaceState(stampDepth(1), "");
   }, []);
+
+  useEffect(() => {
+    if (!sessaoReady || !state || sessao?.papel === "lider") return;
+    function snapToToday() {
+      const turno = sessao?.papel === "preparador" ? (sessao.turno ?? "1") : turnoPeloRelogio();
+      const today = diaOperacional(turno);
+      commit((current) => (current.date === today ? current : { ...current, date: today }));
+    }
+    snapToToday();
+    function onVisible() {
+      if (document.visibilityState === "visible") snapToToday();
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("pageshow", snapToToday);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pageshow", snapToToday);
+    };
+  }, [sessaoReady, sessao?.papel, sessao?.turno, Boolean(state)]);
 
   useEffect(() => {
     if (sessao?.papel !== "preparador") return;
@@ -782,12 +771,7 @@ export function EstratificacaoApp() {
     if (next.papel === "preparador") {
       commit((current) => ({ ...current, turno: next.turno ?? "1" }));
     }
-    const home: Screen =
-      next.papel === "lider"
-        ? { kind: "sheet", machine: null }
-        : next.papel === "teste"
-          ? { kind: "teste" }
-          : { kind: "machines" };
+    const home: Screen = next.papel === "lider" ? { kind: "sheet", machine: null } : { kind: "machines" };
     homeRef.current = home;
     stackRef.current = [home];
     depthRef.current = 1;
@@ -844,7 +828,8 @@ export function EstratificacaoApp() {
 
   const papel = sessao?.papel ?? null;
 
-  const today = diaDeHoje();
+  const today =
+    sessao?.papel === "preparador" ? diaOperacional(sessao.turno ?? "1") : diaDeHoje();
   const offDay = state.date !== today;
 
   function setDate(date: string) {
@@ -865,10 +850,10 @@ export function EstratificacaoApp() {
     });
   }
 
-  function salvarProducao(machine: MachineId, turno: Turno, valores: Record<string, number>) {
+  function gravarProducao(date: string, machine: MachineId, turno: Turno, valores: Record<string, number>, aviso: string) {
     const salvoEm = Date.now();
     commit((current) => {
-      const prefixo = `${current.date}|${turno}|${machine}|`;
+      const prefixo = `${date}|${turno}|${machine}|`;
       const restantes = (current.producao ?? []).filter((item) => !item.id.startsWith(prefixo));
       const gravados: ProducaoPares[] = Object.entries(valores).flatMap(([numero, pares]) => {
         const limpo = numeroLimpo(numero);
@@ -876,7 +861,7 @@ export function EstratificacaoApp() {
         return [
           {
             id: `${prefixo}${limpo}`,
-            date: current.date,
+            date,
             turno,
             machine,
             numero: limpo,
@@ -887,7 +872,66 @@ export function EstratificacaoApp() {
       });
       return { ...current, producao: [...restantes, ...gravados] };
     });
-    flash("Produção salva.");
+    flash(aviso);
+  }
+
+  function salvarProducao(machine: MachineId, turno: Turno, valores: Record<string, number>) {
+    const atual = read();
+    if (!atual) return;
+    gravarProducao(atual.date, machine, turno, valores, "Produção salva.");
+  }
+
+  function corrigirProducao(date: string, machine: MachineId, turno: Turno, valores: Record<string, number>) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > todayISO()) return;
+    const salvoEm = Date.now();
+    commit((current) => {
+      const map = new Map((current.producao ?? []).map((item) => [item.id, item]));
+      for (const [numero, pares] of Object.entries(valores)) {
+        const limpo = numeroLimpo(numero);
+        if (!limpo) continue;
+        const id = `${date}|${turno}|${machine}|${limpo}`;
+        map.set(id, {
+          id,
+          date,
+          turno,
+          machine,
+          numero: limpo,
+          pares: Math.max(0, Math.floor(pares)),
+          salvoEm,
+        });
+      }
+      return { ...current, producao: [...map.values()] };
+    });
+    flash("Produção corrigida.");
+  }
+
+  function lancarCorrecao(sola: {
+    date: string;
+    turno: Turno;
+    machine: MachineId;
+    station: number;
+    side: Side;
+    problem: string;
+    matrizNumero: string;
+    matrizRel: string;
+    outroId: string;
+    corId: string;
+    corNome: string;
+  }) {
+    const entry: Entry = { ...sola, id: crypto.randomUUID(), at: Date.now(), autor: "" };
+    commit((current) => ({ ...current, entries: [...current.entries, entry] }));
+  }
+
+  function apagarCorrecao(id: string) {
+    const current = read();
+    const entry = current?.entries.find((item) => item.id === id);
+    if (!entry) return;
+    if (apontamentoBloqueado(entry)) {
+      flash("Turno bloqueado.");
+      return;
+    }
+    holdRemovals([entry]);
+    commit((s) => ({ ...s, entries: s.entries.filter((item) => item.id !== id) }));
   }
 
   async function baixarFicha(machine: MachineId) {
@@ -1228,7 +1272,7 @@ export function EstratificacaoApp() {
             {screen.kind === "sheet" ? (
               <>
                 <h1 className="font-display text-2xl leading-none tracking-wide text-accent lg:text-4xl">
-                  {papel === "lider" ? "Dashboard geral" : papel === "teste" ? "Página de teste" : "Lançamentos"}
+                  {papel === "lider" ? "Dashboard geral" : "Lançamentos"}
                 </h1>
               </>
             ) : (
@@ -1300,19 +1344,14 @@ export function EstratificacaoApp() {
             "mx-auto w-full min-w-0",
             telaFixa ? "flex h-full items-center justify-center px-6" : "px-4 py-4",
             !telaFixa &&
-              (screen.kind === "producao" || screen.kind === "teste-maquina" || screen.kind === "matrices" || screen.kind === "outros"
+              (screen.kind === "producao" || screen.kind === "matrices" || screen.kind === "outros"
                 ? "pb-4"
                 : "pb-28"),
             screen.kind === "sheet" ? "max-w-6xl lg:max-w-none lg:px-5 lg:py-3" : "max-w-6xl lg:px-8",
             dir === "forward" ? "enter-forward" : "enter-back",
           )}
         >
-          {screen.kind === "papel" ? (
-            <PortaScreen
-              onPick={chooseSessao}
-              onTeste={() => chooseSessao({ papel: "teste", turno: null })}
-            />
-          ) : null}
+          {screen.kind === "papel" ? <PortaScreen onPick={chooseSessao} /> : null}
 
           {papel === "preparador" && screen.kind === "machines" ? (
             <MachinesScreen state={state} onOpen={openMachine} />
@@ -1332,18 +1371,13 @@ export function EstratificacaoApp() {
             />
           ) : null}
 
-          {(papel === "preparador" && screen.kind === "producao") ||
-          (papel === "teste" && screen.kind === "teste-maquina") ? (
+          {papel === "preparador" && screen.kind === "producao" ? (
             <ProducaoScreen
               state={state}
               machine={screen.machine}
               turno={sessao?.turno ?? state.turno}
               onSave={(valores) => salvarProducao(screen.machine, sessao?.turno ?? state.turno, valores)}
             />
-          ) : null}
-
-          {papel === "teste" && screen.kind === "teste" ? (
-            <TesteMaquinas onOpen={(machine) => push({ kind: "teste-maquina", machine })} />
           ) : null}
 
           {papel === "preparador" && screen.kind === "ask" ? (
@@ -1456,6 +1490,9 @@ export function EstratificacaoApp() {
               }
               onNotice={(text) => flash(text)}
               onModelo={alternarModelo}
+              onCorrigirProducao={corrigirProducao}
+              onLancarPerda={lancarCorrecao}
+              onApagarPerda={apagarCorrecao}
             />
             </Suspense>
           ) : null}
@@ -1530,10 +1567,6 @@ function headerFor(screen: Screen): { context: string } {
       };
     case "sheet":
       return { context: "Lançamentos" };
-    case "teste":
-      return { context: "Página de teste" };
-    case "teste-maquina":
-      return { context: `Teste · ${screen.machine}` };
     case "papel":
       return { context: "" };
   }
@@ -1574,23 +1607,7 @@ function Field({
   );
 }
 
-function PortaScreen({
-  onPick,
-  onTeste,
-}: {
-  onPick: (sessao: Sessao) => void;
-  onTeste: () => void;
-}) {
-  const segurando = useRef<number | null>(null);
-  const segurou = useRef(false);
-
-  function soltar() {
-    if (segurando.current !== null) {
-      window.clearTimeout(segurando.current);
-      segurando.current = null;
-    }
-  }
-
+function PortaScreen({ onPick }: { onPick: (sessao: Sessao) => void }) {
   return (
     <div className="mx-auto flex w-full max-w-md flex-col justify-center gap-3">
       {(["1", "2", "3"] as const).map((turno) => (
@@ -1605,25 +1622,7 @@ function PortaScreen({
       ))}
       <button
         type="button"
-        onContextMenu={(event) => event.preventDefault()}
-        onPointerDown={() => {
-          segurou.current = false;
-          soltar();
-          segurando.current = window.setTimeout(() => {
-            segurando.current = null;
-            segurou.current = true;
-            onTeste();
-          }, 600);
-        }}
-        onPointerUp={soltar}
-        onPointerCancel={soltar}
-        onClick={() => {
-          if (segurou.current) {
-            segurou.current = false;
-            return;
-          }
-          onPick({ papel: "lider", turno: null });
-        }}
+        onClick={() => onPick({ papel: "lider", turno: null })}
         className="rounded-tile border border-line bg-surface py-5 font-display text-3xl leading-none text-fg"
       >
         Dashboard geral
@@ -1777,28 +1776,6 @@ function numerosProducao(state: State, machine: MachineId, date: string, turno: 
     incluir(numeroLimpo(outro.numero));
   }
   return lista.sort((a, b) => a.numero.localeCompare(b.numero, "pt-BR", { numeric: true }));
-}
-
-function TesteMaquinas({ onOpen }: { onOpen: (machine: MachineId) => void }) {
-  return (
-    <div>
-      <p className="mb-2 text-sm font-semibold text-accent">Página de teste</p>
-      <h2 className="font-display text-3xl leading-none">Qual máquina?</h2>
-      <div className="mx-auto mt-3 grid w-full max-w-md grid-cols-2 gap-3 md:grid-cols-3">
-        {MAQUINAS_PISO.map((machine) => (
-          <button
-            key={machine}
-            type="button"
-            onClick={() => onOpen(machine)}
-            className="flex min-h-32 flex-col rounded-tile border border-line bg-surface p-4 text-left"
-          >
-            <span className="text-sm font-semibold text-muted">Máquina</span>
-            <span className="mt-1 font-display text-4xl leading-none">{machine}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 function ProducaoScreen({
@@ -2488,42 +2465,41 @@ function ProblemsScreen({
         <p className="mt-2 text-sm font-semibold text-accent">Dia fechado.</p>
       ) : null}
       {matrix ? <p className="mt-2 text-base font-semibold">{matrix}</p> : null}
-      <div className="mt-4 grid gap-2 lg:grid-cols-2">
+      <p className="mt-1 text-sm text-muted">Cada mais lança uma sola.</p>
+      <div className="mt-3 grid gap-2">
         {PROBLEMS.map((problem) => {
           const count = counts.get(problem.id) ?? 0;
           return (
-            <div key={problem.id} className="rounded-tile border border-line bg-surface p-2">
-              <div className="flex items-center gap-2">
+            <div key={problem.id} className="flex items-center gap-2 rounded-tile border border-line bg-surface px-2 py-1.5">
               <button
                 type="button"
                 disabled={offDay || count === 0}
                 aria-label={`Diminuir ${problem.name}`}
                 onClick={() => onRemove(problem.id, 1)}
-                className="grid size-14 shrink-0 place-items-center rounded-tile bg-surface-2 touch-manipulation disabled:opacity-30"
+                className="grid size-12 shrink-0 place-items-center rounded-tile bg-surface-2 text-fg active:scale-95 motion-reduce:active:scale-100 disabled:opacity-30"
               >
                 <Minus className="size-6" />
               </button>
-              <div className="min-w-0 flex-1 px-1 text-center">
-                <p className="text-sm font-semibold leading-snug">{problem.name}</p>
-                <p
-                  className={cx(
-                    "mt-1 font-display text-4xl leading-none tabular-nums",
-                    count > 0 ? "text-accent" : "text-muted",
-                  )}
-                >
-                  {count}
-                </p>
-              </div>
+              <p className="min-w-0 flex-1 truncate text-base font-semibold" title={problem.name}>
+                {problem.short}
+              </p>
+              <p
+                className={cx(
+                  "w-12 shrink-0 text-center font-display text-3xl leading-none tabular-nums",
+                  count > 0 ? "text-accent" : "text-muted",
+                )}
+              >
+                {count}
+              </p>
               <button
                 type="button"
                 disabled={offDay}
                 aria-label={`Lançar ${problem.name}`}
                 onClick={() => onAdd(problem.id)}
-                className="grid size-14 shrink-0 place-items-center rounded-tile bg-accent text-accent-ink touch-manipulation disabled:opacity-30"
+                className="grid h-12 w-16 shrink-0 place-items-center rounded-tile bg-accent text-accent-ink transition-transform duration-150 ease-out active:scale-95 motion-reduce:transition-none motion-reduce:active:scale-100 disabled:opacity-30"
               >
                 <Plus className="size-7" />
               </button>
-              </div>
             </div>
           );
         })}
@@ -2585,9 +2561,34 @@ function MatrixGradeScreen({
   const [drafts, setDrafts] = useState<StationConfig[]>(() =>
     STATIONS.map((station) => grades?.[String(station)] ?? state.stations[stationKey(machine, station)] ?? emptyConfig()),
   );
+  const [falhas, setFalhas] = useState<string[]>([]);
 
   function patch(index: number, next: StationConfig) {
     setDrafts((current) => current.map((item, itemIndex) => (itemIndex === index ? next : item)));
+  }
+
+  function salvar() {
+    const avisos: string[] = [];
+    drafts.forEach((draft, index) => {
+      const estacao = `Estação ${pad2(index + 1)}`;
+      const pares = draft.ambos
+        ? [[estacao, draft.numero, draft.referencia] as const]
+        : [
+            [`${estacao}, esquerda`, draft.esq.numero, draft.esq.referencia] as const,
+            [`${estacao}, direita`, draft.dir.numero, draft.dir.referencia] as const,
+          ];
+      for (const [lugar, numero, referencia] of pares) {
+        const temNumero = Boolean(numeroLimpo(numero));
+        const temReferencia = Boolean(referenciaLimpa(referencia));
+        if (temNumero && !temReferencia) avisos.push(`${lugar}: falta a referência.`);
+        if (!temNumero && temReferencia) avisos.push(`${lugar}: falta a numeração.`);
+      }
+    });
+    if (avisos.length > 0) {
+      setFalhas(avisos);
+      return;
+    }
+    onSave(drafts);
   }
 
   return (
@@ -2668,12 +2669,33 @@ function MatrixGradeScreen({
       <div className="sticky bottom-0 mt-auto bg-bg/95 py-3 backdrop-blur">
         <button
           type="button"
-          onClick={() => onSave(drafts)}
+          onClick={salvar}
           className="w-full rounded-2xl bg-accent py-4 font-display text-3xl leading-none text-accent-ink"
         >
           Salvar grade
         </button>
       </div>
+      {falhas.length > 0 ? (
+        <div
+          className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setFalhas([]);
+          }}
+        >
+          <div className="w-full max-w-sm rounded-3xl bg-white p-5 shadow-xl">
+            <p className="text-lg font-semibold">Não salvei a grade</p>
+            <p className="mt-1 text-sm text-muted">Número e referência andam juntos. Os dois vazios significam estação sem molde.</p>
+            <ul className="mt-3 grid gap-1 text-sm font-semibold">
+              {falhas.map((aviso) => (
+                <li key={aviso}>{aviso}</li>
+              ))}
+            </ul>
+            <button type="button" onClick={() => setFalhas([])} className="mt-4 w-full rounded-2xl bg-accent py-3 text-sm font-semibold text-accent-ink">
+              Entendi
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

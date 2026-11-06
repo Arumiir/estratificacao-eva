@@ -516,7 +516,7 @@ export const pullEvolucaoMolde = createServerFn({ method: "POST" })
     const problema = typeof data?.problema === "string" ? data.problema : "";
     return { machine, numero, referencia, desde, ate, turno, estacao, lado, problema };
   })
-  .handler(async ({ data }): Promise<{ dias: { date: string; pares: number }[] }> => {
+  .handler(async ({ data }): Promise<{ dias: { date: string; pares: number; motivos: { nome: string; pares: number }[] }[] }> => {
     if (!data.machine || !data.numero || !data.desde || !data.ate || data.desde > data.ate) return { dias: [] };
     if (usesBlob() || dbSource !== "neon") return { dias: [] };
     const sql = await getSql();
@@ -552,10 +552,20 @@ export const pullEvolucaoMolde = createServerFn({ method: "POST" })
       porDia.set(date, grupos);
     }
     return {
-      dias: [...porDia.entries()].map(([date, grupos]) => ({
-        date,
-        pares: [...grupos.values()].reduce((soma, solas) => soma + (solas <= 0 ? 0 : Math.ceil(solas / 2)), 0),
-      })),
+      dias: [...porDia.entries()].map(([date, grupos]) => {
+        const porProblema = new Map<string, number>();
+        let pares = 0;
+        for (const [chave, solas] of grupos) {
+          const problema = chave.split("|")[2] ?? "";
+          const fechado = solas <= 0 ? 0 : Math.ceil(solas / 2);
+          pares += fechado;
+          if (fechado > 0) porProblema.set(problema, (porProblema.get(problema) ?? 0) + fechado);
+        }
+        const motivos = [...porProblema.entries()]
+          .map(([id, quantidade]) => ({ nome: problemName(id), pares: quantidade }))
+          .sort((a, b) => b.pares - a.pares || a.nome.localeCompare(b.nome, "pt-BR"));
+        return { date, pares, motivos };
+      }),
     };
   });
 

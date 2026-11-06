@@ -179,23 +179,26 @@ function partesFortaleza(at = Date.now()) {
 
 export function turnoPeloRelogio(at = Date.now()): Turno {
   const { minutes } = partesFortaleza(at);
-  if (minutes >= 6 * 60 + 1 && minutes < 14 * 60 + 48) return "1";
-  if (minutes >= 14 * 60 + 48 && minutes <= 23 * 60 + 30) return "2";
+  if (minutes >= 6 * 60 + 31 && minutes <= 15 * 60 + 29) return "1";
+  if (minutes >= 15 * 60 + 30 && minutes <= 23 * 60 + 59) return "2";
   return "3";
 }
 
-/** Minutos do dia em que cada turno pode lançar ou apagar perda. Limites inclusivos. */
+/** Minutos do dia em que cada turno pode lançar ou apagar perda. Limites inclusivos. O 3º atravessa a meia-noite. */
 const JANELA_MINUTOS: Record<Turno, readonly [number, number]> = {
-  "1": [6 * 60 + 30, 15 * 60],
-  "2": [15 * 60 + 30, 23 * 60 + 45],
-  "3": [0, 6 * 60 + 15],
+  "1": [6 * 60 + 31, 15 * 60 + 29],
+  "2": [15 * 60 + 30, 23 * 60 + 59],
+  "3": [23 * 60, 6 * 60 + 59],
 };
 
-export function dentroDaJanela(turno: Turno, now = Date.now()): boolean {
-  const { minutes } = partesFortaleza(now);
-  if (turno === "3") return minutes >= 23 * 60 || minutes <= 6 * 60 + 15;
+function minutoNaJanela(turno: Turno, minutes: number): boolean {
   const [inicio, fim] = JANELA_MINUTOS[turno];
-  return minutes >= inicio && minutes <= fim;
+  if (inicio <= fim) return minutes >= inicio && minutes <= fim;
+  return minutes >= inicio || minutes <= fim;
+}
+
+export function dentroDaJanela(turno: Turno, now = Date.now()): boolean {
+  return minutoNaJanela(turno, partesFortaleza(now).minutes);
 }
 
 export function podeAlterarApontamento(
@@ -229,15 +232,18 @@ function diaAnterior(iso: string): string {
   return `${cursor.getUTCFullYear()}-${mes}-${dia}`;
 }
 
-/** O 3º turno atravessa a meia-noite: de 23:00 até 06:15 ainda é o dia em que ele começou. */
+/** O 3º turno atravessa a meia-noite: de 23:00 até 06:59 ainda é o dia em que ele começou. */
 export function diaOperacional(turno: Turno, now = Date.now()): string {
   const { date, minutes } = partesFortaleza(now);
-  if (turno === "3" && minutes <= 6 * 60 + 15) return diaAnterior(date);
+  if (turno === "3" && minutes < 7 * 60) return diaAnterior(date);
   return date;
 }
 
+/** O dia do aplicativo vira às 07:00. De 00:00 até 06:59 ainda é o dia anterior. */
 export function diaDeHoje(now = Date.now()): string {
-  return diaOperacional(turnoPeloRelogio(now), now);
+  const { date, minutes } = partesFortaleza(now);
+  if (minutes < 7 * 60) return diaAnterior(date);
+  return date;
 }
 
 export function diasAte(ate: string, quantidade: number): string[] {

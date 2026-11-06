@@ -41,11 +41,11 @@ O relógio é o de Fortaleza. Apagar ou lançar perda só vale na janela do turn
 
 | Turno | Janela |
 |---|---|
-| 1º | 06:30 às 15:00 |
-| 2º | 15:30 às 23:45 |
-| 3º | 23:00 às 06:15 |
+| 1º | 06:31 às 15:29 |
+| 2º | 15:30 às 23:59 |
+| 3º | 23:00 às 06:59 |
 
-O 3º turno atravessa a meia-noite. Até 06:15 ainda é o dia em que ele começou. A produção não usa essa janela.
+O dia do aplicativo vira às 07:00. Até 06:59 o 3º turno continua no dia em que começou. O 1º, das 06:31 às 06:59, já grava no dia novo. Das 23:00 às 23:59 o 2º e o 3º podem lançar, cada um no turno que escolheu. A produção não usa essa janela.
 
 ## Dashboard
 
