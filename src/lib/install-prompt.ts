@@ -28,6 +28,12 @@ export function isIosBrowser(): boolean {
 export function registerAppWorker(): void {
   if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
   if (window.parent !== window) return;
+  let trocou = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (trocou) return;
+    trocou = true;
+    window.location.reload();
+  });
   void navigator.serviceWorker.register("/sw.js").catch(() => {});
 }
 
