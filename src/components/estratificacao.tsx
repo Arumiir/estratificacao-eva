@@ -893,7 +893,7 @@ export function EstratificacaoApp() {
     });
   }
 
-  function gravarProducao(date: string, machine: MachineId, turno: Turno, valores: Record<string, number>, aviso: string) {
+  function gravarProducao(date: string, machine: MachineId, turno: Turno, valores: Record<string, number>) {
     const salvoEm = Date.now();
     commit((current) => {
       const prefixo = `${date}|${turno}|${machine}|`;
@@ -915,13 +915,12 @@ export function EstratificacaoApp() {
       });
       return { ...current, producao: [...restantes, ...gravados] };
     });
-    flash(aviso);
   }
 
   function salvarProducao(machine: MachineId, turno: Turno, valores: Record<string, number>) {
     const atual = read();
     if (!atual) return;
-    gravarProducao(atual.date, machine, turno, valores, "Produção salva.");
+    gravarProducao(atual.date, machine, turno, valores);
   }
 
   function corrigirProducao(date: string, machine: MachineId, turno: Turno, valores: Record<string, number>) {
@@ -945,7 +944,6 @@ export function EstratificacaoApp() {
       }
       return { ...current, producao: [...map.values()] };
     });
-    flash("Produção corrigida.");
   }
 
   function lancarCorrecao(sola: {
@@ -1042,7 +1040,6 @@ export function EstratificacaoApp() {
         ),
       };
     });
-    flash("Grade de matrizaria salva");
     const topo = stackRef.current[stackRef.current.length - 1];
     if (topo?.kind === "matrices" && sessao?.papel === "preparador") {
       if (topo.diaria) marcarGradeDia(sessao.turno ?? "1", machine);
@@ -1256,7 +1253,6 @@ export function EstratificacaoApp() {
       return { ...stateNow, turno, date: dia, entries: [...stateNow.entries.filter((entry) => !drop.has(entry.id)), ...novas] };
     });
     if (travou) flash("Parte ficou bloqueada. O resto foi salvo.");
-    else flash("Perdas salvas.");
     return true;
   }
 
@@ -1851,18 +1847,19 @@ function HubMaquina({
 
 function IconeEditar() {
   return (
-    <svg viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-      <path d="M4 20h4.2L19 9.2a2.1 2.1 0 0 0-3-3L5.2 17V20z" strokeLinejoin="round" />
-      <path d="M13.8 7.4l2.8 2.8" strokeLinecap="round" />
+    <svg viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
     </svg>
   );
 }
 
 function IconeTroca() {
   return (
-    <svg viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-      <path d="M7 7h11l-3.2-3.2" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M17 17H6l3.2 3.2" strokeLinecap="round" strokeLinejoin="round" />
+    <svg viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M8.5 3.8c2.2 0 3.3 1.8 3.3 4.2 0 1.5-.4 2.6-.4 4.4 0 2.3-1.3 4.1-2.9 4.1S5.6 14.7 5.6 12.4c0-1.8-.4-2.9-.4-4.4.1-2.4 1.2-4.2 3.3-4.2z" />
+      <path d="M16.2 8.2a4.2 4.2 0 1 1-1.4 3.3" />
+      <path d="M16.2 5.6v2.8h2.8" />
     </svg>
   );
 }

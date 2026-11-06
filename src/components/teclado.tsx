@@ -145,14 +145,6 @@ export function Teclado({
         ];
   return (
     <div className="rounded-3xl bg-accent-soft p-2">
-      <button
-        type="button"
-        aria-label="Fechar teclado"
-        onClick={onFechar}
-        className="mb-1.5 grid h-12 w-full place-items-center rounded-2xl bg-[#1e3a5f] font-display text-4xl leading-none text-white"
-      >
-        ×
-      </button>
       <div className="grid gap-1.5">
         {linhas.map((linha) => (
           <div key={linha.join("")} className="grid grid-cols-3 gap-1.5">
@@ -174,14 +166,33 @@ export function Teclado({
         ) : null}
       </div>
       {onConfirmar ? (
+        <div className="mt-2 grid grid-cols-2 gap-1.5">
+          <button
+            type="button"
+            aria-label="Fechar teclado"
+            onClick={onFechar}
+            className="grid h-14 place-items-center rounded-2xl bg-[#1e3a5f] font-display text-4xl leading-none text-white"
+          >
+            ×
+          </button>
+          <button
+            type="button"
+            onClick={onConfirmar}
+            className="grid h-14 place-items-center rounded-2xl bg-accent font-display text-4xl leading-none text-accent-ink"
+          >
+            ✓
+          </button>
+        </div>
+      ) : (
         <button
           type="button"
-          onClick={onConfirmar}
-          className="mt-2 w-full rounded-2xl bg-accent py-3 font-display text-2xl leading-none text-accent-ink"
+          aria-label="Fechar teclado"
+          onClick={onFechar}
+          className="mt-2 grid h-14 w-full place-items-center rounded-2xl bg-[#1e3a5f] font-display text-4xl leading-none text-white"
         >
-          ✓ Confirmar
+          ×
         </button>
-      ) : null}
+      )}
     </div>
   );
 }
