@@ -7,19 +7,39 @@ export type Problem = {
   name: string;
 };
 
-/** Colunas da ficha, na ordem da planilha. */
+/** Modos da ficha de falha. O id antigo permanece quando o modo é o mesmo. */
 export const PROBLEMS: readonly Problem[] = [
-  { id: "gas-sola", short: "Preso - Sola", name: "Escape de gás preso - Sola" },
-  { id: "gas-gaspea", short: "Preso - Gáspea", name: "Escape de gás preso - Gáspea" },
-  { id: "contaminacao", short: "Contaminação", name: "Contaminação" },
-  { id: "tamanho-menor", short: "Tamanho menor", name: "Tamanho menor" },
+  { id: "alta-reticulacao", short: "Alta reticulação - bolha", name: "Alta reticulação - bolha" },
+  { id: "amassado-mp", short: "Amassado (extração) - MP pegajosa", name: "Amassado (extração) - MP pegajosa" },
+  { id: "baixa-reticulacao", short: "Baixa reticulação", name: "Baixa reticulação" },
+  { id: "contaminacao-material", short: "Contaminação (material pegajoso)", name: "Contaminação (material pegajoso)" },
+  { id: "manchas", short: "Manchas (fluidez/pigmentação)", name: "Manchas (fluidez/pigmentação)" },
+  { id: "tamanho-menor", short: "Tamanho menor - variação na expansão", name: "Tamanho menor - variação na expansão" },
+  { id: "tonalidade", short: "Tonalidade divergente da amostra", name: "Tonalidade divergente da amostra" },
+  { id: "amassado-valvula", short: "Amassado (extração) - válvula presa/extrator", name: "Amassado (extração) - válvula presa/extrator" },
+  { id: "contaminacao-molde", short: "Contaminação (molde sujo)", name: "Contaminação (molde sujo)" },
+  { id: "gas-aberto", short: "Escape de gás aberto", name: "Escape de gás aberto" },
+  { id: "falha-textura", short: "Falha na textura", name: "Falha na textura" },
+  { id: "pezinho", short: "Pezinho/ forma presa na cavidade", name: "Pezinho/ forma presa na cavidade" },
+  { id: "rebarba", short: "Rebarba", name: "Rebarba" },
+  { id: "gas-sola", short: "Gás preso", name: "Gás preso" },
+  { id: "peca-rasgada", short: "Peça rasgada", name: "Peça rasgada" },
+  { id: "amassado-desmoldante", short: "Amassado (extração) - falta de desmoldante", name: "Amassado (extração) - falta de desmoldante" },
+  { id: "cabedal-menor", short: "Cabedal menor - gáspea baixa", name: "Cabedal menor - gáspea baixa" },
+  { id: "contra-pe", short: "Contra-pé", name: "Contra-pé" },
+  { id: "corte-injecao", short: "Corte do ponto de injeção (baixo)", name: "Corte do ponto de injeção (baixo)" },
   { id: "excesso-carga", short: "Excesso de carga", name: "Excesso de carga" },
   { id: "falta-corpo", short: "Falta de carga", name: "Falta de carga" },
-  { id: "peca-rasgada", short: "Peça rasgada", name: "Peça rasgada" },
-  { id: "sujeira", short: "Sujeira pós manut.", name: "Sujeira pós manutenção" },
-  { id: "contra-pe", short: "Contra pé", name: "Contra pé" },
-  { id: "pezinho", short: "Pezinho preso", name: "Pezinho preso" },
-  { id: "gas-aberto", short: "Gás aberto", name: "Escape de gás aberto" },
+  { id: "falta-desmoldante", short: "Falta de desmoldante", name: "Falta de desmoldante" },
+  { id: "sujeira", short: "Sujeira mancha (graxa, bucha, óleo)", name: "Sujeira mancha (graxa, bucha, óleo)" },
+  { id: "tamanho-maior", short: "Tamanho maior - monobloco", name: "Tamanho maior - monobloco" },
+  { id: "tamanho-menor-ajuste", short: "Tamanho menor - ajuste de máquina", name: "Tamanho menor - ajuste de máquina" },
+  { id: "contaminacao-cor", short: "Contaminação (troca de cor)", name: "Contaminação (troca de cor)" },
+  { id: "falta-energia", short: "Falta de energia", name: "Falta de energia" },
+  { id: "manutencao", short: "Manutenção de máquina", name: "Manutenção de máquina" },
+  { id: "contaminacao-injetor", short: "Contaminação (injetor)", name: "Contaminação (injetor)" },
+  { id: "gas-gaspea", short: "Escape de gás preso - gáspea", name: "Escape de gás preso - gáspea" },
+  { id: "contaminacao", short: "Contaminação", name: "Contaminação" },
 ] as const;
 
 export type MatrixSlot = { numero: string; referencia: string };

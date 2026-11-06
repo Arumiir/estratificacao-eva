@@ -8,26 +8,46 @@ Na porta não há senha. Os botões são **1º turno**, **2º turno**, **3º tur
 
 ## No turno
 
-Cada máquina é SIE01 a SIE06, com estações 1 a 8 e lado esquerdo ou direito. Se A/B estiver ligado, a máquina pede o lado antes de entrar. SIE06 já abre assim. No dashboard, **Configurar** liga ou desliga A/B de qualquer máquina.
+Cada máquina é SIE01 a SIE06, com estações 1 a 8 e lado esquerdo ou direito. Se A/B estiver ligado, a máquina pede o lado antes de entrar. SIE06 já abre assim. No dashboard, **Configuração** liga ou desliga A/B de qualquer máquina.
 
 Em cada máquina há dois caminhos:
 
 - **Produção.** Pares por numeração da matriz. Não depende do horário de apontamento.
 - **Perdas.** Um toque é uma sola. Na primeira vez do dia, naquela máquina e turno, o app pergunta se a grade de matrizes mudou.
 
-A perda leva estação, lado, número, referência, cor e, quando houver, a troca. Os problemas são os da ficha:
+A perda leva estação, lado, número, referência, cor e, quando houver, a troca. Os problemas são os da ficha de modo de falha. O nome mudou onde o modo já existia; o apontamento antigo continua no mesmo lugar:
 
-1. Escape de gás preso — sola
-2. Escape de gás preso — gáspea
-3. Contaminação
-4. Tamanho menor
-5. Excesso de carga
-6. Falta de carga
-7. Peça rasgada
-8. Sujeira pós manutenção
-9. Contra pé
-10. Pezinho preso
-11. Escape de gás aberto
+1. Alta reticulação - bolha
+2. Amassado (extração) - MP pegajosa
+3. Baixa reticulação
+4. Contaminação (material pegajoso)
+5. Manchas (fluidez/pigmentação)
+6. Tamanho menor - variação na expansão
+7. Tonalidade divergente da amostra
+8. Amassado (extração) - válvula presa/extrator
+9. Contaminação (molde sujo)
+10. Escape de gás aberto
+11. Falha na textura
+12. Pezinho/ forma presa na cavidade
+13. Rebarba
+14. Gás preso
+15. Peça rasgada
+16. Amassado (extração) - falta de desmoldante
+17. Cabedal menor - gáspea baixa
+18. Contra-pé
+19. Corte do ponto de injeção (baixo)
+20. Excesso de carga
+21. Falta de carga
+22. Falta de desmoldante
+23. Sujeira mancha (graxa, bucha, óleo)
+24. Tamanho maior - monobloco
+25. Tamanho menor - ajuste de máquina
+26. Contaminação (troca de cor)
+27. Falta de energia
+28. Manutenção de máquina
+29. Contaminação (injetor)
+
+Dois modos antigos, que a ficha não separa assim, continuam no fim para o histórico não se perder: escape de gás preso na gáspea e contaminação genérica.
 
 A ficha baixa em imagem. Só a faixa muda: 1º turno preto, 2º azul, 3º vermelho. O corpo fica branco.
 

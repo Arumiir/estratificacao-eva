@@ -2470,7 +2470,7 @@ function ProblemsScreen({
         {PROBLEMS.map((problem) => {
           const count = counts.get(problem.id) ?? 0;
           return (
-            <div key={problem.id} className="flex items-center gap-2 rounded-tile border border-line bg-surface px-2 py-1.5">
+            <div key={problem.id} className="flex items-center gap-2 rounded-tile border border-line bg-surface px-2 py-2">
               <button
                 type="button"
                 disabled={offDay || count === 0}
@@ -2480,9 +2480,7 @@ function ProblemsScreen({
               >
                 <Minus className="size-6" />
               </button>
-              <p className="min-w-0 flex-1 truncate text-base font-semibold" title={problem.name}>
-                {problem.short}
-              </p>
+              <p className="min-w-0 flex-1 text-sm font-semibold leading-snug">{problem.name}</p>
               <p
                 className={cx(
                   "w-12 shrink-0 text-center font-display text-3xl leading-none tabular-nums",

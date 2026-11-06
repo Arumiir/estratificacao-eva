@@ -406,15 +406,19 @@ function drawFicha(
 
   PROBLEMS.forEach((problem, index) => {
     const colX = tableX + fixed + index * probW + probW / 2;
-    const size = fitSize(ctx, problem.name, headH - 28, 18);
     ctx.save();
-    ctx.translate(colX, tableY + headH - 14);
+    ctx.translate(colX, tableY + headH - 8);
     ctx.rotate(-Math.PI / 2);
-    ctx.font = `600 ${size}px 'Source Sans 3', sans-serif`;
+    ctx.font = "600 12px 'Source Sans 3', sans-serif";
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     ctx.fillStyle = cor.tinta;
-    ctx.fillText(problem.name, 0, 0);
+    const linhas = quebrarTexto(ctx, problem.name, headH - 28);
+    const linhaH = 13;
+    const topo = -((linhas.length - 1) * linhaH) / 2;
+    linhas.forEach((linha, linhaIndex) => {
+      ctx.fillText(linha, 0, topo + linhaIndex * linhaH);
+    });
     ctx.restore();
   });
 
@@ -458,14 +462,4 @@ function drawFicha(
     const colX = tableX + fixed + problemIndex * probW + probW / 2;
     ctx.fillText(String(sum), colX, totalY);
   });
-}
-
-function fitSize(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, start: number) {
-  let size = start;
-  while (size > 11) {
-    ctx.font = `600 ${size}px 'Source Sans 3', sans-serif`;
-    if (ctx.measureText(text).width <= maxWidth) return size;
-    size -= 1;
-  }
-  return size;
 }

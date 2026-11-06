@@ -4004,7 +4004,7 @@ function FichaTable({ lines }: { lines: FichaLine[] }) {
               scope="col"
               className="sticky top-0 z-30 h-56 w-12 border-b border-r border-line bg-accent-soft p-0"
             >
-              <span className="absolute left-1/2 top-1/2 w-max max-h-52 -translate-x-1/2 -translate-y-1/2 -rotate-90 text-[11px] font-semibold">
+              <span className="absolute left-1/2 top-1/2 block h-11 w-52 -translate-x-1/2 -translate-y-1/2 -rotate-90 overflow-hidden text-center text-[11px] font-semibold leading-tight">
                 {problem.name}
               </span>
             </th>
