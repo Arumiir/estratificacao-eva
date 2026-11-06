@@ -104,31 +104,27 @@
 }
 
 .enter-forward {
-  animation: enter-forward 220ms ease-out;
+  animation: enter-forward 120ms ease-out;
 }
 
 .enter-back {
-  animation: enter-back 220ms ease-out;
+  animation: enter-back 120ms ease-out;
 }
 
 @keyframes enter-forward {
   from {
-    opacity: 0;
-    transform: translateX(1.25rem);
+    transform: translateX(0.35rem);
   }
   to {
-    opacity: 1;
     transform: none;
   }
 }
 
 @keyframes enter-back {
   from {
-    opacity: 0;
-    transform: translateX(-1.25rem);
+    transform: translateX(-0.35rem);
   }
   to {
-    opacity: 1;
     transform: none;
   }
 }

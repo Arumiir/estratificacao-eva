@@ -676,6 +676,13 @@ export function EstratificacaoApp() {
   }, []);
 
   useEffect(() => {
+    const id = window.setTimeout(() => {
+      void import("@/components/painel");
+    }, 250);
+    return () => window.clearTimeout(id);
+  }, []);
+
+  useEffect(() => {
     const saved = loadSessao();
     const home: Screen =
       saved?.papel === "preparador"

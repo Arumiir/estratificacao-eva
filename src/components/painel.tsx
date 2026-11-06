@@ -803,14 +803,13 @@ function PainelHistorico({
     }
   }, [resumoRecorte, producaoRecorte, rankingRecorte, graficoRecorte]);
 
-  const pronto = carga === "pronto";
   const base = useMemo(
-    () => (pronto ? juntarHistorico(remoto ?? [], state.entries, cobertura) : []),
-    [pronto, remoto, state.entries, cobertura],
+    () => juntarHistorico(remoto ?? [], state.entries, cobertura),
+    [remoto, state.entries, cobertura],
   );
   const producaoBase = useMemo(
-    () => (pronto ? juntarProducao(producaoRemota, state.producao ?? [], cobertura) : []),
-    [pronto, producaoRemota, state.producao, cobertura],
+    () => juntarProducao(producaoRemota, state.producao ?? [], cobertura),
+    [producaoRemota, state.producao, cobertura],
   );
   const calculo = useMemo(() => {
     const recorteLista = base.filter((entry) => {
@@ -919,7 +918,7 @@ function PainelHistorico({
   ).filter((entry) => ativas.has(entry.machine));
   const historicoRanking = calculo.historico.filter((entry) => ativas.has(entry.machine));
   const nomeRanking = `${nomePeriodo(rankingRecorte.periodo)}${rankingRecorte.turno ? ` · ${TURNO_LABEL[rankingRecorte.turno]}` : " · Todos"}`;
-  const avisoIndicador = carga === "carregando" ? "Carregando o mês…" : carga === "erro" ? "Sem nuvem." : undefined;
+  const avisoIndicador = carga === "erro" ? "Sem nuvem." : undefined;
   const valorOculto = carga === "erro" ? "—" : "…";
 
   const problemaNome = PROBLEMS.find((item) => item.id === problema)?.name ?? null;
@@ -1508,13 +1507,9 @@ function RankingDoDia({
           {aviso ? ` · ${aviso}` : ""}
         </p>
       </div>
-      {avisoCarga ? (
+      {maquinas.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-[#d5dee8] bg-white px-4 py-6 text-center text-sm text-muted">
-          {avisoCarga}
-        </p>
-      ) : maquinas.length === 0 ? (
-        <p className="rounded-2xl border border-dashed border-[#d5dee8] bg-white px-4 py-6 text-center text-sm text-muted">
-          Sem perdas neste recorte.
+          {avisoCarga ?? "Sem perdas neste recorte."}
         </p>
       ) : (
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
