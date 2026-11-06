@@ -53,7 +53,7 @@ A ficha baixa em imagem. Só a faixa muda: 1º turno preto, 2º azul, 3º vermel
 
 ## Como o par fecha
 
-Não existe meio par. Solas da mesma chave — dia, turno, máquina, estação, lado, problema e troca — sobem para o par inteiro. Uma sola vale 1 par. Três solas da mesma chave valem 2.
+Não existe meio par. As solas do mesmo dia, turno, máquina, estação, lado e troca somam juntas, mesmo com problemas diferentes. Aí fecha o par. Oito solas viram 4 pares. Uma sola que não tem com quem formar par vira 1. Esquerda e direita não se somam.
 
 ## Horário
 

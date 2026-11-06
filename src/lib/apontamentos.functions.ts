@@ -542,27 +542,26 @@ export const pullEvolucaoMolde = createServerFn({ method: "POST" })
       group by date, station, side, problem, outro, numero, referencia
     `;
     const porDia = new Map<string, Map<string, number>>();
+    const porMotivo = new Map<string, Map<string, number>>();
     for (const row of rows) {
       if (numeroLimpo(String(row.numero ?? "")) !== data.numero) continue;
       if (referenciaLimpa(String(row.referencia ?? "")) !== data.referencia) continue;
       const date = String(row.date).slice(0, 10);
       const grupos = porDia.get(date) ?? new Map<string, number>();
-      const chave = `${row.station}|${row.side}|${row.problem}|${row.outro ?? ""}`;
+      const chave = `${row.station}|${row.side}|${row.outro ?? ""}`;
       grupos.set(chave, (grupos.get(chave) ?? 0) + Number(row.qtd));
+      const motivosDia = porMotivo.get(date) ?? new Map<string, number>();
+      motivosDia.set(row.problem, (motivosDia.get(row.problem) ?? 0) + Number(row.qtd));
       porDia.set(date, grupos);
+      porMotivo.set(date, motivosDia);
     }
     return {
       dias: [...porDia.entries()].map(([date, grupos]) => {
-        const porProblema = new Map<string, number>();
         let pares = 0;
-        for (const [chave, solas] of grupos) {
-          const problema = chave.split("|")[2] ?? "";
-          const fechado = solas <= 0 ? 0 : Math.ceil(solas / 2);
-          pares += fechado;
-          if (fechado > 0) porProblema.set(problema, (porProblema.get(problema) ?? 0) + fechado);
-        }
-        const motivos = [...porProblema.entries()]
-          .map(([id, quantidade]) => ({ nome: problemName(id), pares: quantidade }))
+        for (const solas of grupos.values()) pares += solas <= 0 ? 0 : Math.ceil(solas / 2);
+        const motivos = [...(porMotivo.get(date) ?? new Map<string, number>()).entries()]
+          .map(([id, solas]) => ({ nome: problemName(id), pares: solas }))
+          .filter((item) => item.pares > 0)
           .sort((a, b) => b.pares - a.pares || a.nome.localeCompare(b.nome, "pt-BR"));
         return { date, pares, motivos };
       }),

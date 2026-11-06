@@ -159,6 +159,14 @@ describe("painel em uma passagem", () => {
     assert.equal(paresDasEntradas(tres), 2);
     const trocas = tres.map((item, index) => ({ ...item, id: `t-${index}`, outroId: index === 2 ? "outra" : "" }));
     assert.equal(paresDasEntradas(trocas), 2);
+    const misturados = [
+      entrada({ id: "x", date: "2026-11-05", turno: "1", machine: "SIE01", problem: "gas-sola", station: 1, side: "esq" }),
+      entrada({ id: "y", date: "2026-11-05", turno: "1", machine: "SIE01", problem: "pezinho", station: 1, side: "esq" }),
+      ...[0, 1, 2, 3, 4, 5].map((i) =>
+        entrada({ id: `z-${i}`, date: "2026-11-05", turno: "1", machine: "SIE01", problem: "excesso-carga", station: 1, side: "esq" }),
+      ),
+    ];
+    assert.equal(paresDasEntradas(misturados), 4);
   });
 
   it("soma a produção com o mesmo recorte de máquina", () => {
@@ -183,7 +191,7 @@ describe("painel em uma passagem", () => {
     function paresComoSql(linhas: Entry[]) {
       const grupos = new Map<string, number>();
       for (const entry of linhas) {
-        const chave = `${entry.date}|${entry.turno}|${entry.machine}|${entry.station}|${entry.side}|${entry.problem}|${entry.outroId}`;
+        const chave = `${entry.date}|${entry.turno}|${entry.machine}|${entry.station}|${entry.side}|${entry.outroId}`;
         grupos.set(chave, (grupos.get(chave) ?? 0) + 1);
       }
       let total = 0;

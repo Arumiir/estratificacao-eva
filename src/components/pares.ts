@@ -8,7 +8,7 @@ export function pares(solas: number): number {
 export function paresDasEntradas(entries: Entry[]): number {
   const grupos = new Map<string, number>();
   for (const entry of entries) {
-    const chave = `${entry.date}|${entry.turno}|${entry.machine}|${entry.station}|${entry.side}|${entry.problem}|${entry.outroId}`;
+    const chave = `${entry.date}|${entry.turno}|${entry.machine}|${entry.station}|${entry.side}|${entry.outroId}`;
     grupos.set(chave, (grupos.get(chave) ?? 0) + 1);
   }
   let total = 0;

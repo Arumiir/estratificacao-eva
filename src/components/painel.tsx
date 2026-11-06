@@ -1406,7 +1406,7 @@ function montarRanking(entries: Entry[]): BlocoRanking[] {
 function paresNoRecorte(entries: Entry[]): number {
   const grupos = new Map<string, number>();
   for (const entry of entries) {
-    const chave = `${entry.station}|${entry.side}|${entry.problem}|${entry.outroId}`;
+    const chave = `${entry.station}|${entry.side}|${entry.outroId}`;
     grupos.set(chave, (grupos.get(chave) ?? 0) + 1);
   }
   let total = 0;
@@ -1591,7 +1591,7 @@ function motivosDoDia(entries: Entry[]): MotivoDia[] {
     porProblema.set(entry.problem, lista);
   }
   return [...porProblema.entries()]
-    .map(([id, itens]) => ({ nome: problemName(id), pares: paresNoRecorte(itens) }))
+    .map(([id, itens]) => ({ nome: problemName(id), pares: itens.length }))
     .filter((item) => item.pares > 0)
     .sort((a, b) => b.pares - a.pares || a.nome.localeCompare(b.nome, "pt-BR"));
 }
@@ -1819,7 +1819,7 @@ function EvolucaoMolde({
                       <li key={item.nome} className="flex items-baseline justify-between gap-3 text-sm">
                         <span className="font-semibold">{item.nome}</span>
                         <span className="shrink-0 tabular-nums">
-                          {item.pares} {item.pares === 1 ? "par" : "pares"}
+                          {item.pares} {item.pares === 1 ? "sola" : "solas"}
                         </span>
                       </li>
                     ))}
@@ -3744,7 +3744,7 @@ function FichaSheet({
           </div>
           <MatrizesDaMaquina state={state} machine={machine} />
           <p className="px-3 pt-3 text-sm text-muted">
-            Uma sola no lado fecha 1 par. Esquerda e direita não se somam.
+            As solas do mesmo lado fecham juntas. A que sobra, sem outra para formar par, vira 1 par. Esquerda e direita não se somam.
             {mine.length > editable.length ? " Turno fechado não sai." : ""}
           </p>
           <ApontamentosLista lines={lines} />
@@ -3861,7 +3861,7 @@ function ApontamentosLista({ lines }: { lines: FichaLine[] }) {
                   <li key={item.id} className="border-b border-line py-2 text-sm font-semibold leading-snug last:border-b-0">
                     {item.name}
                     <span className="mt-0.5 block text-xs font-semibold text-muted">
-                      {item.pares} {item.pares === 1 ? "par" : "pares"}
+                      {item.solas} {item.solas === 1 ? "sola" : "solas"}
                     </span>
                   </li>
                 ))}
