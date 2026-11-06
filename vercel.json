@@ -2,6 +2,12 @@
   "installCommand": "npm install --no-audit --no-fund",
   "buildCommand": "npm run build",
   "framework": "nitro",
+  "headers": [
+    {
+      "source": "/fonts/(.*)",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+    }
+  ],
   "env": {
     "VITE_AUTH_ENABLED": "false"
   },

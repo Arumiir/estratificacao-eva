@@ -46,12 +46,8 @@ export const Route = createRootRoute({
       ],
       links: [
         { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
-        { rel: "preconnect", href: "https://fonts.googleapis.com" },
-        { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
-        {
-          rel: "stylesheet",
-          href: "https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Source+Sans+3:wght@400;600;700&display=swap",
-        },
+        { rel: "preload", href: "/fonts/barlow-600.woff2", as: "font", type: "font/woff2", crossOrigin: "anonymous" },
+        { rel: "preload", href: "/fonts/source-sans-3.woff2", as: "font", type: "font/woff2", crossOrigin: "anonymous" },
         { rel: "stylesheet", href: appCss },
         { rel: "manifest", href: "/__grok/manifest.webmanifest" },
         { rel: "apple-touch-icon", href: "/__grok/icon-180.png" },
