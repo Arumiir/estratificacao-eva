@@ -57,6 +57,26 @@
   p {
     text-wrap: pretty;
   }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #4682b4 #e4eef6;
+  }
+
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: #e4eef6;
+    border-radius: 999px;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: #4682b4;
+    border-radius: 999px;
+  }
 }
 
 .enter-forward {

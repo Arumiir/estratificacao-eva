@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, Eraser, ImageDown, X } from "lucide-react";
 import {
   MACHINES,
@@ -1650,6 +1650,93 @@ function leituraLinha(pontos: PontoLinha[]): { texto: string; tom: "igual" | "me
   return { texto: `${antes.nome}: ${antes.pares} pares. ${agora.nome}: ${agora.pares}. Subiu ${delta}.`, tom: "pior" };
 }
 
+function Rolagem({ children, chave }: { children: ReactNode; chave: string }) {
+  const caixa = useRef<HTMLDivElement>(null);
+  const arraste = useRef<{ x: number; left: number } | null>(null);
+  const [medida, setMedida] = useState({ left: 0, largura: 1, vista: 1 });
+
+  function ler() {
+    const el = caixa.current;
+    if (!el) return;
+    setMedida({ left: el.scrollLeft, largura: el.scrollWidth, vista: el.clientWidth });
+  }
+
+  useLayoutEffect(() => {
+    const el = caixa.current;
+    if (!el) return;
+    el.scrollLeft = el.scrollWidth;
+    ler();
+  }, [chave]);
+
+  useEffect(() => {
+    const el = caixa.current;
+    if (!el) return;
+    const ao = () => ler();
+    el.addEventListener("scroll", ao, { passive: true });
+    window.addEventListener("resize", ao);
+    return () => {
+      el.removeEventListener("scroll", ao);
+      window.removeEventListener("resize", ao);
+    };
+  }, []);
+
+  function mover(clientX: number, origemX: number, origemLeft: number) {
+    const el = caixa.current;
+    if (!el) return;
+    const sobra = el.scrollWidth - el.clientWidth;
+    if (sobra <= 0) return;
+    const polegar = Math.max(28, (el.clientWidth / el.scrollWidth) * el.clientWidth);
+    const curso = Math.max(1, el.clientWidth - polegar);
+    el.scrollLeft = origemLeft + ((clientX - origemX) / curso) * sobra;
+  }
+
+  const sobra = Math.max(0, medida.largura - medida.vista);
+  const polegar = sobra <= 0 ? medida.vista : Math.max(28, (medida.vista / medida.largura) * medida.vista);
+  const curso = Math.max(1, medida.vista - polegar);
+  const x = sobra <= 0 ? 0 : (medida.left / sobra) * curso;
+
+  return (
+    <div className="mt-3">
+      <div ref={caixa} className="overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {children}
+      </div>
+      {sobra > 1 ? (
+        <div
+          className="relative mt-2 h-2 touch-none rounded-full bg-[#e4eef6]"
+          onPointerDown={(event) => {
+            const faixa = event.currentTarget.getBoundingClientRect();
+            const el = caixa.current;
+            if (!el) return;
+            const destino = event.clientX - faixa.left - polegar / 2;
+            el.scrollLeft = (Math.max(0, Math.min(curso, destino)) / curso) * sobra;
+          }}
+        >
+          <span
+            className="absolute top-0 h-2 cursor-grab rounded-full bg-[#4682B4] active:cursor-grabbing"
+            style={{ width: polegar, transform: `translateX(${x}px)` }}
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              event.currentTarget.setPointerCapture(event.pointerId);
+              arraste.current = { x: event.clientX, left: caixa.current?.scrollLeft ?? 0 };
+            }}
+            onPointerMove={(event) => {
+              const inicio = arraste.current;
+              if (!inicio) return;
+              mover(event.clientX, inicio.x, inicio.left);
+            }}
+            onPointerUp={() => {
+              arraste.current = null;
+            }}
+            onPointerCancel={() => {
+              arraste.current = null;
+            }}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function GraficoLinha({
   pontos,
   ativo,
@@ -1801,9 +1888,9 @@ function EvolucaoMolde({
         ) : null}
         {pontos.some((ponto) => ponto.pares > 0) && !carregando ? (
           <>
-            <div className="mt-3 overflow-x-auto">
+            <Rolagem chave={`${ate}-${pontos.length}`}>
               <GraficoLinha pontos={pontos} ativo={escolhido?.id ?? null} onAtivo={setAtivo} />
-            </div>
+            </Rolagem>
             {escolhido ? (
               <div className="mt-3 rounded-2xl border border-[#d5dee8] bg-[#f7f9fc] p-3">
                 <p className="text-sm font-semibold">{escolhido.nome}</p>
@@ -3138,7 +3225,7 @@ function EditarPerdas({
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-3xl bg-white p-4 shadow-xl">
+      <div className="max-h-[90dvh] w-full max-w-lg overflow-x-hidden overflow-y-auto rounded-3xl bg-white p-4 shadow-xl">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="text-base font-semibold">Perdas · {machine}</h3>
@@ -3155,7 +3242,11 @@ function EditarPerdas({
         ) : (
           <div className="mt-3 grid gap-2">
             {grupos.map((grupo) => (
-              <div key={grupo.ids[0]} className="flex items-center gap-2 rounded-2xl border border-[#d5dee8] px-2 py-2">
+              <div key={grupo.ids[0]} className="flex items-center gap-2 rounded-2xl border border-[#d5dee8] px-3 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold leading-snug">{grupo.rotulo}</p>
+                  <p className="text-xs leading-snug text-muted">{grupo.detalhe}</p>
+                </div>
                 <button
                   type="button"
                   aria-label={`Diminuir ${grupo.rotulo}`}
@@ -3164,11 +3255,7 @@ function EditarPerdas({
                 >
                   −
                 </button>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold">{grupo.rotulo}</p>
-                  <p className="truncate text-xs text-muted">{grupo.detalhe}</p>
-                </div>
-                <p className="w-8 text-center font-display text-2xl leading-none tabular-nums">{grupo.ids.length}</p>
+                <p className="w-8 shrink-0 text-center font-display text-2xl leading-none tabular-nums">{grupo.ids.length}</p>
                 <button
                   type="button"
                   aria-label={`Lançar ${grupo.rotulo}`}
