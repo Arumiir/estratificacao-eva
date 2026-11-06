@@ -2044,29 +2044,31 @@ function BarrasDuplas({
         <p className="mt-3 text-sm text-muted">Sem apontamento neste recorte.</p>
       ) : (
         <div className="mt-4">
-          <div className="flex items-end gap-2 border-b border-[#c5d0dc]">
+          <div className="flex items-end gap-1 border-b border-[#c5d0dc]">
             {grupos.map((item) => {
-              const alturaProducao = item.producao <= 0 ? 0 : Math.max(8, Math.round((item.producao / maximo) * 132));
-              const alturaPerdas = item.perdas <= 0 ? 0 : Math.max(8, Math.round((item.perdas / maximo) * 132));
+              const alturaProducao = item.producao <= 0 ? 0 : Math.max(6, Math.round((item.producao / maximo) * 132));
+              const alturaPerdas = item.perdas <= 0 ? 0 : Math.max(6, Math.round((item.perdas / maximo) * 132));
               return (
-                <div key={item.id} className="flex min-w-0 flex-1 flex-col items-center">
-                  <span className="block text-center text-[11px] font-semibold leading-tight tabular-nums" style={{ color: COR_PRODUCAO }}>
-                    {item.producao}
+                <div key={item.id} className="flex min-w-0 flex-1 items-end justify-center gap-1">
+                  <span className="flex min-w-0 flex-1 flex-col items-center justify-end">
+                    <span className="mb-1 text-xs font-semibold tabular-nums" style={{ color: COR_PRODUCAO }}>
+                      {item.producao}
+                    </span>
+                    <span className="block w-full max-w-8 rounded-t-md" style={{ height: `${alturaProducao}px`, background: COR_PRODUCAO }} />
                   </span>
-                  <span className="block text-center text-[11px] font-semibold leading-tight tabular-nums" style={{ color: COR_PERDA }}>
-                    {item.perdas}
-                  </span>
-                  <span className="mt-1 flex h-36 w-full items-end justify-center gap-1">
-                    <span className="block w-3 rounded-t-md" style={{ height: `${alturaProducao}px`, background: COR_PRODUCAO }} />
-                    <span className="block w-3 rounded-t-md" style={{ height: `${alturaPerdas}px`, background: COR_PERDA }} />
+                  <span className="flex min-w-0 flex-1 flex-col items-center justify-end">
+                    <span className="mb-1 text-xs font-semibold tabular-nums" style={{ color: COR_PERDA }}>
+                      {item.perdas}
+                    </span>
+                    <span className="block w-full max-w-8 rounded-t-md" style={{ height: `${alturaPerdas}px`, background: COR_PERDA }} />
                   </span>
                 </div>
               );
             })}
           </div>
-          <div className="mt-2 flex gap-2">
+          <div className="mt-2 flex gap-1">
             {grupos.map((item) => (
-              <span key={item.id} className="min-w-0 flex-1 text-center text-[11px] font-medium leading-tight break-words text-[#3b4250]">
+              <span key={item.id} className="min-w-0 flex-1 break-words text-center text-[11px] font-medium leading-tight text-[#3b4250]">
                 {item.nome}
               </span>
             ))}
