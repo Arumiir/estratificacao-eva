@@ -127,7 +127,7 @@ export function Teclado({
   modo: "conta" | "matriz";
   onTecla: (tecla: string) => void;
   onFechar: () => void;
-  onConfirmar: () => void;
+  onConfirmar?: () => void;
 }) {
   const linhas =
     modo === "conta"
@@ -145,17 +145,14 @@ export function Teclado({
         ];
   return (
     <div className="rounded-3xl bg-accent-soft p-2">
-      <div className="mb-1 flex items-center justify-between px-1">
-        <p className="text-xs font-semibold text-muted">× descarta · ✓ grava este campo</p>
-        <button
-          type="button"
-          aria-label="Fechar sem salvar"
-          onClick={onFechar}
-          className="grid size-10 place-items-center rounded-xl text-2xl leading-none text-[#5c6b7e]"
-        >
-          ×
-        </button>
-      </div>
+      <button
+        type="button"
+        aria-label="Fechar teclado"
+        onClick={onFechar}
+        className="mb-1.5 grid h-12 w-full place-items-center rounded-2xl bg-[#1e3a5f] font-display text-4xl leading-none text-white"
+      >
+        ×
+      </button>
       <div className="grid gap-1.5">
         {linhas.map((linha) => (
           <div key={linha.join("")} className="grid grid-cols-3 gap-1.5">
@@ -176,13 +173,15 @@ export function Teclado({
           </Tecla>
         ) : null}
       </div>
-      <button
-        type="button"
-        onClick={onConfirmar}
-        className="mt-2 w-full rounded-2xl bg-accent py-3 font-display text-2xl leading-none text-accent-ink"
-      >
-        ✓ Confirmar
-      </button>
+      {onConfirmar ? (
+        <button
+          type="button"
+          onClick={onConfirmar}
+          className="mt-2 w-full rounded-2xl bg-accent py-3 font-display text-2xl leading-none text-accent-ink"
+        >
+          ✓ Confirmar
+        </button>
+      ) : null}
     </div>
   );
 }

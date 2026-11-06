@@ -44,7 +44,7 @@ import {
 } from "@/lib/perdas";
 import { pullEvolucaoMolde, pullHistorico } from "@/lib/apontamentos.functions";
 import { cx, pares, paresDasEntradas, percentualPerda, textoPercentual } from "@/components/comum";
-import { AvisoSair, Teclado, campoInicial, dicaDoCampo, teclaConta, useToque, type Campo } from "@/components/teclado";
+import { AvisoSair, Teclado, campoInicial, teclaConta, useToque, type Campo } from "@/components/teclado";
 import { perdasPorEstacao, perdasPorMaquina, perdasPorProblema, separarEntradas, somarProducao } from "@/components/painel-calculo";
 
 type Papel = "preparador" | "lider";
@@ -3340,26 +3340,24 @@ function EditarPerdas({
         )}
         <div className="shrink-0 border-t border-[#e6ebf2] px-4 py-3">
           {toque && foco ? (
-            <>
-              <p className="mb-2 text-center text-sm font-semibold text-muted">{dicaDoCampo(campos[foco])}</p>
-              <Teclado
-                modo="conta"
-                onTecla={(tecla) =>
-                  setCampos((atual) => ({ ...atual, [foco]: teclaConta(atual[foco] ?? campoInicial(0), tecla) }))
-                }
-                onFechar={fecharSemSalvar}
-                onConfirmar={confirmarCampo}
-              />
-            </>
-          ) : null}
-          <button
-            type="button"
-            disabled={grupos.length === 0}
-            onClick={salvar}
-            className="mt-2 w-full rounded-2xl bg-[#2457b8] py-3 font-display text-3xl leading-none text-white disabled:opacity-50"
-          >
-            Salvar
-          </button>
+            <Teclado
+              modo="conta"
+              onTecla={(tecla) =>
+                setCampos((atual) => ({ ...atual, [foco]: teclaConta(atual[foco] ?? campoInicial(0), tecla) }))
+              }
+              onFechar={fecharSemSalvar}
+              onConfirmar={confirmarCampo}
+            />
+          ) : (
+            <button
+              type="button"
+              disabled={grupos.length === 0}
+              onClick={salvar}
+              className="mt-2 w-full rounded-2xl bg-[#2457b8] py-3 font-display text-3xl leading-none text-white disabled:opacity-50"
+            >
+              Salvar
+            </button>
+          )}
         </div>
       </div>
       {aviso ? <AvisoSair onFicar={() => setAviso(false)} onSair={onClose} /> : null}

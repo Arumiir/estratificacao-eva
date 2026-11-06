@@ -55,7 +55,7 @@ import {
   type StationConfig,
 } from "@/lib/perdas";
 import { enviarPlanilha, pullApontamentos, pushApontamentos } from "@/lib/apontamentos.functions";
-import { AvisoSair, Teclado, TecladoLetras, campoInicial, dicaDoCampo, teclaConta, teclaLivre, teclaTexto, useToque, type Campo } from "@/components/teclado";
+import { AvisoSair, Teclado, campoInicial, teclaConta, teclaTexto, useToque, type Campo } from "@/components/teclado";
 
 type Papel = "preparador" | "lider";
 const SheetScreen = lazy(() => import("@/components/painel").then((mod) => ({ default: mod.SheetScreen })));
@@ -1933,6 +1933,34 @@ function ProducaoScreen({
   const perdas = paresDasEntradas(
     state.entries.filter((entry) => entry.date === state.date && entry.turno === turno && entry.machine === machine),
   );
+  const toque = useToque();
+  const [foco, setFoco] = useState<string | null>(null);
+  const [campo, setCampo] = useState<Campo>(campoInicial(0));
+  const sessao = useRef<{ id: string; valor: string } | null>(null);
+
+  function abrirProducao(id: string) {
+    if (!editando) return;
+    const valor = valores[id] ?? "";
+    sessao.current = { id, valor };
+    setCampo(campoInicial(Number(valor) || 0));
+    setFoco(id);
+  }
+
+  function fecharProducao() {
+    const aberta = sessao.current;
+    if (aberta) setValores((atual) => ({ ...atual, [aberta.id]: aberta.valor }));
+    sessao.current = null;
+    setFoco(null);
+  }
+
+  function confirmarProducao() {
+    if (!foco) return;
+    const gravado = teclaConta(campo, "ok");
+    setSujo(true);
+    setValores((atual) => ({ ...atual, [foco]: gravado.texto === "0" ? "" : gravado.texto }));
+    sessao.current = null;
+    setFoco(null);
+  }
 
   return (
     <div className="mx-auto flex min-h-[calc(100dvh-10.5rem)] w-full max-w-md flex-col">
@@ -1965,29 +1993,52 @@ function ProducaoScreen({
           {numeros.map((item) => (
             <label key={item.id} className="flex flex-col items-center rounded-3xl bg-white p-4 text-center shadow-[0_8px_24px_rgba(47,84,150,0.08)]">
               <span className="font-display text-4xl leading-none">{item.numero}</span>
-              <input
-                inputMode="numeric"
-                value={valores[item.id] ?? ""}
-                aria-label={`Pares de ${item.numero}`}
-                placeholder="0"
-                readOnly={!editando}
-                onChange={(event) => {
-                  if (!editando) return;
-                  const limpo = event.target.value.replace(/\D/g, "").slice(0, 6);
-                  setSujo(true);
-                  setValores((atual) => ({ ...atual, [item.id]: limpo }));
-                }}
-                className={cx(
-                  "mt-4 w-full rounded-2xl border border-line px-3 py-3 text-center font-display text-3xl leading-none tabular-nums outline-none",
-                  editando ? "bg-[#f7f9fd] focus:border-[#4682B4]" : "bg-[#f3f4f6] text-muted",
-                )}
-              />
+              {toque && editando ? (
+                <button
+                  type="button"
+                  onClick={() => abrirProducao(item.id)}
+                  className={cx(
+                    "mt-4 w-full rounded-2xl border px-3 py-3 text-center font-display text-3xl leading-none tabular-nums",
+                    foco === item.id ? "border-accent bg-accent-soft text-accent" : "border-line bg-[#f7f9fd]",
+                  )}
+                >
+                  {foco === item.id ? campo.texto : valores[item.id] || "0"}
+                </button>
+              ) : (
+                <input
+                  inputMode="numeric"
+                  value={valores[item.id] ?? ""}
+                  aria-label={`Pares de ${item.numero}`}
+                  placeholder="0"
+                  readOnly={!editando}
+                  onChange={(event) => {
+                    if (!editando) return;
+                    const limpo = event.target.value.replace(/\D/g, "").slice(0, 6);
+                    setSujo(true);
+                    setValores((atual) => ({ ...atual, [item.id]: limpo }));
+                  }}
+                  className={cx(
+                    "mt-4 w-full rounded-2xl border border-line px-3 py-3 text-center font-display text-3xl leading-none tabular-nums outline-none",
+                    editando ? "bg-[#f7f9fd] focus:border-[#4682B4]" : "bg-[#f3f4f6] text-muted",
+                  )}
+                />
+              )}
             </label>
           ))}
         </div>
       )}
       <div className="sticky bottom-0 mt-auto bg-bg/95 py-3 backdrop-blur">
-        {editando ? (
+        {toque && foco && editando ? (
+          <Teclado
+            modo="conta"
+            onTecla={(tecla) => {
+              setSujo(true);
+              setCampo((atual) => teclaConta(atual, tecla));
+            }}
+            onFechar={fecharProducao}
+            onConfirmar={confirmarProducao}
+          />
+        ) : editando ? (
           <button
             type="button"
             disabled={numeros.length === 0}
@@ -2663,24 +2714,22 @@ function ProblemsScreen({
       </div>
       <div className="shrink-0 bg-bg pt-2">
         {toque && foco && !offDay ? (
-          <>
-            <p className="mb-2 text-center text-sm font-semibold text-muted">{dicaDoCampo(campos[foco])}</p>
-            <Teclado
-              modo="conta"
-              onTecla={(tecla) => setCampos((atual) => ({ ...atual, [foco]: teclaConta(atual[foco] ?? campoInicial(0), tecla) }))}
-              onFechar={fecharSemSalvar}
-              onConfirmar={confirmarCampo}
-            />
-          </>
-        ) : null}
-        <button
-          type="button"
-          disabled={offDay}
-          onClick={salvar}
-          className="mt-2 w-full rounded-2xl bg-accent py-4 font-display text-3xl leading-none text-accent-ink disabled:opacity-50"
-        >
-          Salvar
-        </button>
+          <Teclado
+            modo="conta"
+            onTecla={(tecla) => setCampos((atual) => ({ ...atual, [foco]: teclaConta(atual[foco] ?? campoInicial(0), tecla) }))}
+            onFechar={fecharSemSalvar}
+            onConfirmar={confirmarCampo}
+          />
+        ) : (
+          <button
+            type="button"
+            disabled={offDay}
+            onClick={salvar}
+            className="mt-2 w-full rounded-2xl bg-accent py-4 font-display text-3xl leading-none text-accent-ink disabled:opacity-50"
+          >
+            Salvar
+          </button>
+        )}
       </div>
       {aviso ? (
         <AvisoSair
@@ -2911,25 +2960,39 @@ function NumberPair({
   const toque = useToque();
   const [foco, setFoco] = useState<"numero" | "referencia" | null>(null);
   const [rascunho, setRascunho] = useState("");
-
-  useEffect(() => {
-    if (!foco) return;
-    const fechar = () => setFoco(null);
-    window.addEventListener("teclado-matriz", fechar);
-    return () => window.removeEventListener("teclado-matriz", fechar);
-  }, [foco]);
+  const rascunhoRef = useRef("");
+  const fecharRef = useRef<() => void>(() => {});
 
   function abrir(qual: "numero" | "referencia") {
     window.dispatchEvent(new Event("teclado-matriz"));
-    setRascunho(qual === "numero" ? numero : referencia);
+    const atual = qual === "numero" ? numero : referencia;
+    rascunhoRef.current = atual;
+    setRascunho(atual);
     setFoco(qual);
   }
 
-  function confirmar() {
-    if (foco === "numero") onNumero(numeroLimpo(rascunho));
-    if (foco === "referencia") onReferencia(referenciaLimpa(rascunho));
+  function digitar(tecla: string) {
+    const proximo = teclaTexto(rascunhoRef.current, tecla);
+    rascunhoRef.current = proximo;
+    setRascunho(proximo);
+    if (foco === "numero") onNumero(proximo);
+    else onReferencia(proximo);
+  }
+
+  function fechar() {
+    const texto = rascunhoRef.current;
+    if (foco === "numero") onNumero(numeroLimpo(texto));
+    if (foco === "referencia") onReferencia(referenciaLimpa(texto));
     setFoco(null);
   }
+  fecharRef.current = fechar;
+
+  useEffect(() => {
+    if (!foco) return;
+    const aoFechar = () => fecharRef.current();
+    window.addEventListener("teclado-matriz", aoFechar);
+    return () => window.removeEventListener("teclado-matriz", aoFechar);
+  }, [foco]);
 
   if (!toque) {
     return (
@@ -2938,12 +3001,12 @@ function NumberPair({
           <span className="mb-1 block text-sm font-semibold text-muted">Numeração</span>
           <input
             value={numero}
-            placeholder="39/0"
+            placeholder="Ex: 39/0"
             inputMode="text"
             autoComplete="off"
             onChange={(event) => onNumero(event.target.value.replace(/[^\d/]/g, "").replace(/\/{2,}/g, "/").slice(0, 16))}
             onBlur={() => onNumero(numeroLimpo(numero))}
-            className="w-full rounded-tile border border-line bg-surface-2 px-3 py-3 text-base text-fg"
+            className="w-full rounded-tile border border-line bg-surface-2 px-3 py-3 text-base text-fg placeholder:text-[#9aa8b8]"
           />
         </label>
         <label className="block">
@@ -2969,9 +3032,9 @@ function NumberPair({
           readOnly
           inputMode="none"
           value={foco === "numero" ? rascunho : numero}
-          placeholder="39/0"
+          placeholder="Ex: 39/0"
           onClick={() => abrir("numero")}
-          className={cx("w-full rounded-tile border bg-surface-2 px-3 py-3 text-base text-fg", foco === "numero" ? "border-accent" : "border-line")}
+          className={cx("w-full rounded-tile border bg-surface-2 px-3 py-3 text-base text-fg placeholder:text-[#9aa8b8]", foco === "numero" ? "border-accent" : "border-line")}
         />
       </label>
       <label className="block">
@@ -2990,11 +3053,7 @@ function NumberPair({
       </label>
       {foco ? (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-bg px-3 py-3">
-          {foco === "numero" ? (
-            <Teclado modo="matriz" onTecla={(tecla) => setRascunho((atual) => teclaTexto(atual, tecla))} onFechar={() => setFoco(null)} onConfirmar={confirmar} />
-          ) : (
-            <TecladoLetras onTecla={(tecla) => setRascunho((atual) => teclaLivre(atual, tecla))} onFechar={() => setFoco(null)} onConfirmar={confirmar} />
-          )}
+          <Teclado modo="matriz" onTecla={digitar} onFechar={fechar} />
         </div>
       ) : null}
     </div>
