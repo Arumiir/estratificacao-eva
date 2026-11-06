@@ -44,7 +44,7 @@ import {
 } from "@/lib/perdas";
 import { pullEvolucaoMolde, pullHistorico } from "@/lib/apontamentos.functions";
 import { cx, pares, paresDasEntradas, percentualPerda, textoPercentual } from "@/components/comum";
-import { AvisoSair, Teclado, campoInicial, dicaDoCampo, teclaConta, type Campo } from "@/components/teclado";
+import { AvisoSair, Teclado, campoInicial, dicaDoCampo, teclaConta, useToque, type Campo } from "@/components/teclado";
 import { perdasPorEstacao, perdasPorMaquina, perdasPorProblema, separarEntradas, somarProducao } from "@/components/painel-calculo";
 
 type Papel = "preparador" | "lider";
@@ -3226,7 +3226,33 @@ function EditarPerdas({
   });
   const [foco, setFoco] = useState<string | null>(null);
   const [aviso, setAviso] = useState(false);
+  const toque = useToque();
+  const sessao = useRef<{ id: string; campo: Campo } | null>(null);
   const sujo = grupos.some((grupo) => Number(campos[grupo.ids[0]]?.texto ?? grupo.ids.length) !== grupo.ids.length);
+
+  function abrirCampo(id: string, atual: number) {
+    if (!toque) return;
+    setCampos((lista) => {
+      const aberta = sessao.current;
+      const proximo = aberta && aberta.id !== id ? { ...lista, [aberta.id]: aberta.campo } : lista;
+      sessao.current = { id, campo: proximo[id] ?? campoInicial(atual) };
+      return proximo;
+    });
+    setFoco(id);
+  }
+
+  function fecharSemSalvar() {
+    const aberta = sessao.current;
+    if (aberta) setCampos((lista) => ({ ...lista, [aberta.id]: aberta.campo }));
+    sessao.current = null;
+    setFoco(null);
+  }
+
+  function confirmarCampo() {
+    if (foco) setCampos((lista) => ({ ...lista, [foco]: teclaConta(lista[foco] ?? campoInicial(0), "ok") }));
+    sessao.current = null;
+    setFoco(null);
+  }
 
   function pedirFechar() {
     if (sujo) {
@@ -3282,16 +3308,30 @@ function EditarPerdas({
                       <p className="text-sm font-semibold leading-snug">{grupo.rotulo}</p>
                       <p className="text-xs leading-snug text-muted">{grupo.detalhe}</p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setFoco(grupo.ids[0])}
-                      className={cx(
-                        "grid h-12 w-16 shrink-0 place-items-center rounded-xl border font-display text-2xl leading-none tabular-nums",
-                        ativo ? "border-[#2457b8] bg-[#e8f0fb] text-[#2457b8]" : "border-[#d5dee8] bg-[#f7f9fc]",
-                      )}
-                    >
-                      {campo.texto}
-                    </button>
+                    {toque ? (
+                      <button
+                        type="button"
+                        onClick={() => abrirCampo(grupo.ids[0], grupo.ids.length)}
+                        className={cx(
+                          "grid h-12 w-16 shrink-0 place-items-center rounded-xl border font-display text-2xl leading-none tabular-nums",
+                          ativo ? "border-[#2457b8] bg-[#e8f0fb] text-[#2457b8]" : "border-[#d5dee8] bg-[#f7f9fc]",
+                        )}
+                      >
+                        {campo.texto}
+                      </button>
+                    ) : (
+                      <input
+                        inputMode="numeric"
+                        value={campo.texto}
+                        aria-label={grupo.rotulo}
+                        onChange={(event) => {
+                          const digitos = event.target.value.replace(/\D/g, "").slice(0, 4);
+                          const n = Number(digitos) || 0;
+                          setCampos((lista) => ({ ...lista, [grupo.ids[0]]: { texto: String(n), modo: "total", ancora: n, digitos } }));
+                        }}
+                        className="h-12 w-16 shrink-0 rounded-xl border border-[#d5dee8] bg-[#f7f9fc] text-center font-display text-2xl leading-none tabular-nums outline-none"
+                      />
+                    )}
                   </div>
                 );
               })}
@@ -3299,7 +3339,7 @@ function EditarPerdas({
           </div>
         )}
         <div className="shrink-0 border-t border-[#e6ebf2] px-4 py-3">
-          {foco ? (
+          {toque && foco ? (
             <>
               <p className="mb-2 text-center text-sm font-semibold text-muted">{dicaDoCampo(campos[foco])}</p>
               <Teclado
@@ -3307,6 +3347,8 @@ function EditarPerdas({
                 onTecla={(tecla) =>
                   setCampos((atual) => ({ ...atual, [foco]: teclaConta(atual[foco] ?? campoInicial(0), tecla) }))
                 }
+                onFechar={fecharSemSalvar}
+                onConfirmar={confirmarCampo}
               />
             </>
           ) : null}
