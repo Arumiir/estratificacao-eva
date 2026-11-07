@@ -2,8 +2,8 @@ import { useState } from "react";
 import { perdasPorProblema } from "@/components/painel-calculo";
 import { paresDasEntradas, percentualPerda, textoPercentual } from "@/components/comum";
 import {
-  copyText,
   diaDoApontamento,
+  diaOperacional,
   formatDateBR,
   machineHasFicha,
   maquinasDoFiltro,
@@ -24,14 +24,17 @@ function vazio(): Campos {
 }
 
 function nomeCurto(nome: string) {
-  return nome.split(" - ")[0]?.trim() || nome;
+  return nome.split(" - ")[0]?.split(" (")[0]?.trim() || nome;
 }
 
 function juntar(nomes: string[]) {
-  if (nomes.length === 0) return "---";
-  if (nomes.length === 1) return nomes[0] ?? "---";
-  if (nomes.length === 2) return `${nomes[0]} e ${nomes[1]}`;
-  return `${nomes.slice(0, -1).join(", ")} e ${nomes[nomes.length - 1]}`;
+  const lista = nomes.filter(Boolean);
+  if (lista.length === 0) return "---";
+  const [primeiro, ...resto] = lista;
+  const cauda = resto.map((nome) => nome.charAt(0).toLocaleLowerCase("pt-BR") + nome.slice(1));
+  if (cauda.length === 0) return primeiro;
+  if (cauda.length === 1) return `${primeiro} e ${cauda[0]}`;
+  return `${primeiro}, ${cauda.slice(0, -1).join(", ")} e ${cauda[cauda.length - 1]}`;
 }
 
 function textoOuTraco(valor: string) {
@@ -48,13 +51,14 @@ export function FechamentoTurno({
   onCommit: (recipe: (current: State) => State) => void;
   onNotice: (text: string) => void;
 }) {
-  const view: State = state.turno === TURNO ? state : { ...state, turno: TURNO };
+  const data = diaOperacional(TURNO);
+  const view: State = { ...state, date: data, turno: TURNO };
   const maquinas = maquinasDoFiltro(view.modelos);
   const [escolhidas, setEscolhidas] = useState<MachineId[]>([]);
   const [campos, setCampos] = useState<Record<string, Campos>>(() => {
     const inicial: Record<string, Campos> = {};
     for (const item of state.fechamentos ?? []) {
-      if (item.date !== state.date || item.turno !== TURNO) continue;
+      if (item.date !== data || item.turno !== TURNO) continue;
       inicial[item.machine] = { horas: item.horasBaixadas, saldo: item.saldo, setup: item.setup };
     }
     return inicial;
@@ -131,7 +135,7 @@ export function FechamentoTurno({
       }));
 
       const texto = textos.join("\n\n");
-      const { renderFichasDaMaquina } = await import("@/lib/ficha-image");
+      const { renderFichasDaMaquina, downloadBlob } = await import("@/lib/ficha-image");
       const arquivos: { name: string; blob: Blob }[] = [];
       for (const machine of escolhidas) {
         if (!machineHasFicha(view, machine)) continue;
@@ -146,29 +150,28 @@ export function FechamentoTurno({
         });
       }
       const files = arquivos.map((item) => new File([item.blob], item.name, { type: "image/png" }));
-      const podeTexto =
+      const podeArquivo =
         typeof navigator.share === "function" &&
         typeof navigator.canShare === "function" &&
         files.length > 0 &&
-        navigator.canShare({ files, text: texto });
-      if (podeTexto) {
-        await navigator.share({ files, text: texto, title: "Fechamento de turno" });
-        onNotice("Fechamento pronto para enviar.");
+        navigator.canShare({ files });
+      if (podeArquivo) {
+        try {
+          await navigator.share({ files, text: texto, title: "Fechamento de turno" });
+        } catch (error) {
+          if (error instanceof DOMException && error.name === "AbortError") return;
+          await navigator.share({ files, title: "Fechamento de turno" });
+        }
         return;
       }
-      await copyText(texto);
-      if (files.length > 0 && typeof navigator.share === "function" && navigator.canShare?.({ files })) {
-        await navigator.share({ files, title: "Fichas do turno" });
-        onNotice("Texto copiado. As fichas abriram no envio.");
+      if (files.length === 0 && typeof navigator.share === "function") {
+        await navigator.share({ text: texto, title: "Fechamento de turno" });
         return;
       }
-      if (files.length > 0) {
-        const { downloadBlob } = await import("@/lib/ficha-image");
-        arquivos.forEach((arquivo, index) => {
-          window.setTimeout(() => downloadBlob(arquivo.name, arquivo.blob), index * 400);
-        });
-      }
-      onNotice("Texto copiado.");
+      arquivos.forEach((arquivo, index) => {
+        window.setTimeout(() => downloadBlob(arquivo.name, arquivo.blob), index * 400);
+      });
+      onNotice("Não foi possível abrir o WhatsApp neste aparelho.");
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
       onNotice("Não foi possível gerar o fechamento.");

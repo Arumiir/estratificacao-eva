@@ -688,6 +688,22 @@ export function EstratificacaoApp() {
   }, []);
 
   useEffect(() => {
+    function bloquear(event: Event) {
+      const alvo = event.target;
+      if (alvo instanceof HTMLElement && alvo.closest("input, textarea")) return;
+      event.preventDefault();
+    }
+    document.addEventListener("copy", bloquear);
+    document.addEventListener("cut", bloquear);
+    document.addEventListener("contextmenu", bloquear);
+    return () => {
+      document.removeEventListener("copy", bloquear);
+      document.removeEventListener("cut", bloquear);
+      document.removeEventListener("contextmenu", bloquear);
+    };
+  }, []);
+
+  useEffect(() => {
     const saved = loadSessao();
     const home: Screen =
       saved?.papel === "preparador"
