@@ -719,11 +719,12 @@ export function mergeCores(local: Cor[], remote: Cor[]): Cor[] {
 
 function horaCurta(value: unknown) {
   if (typeof value !== "string") return "";
-  const match = value.trim().match(/^(\d{1,2}):(\d{2})$/);
-  if (!match) return "";
+  const texto = value.trim().slice(0, 16);
+  const match = texto.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return texto;
   const hora = Number(match[1]);
   const minuto = Number(match[2]);
-  if (hora > 23 || minuto > 59) return "";
+  if (hora > 99 || minuto > 59) return texto;
   return `${String(hora).padStart(2, "0")}:${String(minuto).padStart(2, "0")}`;
 }
 
