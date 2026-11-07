@@ -3049,6 +3049,7 @@ function CorrigirProducao({
   const [foco, setFoco] = useState<string | null>(null);
   const [campo, setCampo] = useState<Campo>(campoInicial(0));
   const sessao = useRef<{ id: string; valor: string } | null>(null);
+  const listaRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let vivo = true;
@@ -3102,6 +3103,12 @@ function CorrigirProducao({
     setFoco(null);
   }
 
+  useEffect(() => {
+    if (!foco || !listaRef.current) return;
+    const alvo = listaRef.current.querySelector(`[data-numero="${CSS.escape(foco)}"]`);
+    alvo?.scrollIntoView({ block: "nearest" });
+  }, [foco]);
+
   function acrescentar() {
     const limpo = numeroLimpo(novo);
     if (!limpo) return;
@@ -3111,13 +3118,13 @@ function CorrigirProducao({
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-3 sm:items-center"
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-3xl bg-white p-4 shadow-xl">
-        <div className="flex items-start justify-between gap-3">
+      <div className="flex max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-white shadow-xl">
+        <div className="flex shrink-0 items-start justify-between gap-3 p-4 pb-0">
           <div>
             <h3 className="text-base font-semibold">Produção · {machine}</h3>
             <p className="text-sm text-muted">
@@ -3128,81 +3135,82 @@ function CorrigirProducao({
             <X className="size-5" />
           </button>
         </div>
-        {numeros.length === 0 ? (
-          <p className="mt-3 text-sm text-muted">Nenhum número nesta máquina. Acrescente o do relatório.</p>
-        ) : (
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            {numeros.map((numero) => (
-              <label key={numero} className="rounded-2xl border border-[#d5dee8] bg-[#f7f9fc] p-3 text-center">
-                <span className="font-display text-2xl leading-none">{numero}</span>
-                {toque ? (
-                  <button
-                    type="button"
-                    onClick={() => abrirNumero(numero)}
-                    className={cx(
-                      "mt-2 w-full rounded-xl border bg-white px-2 py-2 text-center font-display text-2xl leading-none tabular-nums",
-                      foco === numero ? "border-[#2457b8] text-[#2457b8]" : "border-[#d5dee8]",
-                    )}
-                  >
-                    {foco === numero ? campo.texto : valores[numero] || "0"}
-                  </button>
-                ) : (
-                  <input
-                    inputMode="numeric"
-                    value={valores[numero] ?? ""}
-                    aria-label={`Pares de ${numero}`}
-                    placeholder="0"
-                    onChange={(event) => {
-                      const limpo = event.target.value.replace(/\D/g, "").slice(0, 6);
-                      setValores((atual) => ({ ...atual, [numero]: limpo }));
-                    }}
-                    className="mt-2 w-full rounded-xl border border-[#d5dee8] bg-white px-2 py-2 text-center font-display text-2xl leading-none tabular-nums outline-none"
-                  />
-                )}
-              </label>
-            ))}
+        <div ref={listaRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+          {numeros.length === 0 ? (
+            <p className="text-sm text-muted">Nenhum número nesta máquina. Acrescente o do relatório.</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              {numeros.map((numero) => (
+                <label key={numero} data-numero={numero} className="rounded-2xl border border-[#d5dee8] bg-[#f7f9fc] p-3 text-center">
+                  <span className="font-display text-2xl leading-none">{numero}</span>
+                  {toque ? (
+                    <button
+                      type="button"
+                      onClick={() => abrirNumero(numero)}
+                      className={cx(
+                        "mt-2 w-full rounded-xl border bg-white px-2 py-2 text-center font-display text-2xl leading-none tabular-nums",
+                        foco === numero ? "border-[#2457b8] text-[#2457b8]" : "border-[#d5dee8]",
+                      )}
+                    >
+                      {foco === numero ? campo.texto : valores[numero] || "0"}
+                    </button>
+                  ) : (
+                    <input
+                      inputMode="numeric"
+                      value={valores[numero] ?? ""}
+                      aria-label={`Pares de ${numero}`}
+                      placeholder="0"
+                      onChange={(event) => {
+                        const limpo = event.target.value.replace(/\D/g, "").slice(0, 6);
+                        setValores((atual) => ({ ...atual, [numero]: limpo }));
+                      }}
+                      className="mt-2 w-full rounded-xl border border-[#d5dee8] bg-white px-2 py-2 text-center font-display text-2xl leading-none tabular-nums outline-none"
+                    />
+                  )}
+                </label>
+              ))}
+            </div>
+          )}
+          <div className="mt-3 flex gap-2">
+            <input
+              value={novo}
+              placeholder="Outro número"
+              maxLength={32}
+              onChange={(event) => setNovo(event.target.value)}
+              className="min-w-0 flex-1 rounded-xl border border-[#d5dee8] bg-[#f7f9fc] px-3 py-3 text-base"
+            />
+            <button type="button" onClick={acrescentar} className="rounded-xl bg-[#f3f6fb] px-3 text-sm font-semibold">
+              Incluir
+            </button>
           </div>
-        )}
-        <div className="mt-3 flex gap-2">
-          <input
-            value={novo}
-            placeholder="Outro número"
-            maxLength={32}
-            onChange={(event) => setNovo(event.target.value)}
-            className="min-w-0 flex-1 rounded-xl border border-[#d5dee8] bg-[#f7f9fc] px-3 py-3 text-base"
-          />
-          <button type="button" onClick={acrescentar} className="rounded-xl bg-[#f3f6fb] px-3 text-sm font-semibold">
-            Incluir
-          </button>
         </div>
-        {!(toque && foco) ? (
-          <button
-            type="button"
-            onClick={() => {
-              const gravar: Record<string, number> = {};
-              for (const numero of numeros) {
-                const texto = valores[numero];
-                if (texto === undefined || texto === "") continue;
-                gravar[numero] = Number(texto) || 0;
-              }
-              onSave(date, turno, machine, gravar);
-            }}
-            className="mt-4 w-full rounded-2xl bg-[#2457b8] py-3 text-sm font-semibold text-white"
-          >
-            Salvar produção
-          </button>
-        ) : null}
+        <div className="shrink-0 border-t border-[#e6ebf2] px-3 py-3">
+          {toque && foco ? (
+            <Teclado
+              modo="conta"
+              onTecla={(tecla) => setCampo((atual) => teclaConta(atual, tecla))}
+              onFechar={fecharTeclado}
+              onConfirmar={confirmarNumero}
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                const gravar: Record<string, number> = {};
+                for (const numero of numeros) {
+                  const texto = valores[numero];
+                  if (texto === undefined || texto === "") continue;
+                  gravar[numero] = Number(texto) || 0;
+                }
+                onSave(date, turno, machine, gravar);
+              }}
+              className="w-full rounded-2xl bg-[#2457b8] py-3 text-sm font-semibold text-white"
+            >
+              Salvar produção
+            </button>
+          )}
+        </div>
       </div>
-      {toque && foco ? (
-        <div className="fixed inset-x-0 bottom-0 z-[60] px-3 pb-3">
-          <Teclado
-            modo="conta"
-            onTecla={(tecla) => setCampo((atual) => teclaConta(atual, tecla))}
-            onFechar={fecharTeclado}
-            onConfirmar={confirmarNumero}
-          />
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -3276,6 +3284,7 @@ function EditarPerdas({
   const [aviso, setAviso] = useState(false);
   const toque = useToque();
   const sessao = useRef<{ id: string; campo: Campo } | null>(null);
+  const listaRef = useRef<HTMLDivElement>(null);
   const sujo = grupos.some((grupo) => Number(campos[grupo.ids[0]]?.texto ?? grupo.ids.length) !== grupo.ids.length);
 
   function abrirCampo(id: string, atual: number) {
@@ -3301,6 +3310,11 @@ function EditarPerdas({
     sessao.current = null;
     setFoco(null);
   }
+
+  useEffect(() => {
+    if (!foco || !listaRef.current) return;
+    listaRef.current.querySelector(`[data-perda="${CSS.escape(foco)}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [foco]);
 
   function pedirFechar() {
     if (sujo) {
@@ -3345,13 +3359,13 @@ function EditarPerdas({
         {grupos.length === 0 ? (
           <p className="px-4 pb-4 text-sm text-muted">Nenhuma perda nesta máquina neste turno.</p>
         ) : (
-          <div className="min-h-0 flex-1 overflow-y-auto px-4">
+          <div ref={listaRef} className="min-h-0 flex-1 overflow-y-auto px-4">
             <div className="grid gap-2 pb-2">
               {grupos.map((grupo) => {
                 const campo = campos[grupo.ids[0]] ?? campoInicial(grupo.ids.length);
                 const ativo = foco === grupo.ids[0];
                 return (
-                  <div key={grupo.ids[0]} className="flex items-center gap-2 rounded-2xl border border-[#d5dee8] px-3 py-2.5">
+                  <div key={grupo.ids[0]} data-perda={grupo.ids[0]} className="flex items-center gap-2 rounded-2xl border border-[#d5dee8] px-3 py-2.5">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold leading-snug">{grupo.rotulo}</p>
                       <p className="text-xs leading-snug text-muted">{grupo.detalhe}</p>
