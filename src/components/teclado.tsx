@@ -152,11 +152,6 @@ export function Teclado({
         ];
   return (
     <div className="rounded-3xl bg-accent-soft p-2">
-      {modo === "conta" ? (
-        <p className="mb-1 h-4 text-center text-xs font-semibold text-[#1e3a5f]">
-          {conta === "soma" ? "Somando" : conta === "tira" ? "Tirando" : ""}
-        </p>
-      ) : null}
       <div className="grid gap-1.5">
         {linhas.map((linha) => (
           <div key={linha.join("")} className="grid grid-cols-3 gap-1.5">
