@@ -772,6 +772,29 @@ export function EstratificacaoApp() {
     desfazer();
   }
 
+  function voltarAoSalvar(destino: "stations" | "side") {
+    const atual = stackRef.current;
+    const topo = atual[atual.length - 1];
+    if (!topo || topo.kind !== "problems") return;
+    bloqueioRef.current = null;
+    let indice = -1;
+    for (let i = atual.length - 1; i >= 0; i -= 1) {
+      if (atual[i]?.kind === destino) {
+        indice = i;
+        break;
+      }
+    }
+    if (indice >= 0 && indice < atual.length - 1) {
+      adoptStack(atual.slice(0, indice + 1));
+      return;
+    }
+    const tela: Screen =
+      destino === "side"
+        ? { kind: "side", machine: topo.machine, station: topo.station, outroId: topo.outroId, corId: topo.corId }
+        : { kind: "stations", machine: topo.machine, corId: topo.corId };
+    replaceTop(tela);
+  }
+
   function back() {
     if (stackRef.current.length <= 1) return;
     if (bloqueioRef.current) {
@@ -1258,7 +1281,10 @@ export function EstratificacaoApp() {
       }
       return { ...stateNow, turno, date: dia, entries: [...stateNow.entries.filter((entry) => !drop.has(entry.id)), ...novas] };
     });
-    if (travou) flash("Parte ficou bloqueada. O resto foi salvo.");
+    if (travou) {
+      flash("Parte ficou bloqueada. O resto foi salvo.");
+      return false;
+    }
     return true;
   }
 
@@ -1426,7 +1452,7 @@ export function EstratificacaoApp() {
               onClick={leavePapel}
               className="shrink-0 rounded-tile bg-accent-soft px-3 py-2 text-sm font-semibold text-accent"
             >
-              Sair
+              Voltar
             </button>
           ) : null}
         </div>
@@ -1590,6 +1616,8 @@ export function EstratificacaoApp() {
               onDescartar={confirmarSaida}
               onFicar={ficarNaTela}
               onSave={(alvos) => salvarContagens(screen.machine, screen.station, screen.side, screen.outroId ?? "", alvos)}
+              onEstacoes={() => voltarAoSalvar("stations")}
+              onLados={() => voltarAoSalvar("side")}
             />
           ) : null}
 
@@ -2596,6 +2624,8 @@ function ProblemsScreen({
   bloqueioRef,
   onDescartar,
   onFicar,
+  onEstacoes,
+  onLados,
 }: {
   state: State;
   machine: MachineId;
@@ -2607,6 +2637,8 @@ function ProblemsScreen({
   bloqueioRef: MutableRefObject<(() => void) | null>;
   onDescartar: () => void;
   onFicar: () => void;
+  onEstacoes: () => void;
+  onLados: () => void;
 }) {
   const outro = state.outros.find((item) => item.id === outroId);
   const config = state.stations[stationKey(machine, station)];
@@ -2621,6 +2653,7 @@ function ProblemsScreen({
   const [campos, setCampos] = useState<Record<string, Campo>>(() => camposDasContagens(counts));
   const [foco, setFoco] = useState<string | null>(null);
   const [aviso, setAviso] = useState(false);
+  const [salvo, setSalvo] = useState(false);
   const toque = useToque();
   const sessao = useRef<{ id: string; campo: Campo } | null>(null);
   const sujo = PROBLEMS.some((problem) => Number(campos[problem.id]?.texto ?? 0) !== (counts.get(problem.id) ?? 0));
@@ -2667,6 +2700,7 @@ function ProblemsScreen({
     for (const problem of PROBLEMS) alvos[problem.id] = Number(campos[problem.id]?.texto) || 0;
     if (!onSave(alvos)) return;
     setFoco(null);
+    setSalvo(true);
   }
 
   return (
@@ -2748,6 +2782,22 @@ function ProblemsScreen({
             onDescartar();
           }}
         />
+      ) : null}
+      {salvo ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-6">
+          <div className="w-full max-w-sm rounded-3xl bg-white px-6 py-6 text-center shadow-xl">
+            <p className="text-lg font-semibold">Apontamentos salvos.</p>
+            <p className="mt-2 text-base text-muted">Deseja voltar?</p>
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button type="button" onClick={onEstacoes} className="rounded-2xl bg-[#f3f6fb] py-3 text-sm font-semibold">
+                Estações
+              </button>
+              <button type="button" onClick={onLados} className="rounded-2xl bg-[#2457b8] py-3 text-sm font-semibold text-white">
+                Lados
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );

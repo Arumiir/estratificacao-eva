@@ -38,6 +38,7 @@ export const PROBLEMS: readonly Problem[] = [
   { id: "falta-energia", short: "Falta de energia", name: "Falta de energia" },
   { id: "manutencao", short: "Manutenção de máquina", name: "Manutenção de máquina" },
   { id: "contaminacao-injetor", short: "Contaminação (injetor)", name: "Contaminação (injetor)" },
+  { id: "contaminacao-rabicho", short: "Contaminação (Rabicho)", name: "Contaminação (Rabicho)" },
   { id: "gas-gaspea", short: "Escape de gás preso - gáspea", name: "Escape de gás preso - gáspea" },
   { id: "contaminacao", short: "Contaminação", name: "Contaminação" },
 ] as const;
