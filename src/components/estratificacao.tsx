@@ -2034,6 +2034,7 @@ function ProducaoScreen({
         {toque && foco && editando ? (
           <Teclado
             modo="conta"
+            conta={campo.modo}
             onTecla={(tecla) => {
               setSujo(true);
               setCampo((atual) => teclaConta(atual, tecla));
@@ -2719,6 +2720,7 @@ function ProblemsScreen({
         {toque && foco && !offDay ? (
           <Teclado
             modo="conta"
+            conta={campos[foco]?.modo}
             onTecla={(tecla) => setCampos((atual) => ({ ...atual, [foco]: teclaConta(atual[foco] ?? campoInicial(0), tecla) }))}
             onFechar={fecharSemSalvar}
             onConfirmar={confirmarCampo}

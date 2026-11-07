@@ -94,23 +94,28 @@ function Tecla({
   onClick,
   tom = "numero",
   label,
+  ativo = false,
 }: {
   children: string;
   onClick: () => void;
   tom?: "numero" | "acao" | "apagar";
   label?: string;
+  ativo?: boolean;
 }) {
   return (
     <button
       type="button"
       aria-label={label ?? children}
+      aria-pressed={ativo}
       onClick={onClick}
       className={
-        tom === "acao"
-          ? "h-12 rounded-2xl bg-accent font-display text-3xl leading-none text-accent-ink"
-          : tom === "apagar"
-            ? "h-12 rounded-2xl bg-white font-display text-2xl leading-none text-[#5c6b7e]"
-            : "h-12 rounded-2xl bg-white font-display text-3xl leading-none text-[#1d2a3a]"
+        ativo
+          ? "h-12 rounded-2xl bg-[#1e3a5f] font-display text-3xl leading-none text-white shadow-[inset_0_4px_0_rgba(0,0,0,0.35)]"
+          : tom === "acao"
+            ? "h-12 rounded-2xl bg-accent font-display text-3xl leading-none text-accent-ink"
+            : tom === "apagar"
+              ? "h-12 rounded-2xl bg-white font-display text-2xl leading-none text-[#5c6b7e]"
+              : "h-12 rounded-2xl bg-white font-display text-3xl leading-none text-[#1d2a3a]"
       }
     >
       {children}
@@ -120,11 +125,13 @@ function Tecla({
 
 export function Teclado({
   modo,
+  conta,
   onTecla,
   onFechar,
   onConfirmar,
 }: {
   modo: "conta" | "matriz";
+  conta?: Campo["modo"];
   onTecla: (tecla: string) => void;
   onFechar: () => void;
   onConfirmar?: () => void;
@@ -145,6 +152,11 @@ export function Teclado({
         ];
   return (
     <div className="rounded-3xl bg-accent-soft p-2">
+      {modo === "conta" ? (
+        <p className="mb-1 h-4 text-center text-xs font-semibold text-[#1e3a5f]">
+          {conta === "soma" ? "Somando" : conta === "tira" ? "Tirando" : ""}
+        </p>
+      ) : null}
       <div className="grid gap-1.5">
         {linhas.map((linha) => (
           <div key={linha.join("")} className="grid grid-cols-3 gap-1.5">
@@ -152,6 +164,7 @@ export function Teclado({
               <Tecla
                 key={tecla}
                 tom={tecla === "+" || tecla === "-" || tecla === "/" ? "acao" : tecla === "⌫" ? "apagar" : "numero"}
+                ativo={(tecla === "+" && conta === "soma") || (tecla === "-" && conta === "tira")}
                 onClick={() => onTecla(tecla)}
               >
                 {tecla === "-" ? "–" : tecla}
