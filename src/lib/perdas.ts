@@ -253,11 +253,24 @@ function diaAnterior(iso: string): string {
   return `${cursor.getUTCFullYear()}-${mes}-${dia}`;
 }
 
-/** O 3º turno atravessa a meia-noite: de 23:00 até 06:59 ainda é o dia em que ele começou. */
+/** 0 é domingo. A data já está no calendário de Fortaleza. */
+export function diaDaSemanaISO(iso: string): number {
+  const [year, month, day] = iso.split("-").map(Number);
+  if (!year || !month || !day) return -1;
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+}
+
+/** Noite de domingo 08/11, que a fábrica conta como sábado 07/11. */
+export const NOITE_DOMINGO = "2026-11-08";
+export const SABADO_DA_NOITE = "2026-11-07";
+
+/** O 3º turno atravessa a meia-noite. A noite de domingo, das 23:00 até as 06:59 de segunda, conta como sábado. */
 export function diaOperacional(turno: Turno, now = Date.now()): string {
   const { date, minutes } = partesFortaleza(now);
-  if (turno === "3" && minutes < 7 * 60) return diaAnterior(date);
-  return date;
+  const dia = turno === "3" && minutes < 7 * 60 ? diaAnterior(date) : date;
+  const noite = minutes >= 23 * 60 || minutes < 7 * 60;
+  if (turno === "3" && noite && diaDaSemanaISO(dia) === 0) return diaAnterior(dia);
+  return dia;
 }
 
 /** O dia do aplicativo vira às 07:00. De 00:00 até 06:59 ainda é o dia anterior. */

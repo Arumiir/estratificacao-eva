@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { pullDay, pushDays } from "@/lib/apontamentos-blob";
 import { dbSource, getSql } from "@/lib/db";
-import { apontamentoBloqueado, coerceEntry, diaOperacional, diasAte, mergeCores, mergeFechamentos, mergeOutros, mergeProducao, numeroLimpo, parseMachine, podeAlterarApontamento, problemName, readCores, readFechamentos, readGrades, readModelos, readOutros, readProducao, referenciaLimpa, turnoPeloRelogio, type Cor, type Entry, type Fechamento, type MaquinaPiso, type OutroMatriz, type ProducaoPares, type StationConfig } from "@/lib/perdas";
+import { apontamentoBloqueado, coerceEntry, diaOperacional, diasAte, mergeCores, mergeFechamentos, mergeOutros, mergeProducao, NOITE_DOMINGO, numeroLimpo, parseMachine, podeAlterarApontamento, problemName, readCores, readFechamentos, readGrades, readModelos, readOutros, readProducao, referenciaLimpa, SABADO_DA_NOITE, turnoPeloRelogio, type Cor, type Entry, type Fechamento, type MaquinaPiso, type OutroMatriz, type ProducaoPares, type StationConfig } from "@/lib/perdas";
 
 type ModeloSalvo = { machines: MaquinaPiso[]; salvoEm: number };
 
@@ -28,11 +28,74 @@ function cloudOn() {
 let acertoPronto: Promise<void> | null = null;
 
 function garantirAcerto() {
-  acertoPronto ??= acertarTerceiroTurno().catch((error) => {
-    acertoPronto = null;
-    throw error;
-  });
+  acertoPronto ??= acertarTerceiroTurno()
+    .then(() => acertarDomingoDoTerceiro())
+    .catch((error) => {
+      acertoPronto = null;
+      throw error;
+    });
   return acertoPronto;
+}
+
+async function gravarGrade(sql: Awaited<ReturnType<typeof getSql>>, date: string, key: string, config: unknown) {
+  await sql`
+    insert into grades (date, key, config)
+    values (${date}, ${key}, ${JSON.stringify(config)}::jsonb)
+    on conflict (date, key) do update set config = excluded.config
+  `;
+}
+
+async function acertarDomingoDoTerceiro() {
+  if (usesBlob() || dbSource !== "neon") return;
+  const sql = await getSql();
+  const marca = "__acerto_domingo_3__";
+  const feito = await sql<{ key: string }>`
+    select key from grades where date = ${SABADO_DA_NOITE} and key = ${marca} limit 1
+  `;
+  if (feito.length > 0) return;
+  await sql`
+    update apontamentos set date = ${SABADO_DA_NOITE}
+    where turno = ${"3"} and date = ${NOITE_DOMINGO}
+  `;
+  const madrugada = Date.parse("2026-11-09T10:00:00.000Z");
+  await sql`
+    update apontamentos set date = ${SABADO_DA_NOITE}
+    where turno = ${"3"} and date = ${"2026-11-09"} and at < ${madrugada}
+  `;
+  await moverGrade(sql, "__outros__", readOutros, mergeOutros, (item) => ({ ...item, date: SABADO_DA_NOITE }));
+  await moverGrade(sql, "__cores__", readCores, mergeCores, (item) => ({ ...item, date: SABADO_DA_NOITE }));
+  await moverGrade(sql, "__fechamento__", readFechamentos, mergeFechamentos, (item) => ({
+    ...item,
+    date: SABADO_DA_NOITE,
+    id: `${SABADO_DA_NOITE}|${item.turno}|${item.machine}`,
+  }));
+  await moverGrade(sql, "__producao__", readProducao, mergeProducao, (item) => ({
+    ...item,
+    date: SABADO_DA_NOITE,
+    id: `${SABADO_DA_NOITE}|${item.turno}|${item.machine}|${item.numero}`,
+  }));
+  await gravarGrade(sql, SABADO_DA_NOITE, marca, { em: Date.now() });
+}
+
+async function moverGrade<T extends { date: string; turno: string }>(
+  sql: Awaited<ReturnType<typeof getSql>>,
+  key: string,
+  ler: (value: unknown) => T[],
+  juntar: (local: T[], remote: T[]) => T[],
+  levar: (item: T) => T,
+) {
+  const domingo = await sql<{ config: unknown }>`
+    select config from grades where date = ${NOITE_DOMINGO} and key = ${key}
+  `;
+  const itens = ler(domingo[0]?.config);
+  const vai = itens.filter((item) => item.turno === "3" && item.date === NOITE_DOMINGO).map(levar);
+  if (vai.length === 0) return;
+  const fica = itens.filter((item) => !(item.turno === "3" && item.date === NOITE_DOMINGO));
+  const sabado = await sql<{ config: unknown }>`
+    select config from grades where date = ${SABADO_DA_NOITE} and key = ${key}
+  `;
+  await gravarGrade(sql, SABADO_DA_NOITE, key, juntar(ler(sabado[0]?.config), vai));
+  await gravarGrade(sql, NOITE_DOMINGO, key, fica);
 }
 
 async function acertarTerceiroTurno() {

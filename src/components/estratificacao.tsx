@@ -39,6 +39,8 @@ import {
   diaDeHoje,
   turnoPeloRelogio,
   diaOperacional,
+  NOITE_DOMINGO,
+  SABADO_DA_NOITE,
   TURNO_LABEL,
   type Turno,
   diaDoApontamento,
@@ -188,10 +190,36 @@ function usePerdas() {
     const loaded = enxugar({
       ...bruto,
       entries: bruto.entries.map((entry) => {
-        if (entry.turno !== "3" || !entry.at) return entry;
+        if (entry.turno !== "3") return entry;
+        if (entry.date === NOITE_DOMINGO) return { ...entry, date: SABADO_DA_NOITE };
+        if (!entry.at) return entry;
         const dia = diaOperacional("3", entry.at);
         return dia && dia !== entry.date ? { ...entry, date: dia } : entry;
       }),
+      outros: mergeOutros(
+        [],
+        bruto.outros.map((item) => (item.turno === "3" && item.date === NOITE_DOMINGO ? { ...item, date: SABADO_DA_NOITE } : item)),
+      ),
+      cores: mergeCores(
+        [],
+        bruto.cores.map((item) => (item.turno === "3" && item.date === NOITE_DOMINGO ? { ...item, date: SABADO_DA_NOITE } : item)),
+      ),
+      fechamentos: mergeFechamentos(
+        [],
+        (bruto.fechamentos ?? []).map((item) =>
+          item.turno === "3" && item.date === NOITE_DOMINGO
+            ? { ...item, date: SABADO_DA_NOITE, id: `${SABADO_DA_NOITE}|${item.turno}|${item.machine}` }
+            : item,
+        ),
+      ),
+      producao: mergeProducao(
+        [],
+        (bruto.producao ?? []).map((item) =>
+          item.turno === "3" && item.date === NOITE_DOMINGO
+            ? { ...item, date: SABADO_DA_NOITE, id: `${SABADO_DA_NOITE}|${item.turno}|${item.machine}|${item.numero}` }
+            : item,
+        ),
+      ),
     });
     ref.current = loaded;
     setState(loaded);
