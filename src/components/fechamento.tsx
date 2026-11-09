@@ -64,7 +64,6 @@ export function FechamentoTurno({
     return inicial;
   });
   const [gerando, setGerando] = useState(false);
-  const [fila, setFila] = useState<MachineId[]>([]);
 
   function camposDe(machine: MachineId) {
     return campos[machine] ?? vazio();
@@ -89,7 +88,6 @@ export function FechamentoTurno({
   }
 
   function alternar(machine: MachineId) {
-    setFila([]);
     setEscolhidas((atual) => (atual.includes(machine) ? atual.filter((item) => item !== machine) : [...atual, machine]));
   }
 
@@ -112,51 +110,13 @@ export function FechamentoTurno({
     ].join("\n");
   }
 
-  async function enviarUm(texto: string, arquivos: { name: string; blob: Blob }[]) {
-    const files = arquivos.map((item) => new File([item.blob], item.name, { type: "image/png" }));
-    const podeArquivo =
-      typeof navigator.share === "function" &&
-      typeof navigator.canShare === "function" &&
-      files.length > 0 &&
-      navigator.canShare({ files });
-    if (podeArquivo) {
-      try {
-        await navigator.share({ files, text: texto, title: "Fechamento de turno" });
-        return "ok" as const;
-      } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") return "cancelado" as const;
-        if (error instanceof DOMException && error.name === "NotAllowedError") return "bloqueado" as const;
-        try {
-          await navigator.share({ files, title: "Fechamento de turno" });
-          return "ok" as const;
-        } catch (deNovo) {
-          if (deNovo instanceof DOMException && deNovo.name === "AbortError") return "cancelado" as const;
-          if (deNovo instanceof DOMException && deNovo.name === "NotAllowedError") return "bloqueado" as const;
-          return "falhou" as const;
-        }
-      }
-    }
-    if (files.length === 0 && typeof navigator.share === "function") {
-      try {
-        await navigator.share({ text: texto, title: "Fechamento de turno" });
-        return "ok" as const;
-      } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") return "cancelado" as const;
-        if (error instanceof DOMException && error.name === "NotAllowedError") return "bloqueado" as const;
-        return "falhou" as const;
-      }
-    }
-    return "falhou" as const;
-  }
-
   async function gerar() {
-    const ordem = fila.length > 0 ? fila : escolhidas;
-    if (ordem.length === 0 || gerando) return;
+    if (escolhidas.length === 0 || gerando) return;
     setGerando(true);
     try {
       const salvos: Fechamento[] = [];
       const agora = Date.now();
-      for (const machine of ordem) {
+      for (const machine of escolhidas) {
         const digitado = camposDe(machine);
         salvos.push({
           id: `${view.date}|${TURNO}|${machine}`,
@@ -175,42 +135,31 @@ export function FechamentoTurno({
         fechamentos: mergeFechamentos(current.fechamentos ?? [], salvos),
       }));
 
-      const { renderFichasDaMaquina, downloadBlob } = await import("@/lib/ficha-image");
-      for (let index = 0; index < ordem.length; index += 1) {
-        const machine = ordem[index];
-        if (!machine) continue;
-        const texto = textoDa(machine);
-        const arquivos: { name: string; blob: Blob }[] = [];
-        if (machineHasFicha(view, machine)) {
-          const grupos = await renderFichasDaMaquina(view, machine);
-          grupos.forEach((grupo, indice) => {
-            const sufixo = grupo.nome
-              ? `-${grupo.nome.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "")}`
-              : grupos.length > 1
-                ? `-${indice + 1}`
-                : "";
-            arquivos.push({ name: `ficha-${view.date}-${machine}${sufixo}.png`, blob: grupo.blob });
+      const { renderFichasDaMaquina, anexarLegenda, entregarArquivos } = await import("@/lib/ficha-image");
+      const arquivos: { name: string; blob: Blob }[] = [];
+      for (const machine of escolhidas) {
+        const linhas = textoDa(machine).split("\n");
+        if (!machineHasFicha(view, machine)) continue;
+        const grupos = await renderFichasDaMaquina(view, machine);
+        for (const [indice, grupo] of grupos.entries()) {
+          const sufixo = grupo.nome
+            ? `-${grupo.nome.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "")}`
+            : grupos.length > 1
+              ? `-${indice + 1}`
+              : "";
+          arquivos.push({
+            name: `ficha-${view.date}-${machine}${sufixo}.png`,
+            blob: await anexarLegenda(grupo.blob, linhas),
           });
-        }
-        const resultado = await enviarUm(texto, arquivos);
-        if (resultado === "cancelado") {
-          if (index > 0) setFila(ordem.slice(index));
-          return;
-        }
-        if (resultado === "bloqueado") {
-          setFila(ordem.slice(index));
-          onNotice("Toque de novo para enviar a próxima máquina.");
-          return;
-        }
-        if (resultado === "falhou") {
-          arquivos.forEach((arquivo, atraso) => {
-            window.setTimeout(() => downloadBlob(arquivo.name, arquivo.blob), atraso * 400);
-          });
-          onNotice("Não foi possível abrir o WhatsApp neste aparelho.");
-          return;
         }
       }
-      setFila([]);
+      if (arquivos.length === 0) {
+        onNotice("Nenhuma ficha neste turno.");
+        return;
+      }
+      const resultado = await entregarArquivos(arquivos);
+      if (resultado === "cancelou") return;
+      if (resultado === "baixou") onNotice("Não foi possível abrir o WhatsApp neste aparelho.");
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
       onNotice("Não foi possível gerar o fechamento.");
@@ -286,11 +235,11 @@ export function FechamentoTurno({
       </div>
       <button
         type="button"
-        disabled={gerando || (fila.length === 0 && escolhidas.length === 0)}
+        disabled={gerando || escolhidas.length === 0}
         onClick={() => void gerar()}
         className="mt-4 w-full rounded-tile bg-accent py-4 font-display text-3xl leading-none text-accent-ink disabled:opacity-40"
       >
-        {gerando ? "Gerando…" : fila.length > 0 ? "Enviar próxima" : "Enviar fechamento"}
+        {gerando ? "Gerando…" : "Enviar fechamento"}
       </button>
     </div>
   );

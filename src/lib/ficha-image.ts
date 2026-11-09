@@ -307,6 +307,55 @@ function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   });
 }
 
+function carregarImagem(blob: Blob): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Não foi possível ler a ficha."));
+    };
+    image.src = url;
+  });
+}
+
+/** Escreve o fechamento embaixo da ficha. O WhatsApp não tem legenda diferente por foto. */
+export async function anexarLegenda(blob: Blob, linhas: string[]): Promise<Blob> {
+  await document.fonts.load("600 28px 'Source Sans 3'");
+  const image = await carregarImagem(blob);
+  const escala = image.width / W;
+  const medida = document.createElement("canvas").getContext("2d");
+  if (!medida || escala <= 0) return blob;
+  medida.font = "600 28px 'Source Sans 3', sans-serif";
+  const quebradas = linhas.flatMap((linha) => {
+    const partes = quebrarTexto(medida, linha, W - 72);
+    return partes.length > 0 ? partes : [linha];
+  });
+  const faixa = 36 + quebradas.length * 38;
+  const canvas = document.createElement("canvas");
+  canvas.width = image.width;
+  canvas.height = image.height + Math.round(faixa * escala);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return blob;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(image, 0, 0);
+  ctx.setTransform(escala, 0, 0, escala, 0, 0);
+  ctx.fillStyle = "#f4f6f8";
+  ctx.fillRect(36, H, W - 72, faixa - 16);
+  ctx.fillStyle = "#1c1c1c";
+  ctx.textBaseline = "top";
+  ctx.font = "600 28px 'Source Sans 3', sans-serif";
+  quebradas.forEach((linha, index) => {
+    ctx.fillText(linha, 56, H + 16 + index * 38);
+  });
+  return canvasToBlob(canvas);
+}
+
 function drawFicha(
   ctx: CanvasRenderingContext2D,
   state: State,
