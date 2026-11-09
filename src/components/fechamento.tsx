@@ -64,6 +64,7 @@ export function FechamentoTurno({
     return inicial;
   });
   const [gerando, setGerando] = useState(false);
+  const [fila, setFila] = useState<MachineId[]>([]);
 
   function camposDe(machine: MachineId) {
     return campos[machine] ?? vazio();
@@ -88,6 +89,7 @@ export function FechamentoTurno({
   }
 
   function alternar(machine: MachineId) {
+    setFila([]);
     setEscolhidas((atual) => (atual.includes(machine) ? atual.filter((item) => item !== machine) : [...atual, machine]));
   }
 
@@ -95,35 +97,74 @@ export function FechamentoTurno({
     setCampos((atual) => ({ ...atual, [machine]: { ...camposDe(machine), [chave]: valor } }));
   }
 
+  function textoDa(machine: MachineId) {
+    const conta = calcular(machine);
+    const digitado = camposDe(machine);
+    return [
+      `${machine}:`,
+      `• Horas Baixadas: ${textoOuTraco(digitado.horas)}`,
+      `• Produção: ${conta.producao}`,
+      `• Perdas: ${conta.perdas}`,
+      `• Percentual: ${conta.percentual}`,
+      `• Saldo: ${textoOuTraco(digitado.saldo)}`,
+      `• Setup: ${textoOuTraco(digitado.setup)}`,
+      `• Prob.: ${conta.problemas}.`,
+    ].join("\n");
+  }
+
+  async function enviarUm(texto: string, arquivos: { name: string; blob: Blob }[]) {
+    const files = arquivos.map((item) => new File([item.blob], item.name, { type: "image/png" }));
+    const podeArquivo =
+      typeof navigator.share === "function" &&
+      typeof navigator.canShare === "function" &&
+      files.length > 0 &&
+      navigator.canShare({ files });
+    if (podeArquivo) {
+      try {
+        await navigator.share({ files, text: texto, title: "Fechamento de turno" });
+        return "ok" as const;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return "cancelado" as const;
+        if (error instanceof DOMException && error.name === "NotAllowedError") return "bloqueado" as const;
+        try {
+          await navigator.share({ files, title: "Fechamento de turno" });
+          return "ok" as const;
+        } catch (deNovo) {
+          if (deNovo instanceof DOMException && deNovo.name === "AbortError") return "cancelado" as const;
+          if (deNovo instanceof DOMException && deNovo.name === "NotAllowedError") return "bloqueado" as const;
+          return "falhou" as const;
+        }
+      }
+    }
+    if (files.length === 0 && typeof navigator.share === "function") {
+      try {
+        await navigator.share({ text: texto, title: "Fechamento de turno" });
+        return "ok" as const;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return "cancelado" as const;
+        if (error instanceof DOMException && error.name === "NotAllowedError") return "bloqueado" as const;
+        return "falhou" as const;
+      }
+    }
+    return "falhou" as const;
+  }
+
   async function gerar() {
-    if (escolhidas.length === 0 || gerando) return;
+    const ordem = fila.length > 0 ? fila : escolhidas;
+    if (ordem.length === 0 || gerando) return;
     setGerando(true);
     try {
-      const textos: string[] = [];
       const salvos: Fechamento[] = [];
       const agora = Date.now();
-      for (const machine of escolhidas) {
-        const conta = calcular(machine);
+      for (const machine of ordem) {
         const digitado = camposDe(machine);
-        textos.push(
-          [
-            `${machine}:`,
-            `• Horas Baixadas: ${textoOuTraco(digitado.horas)}`,
-            `• Produção: ${conta.producao}`,
-            `• Perdas: ${conta.perdas}`,
-            `• Percentual: ${conta.percentual}`,
-            `• Saldo: ${textoOuTraco(digitado.saldo)}`,
-            `• Setup: ${textoOuTraco(digitado.setup)}`,
-            `• Prob.: ${conta.problemas}.`,
-          ].join("\n"),
-        );
         salvos.push({
           id: `${view.date}|${TURNO}|${machine}`,
           date: view.date,
           turno: TURNO,
           machine,
           horasBaixadas: digitado.horas.trim(),
-          producao: conta.producao,
+          producao: calcular(machine).producao,
           saldo: digitado.saldo.trim(),
           setup: digitado.setup.trim(),
           salvoEm: agora,
@@ -134,44 +175,42 @@ export function FechamentoTurno({
         fechamentos: mergeFechamentos(current.fechamentos ?? [], salvos),
       }));
 
-      const texto = textos.join("\n\n");
       const { renderFichasDaMaquina, downloadBlob } = await import("@/lib/ficha-image");
-      const arquivos: { name: string; blob: Blob }[] = [];
-      for (const machine of escolhidas) {
-        if (!machineHasFicha(view, machine)) continue;
-        const grupos = await renderFichasDaMaquina(view, machine);
-        grupos.forEach((grupo, index) => {
-          const sufixo = grupo.nome
-            ? `-${grupo.nome.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "")}`
-            : grupos.length > 1
-              ? `-${index + 1}`
-              : "";
-          arquivos.push({ name: `ficha-${view.date}-${machine}${sufixo}.png`, blob: grupo.blob });
-        });
-      }
-      const files = arquivos.map((item) => new File([item.blob], item.name, { type: "image/png" }));
-      const podeArquivo =
-        typeof navigator.share === "function" &&
-        typeof navigator.canShare === "function" &&
-        files.length > 0 &&
-        navigator.canShare({ files });
-      if (podeArquivo) {
-        try {
-          await navigator.share({ files, text: texto, title: "Fechamento de turno" });
-        } catch (error) {
-          if (error instanceof DOMException && error.name === "AbortError") return;
-          await navigator.share({ files, title: "Fechamento de turno" });
+      for (let index = 0; index < ordem.length; index += 1) {
+        const machine = ordem[index];
+        if (!machine) continue;
+        const texto = textoDa(machine);
+        const arquivos: { name: string; blob: Blob }[] = [];
+        if (machineHasFicha(view, machine)) {
+          const grupos = await renderFichasDaMaquina(view, machine);
+          grupos.forEach((grupo, indice) => {
+            const sufixo = grupo.nome
+              ? `-${grupo.nome.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "")}`
+              : grupos.length > 1
+                ? `-${indice + 1}`
+                : "";
+            arquivos.push({ name: `ficha-${view.date}-${machine}${sufixo}.png`, blob: grupo.blob });
+          });
         }
-        return;
+        const resultado = await enviarUm(texto, arquivos);
+        if (resultado === "cancelado") {
+          if (index > 0) setFila(ordem.slice(index));
+          return;
+        }
+        if (resultado === "bloqueado") {
+          setFila(ordem.slice(index));
+          onNotice("Toque de novo para enviar a próxima máquina.");
+          return;
+        }
+        if (resultado === "falhou") {
+          arquivos.forEach((arquivo, atraso) => {
+            window.setTimeout(() => downloadBlob(arquivo.name, arquivo.blob), atraso * 400);
+          });
+          onNotice("Não foi possível abrir o WhatsApp neste aparelho.");
+          return;
+        }
       }
-      if (files.length === 0 && typeof navigator.share === "function") {
-        await navigator.share({ text: texto, title: "Fechamento de turno" });
-        return;
-      }
-      arquivos.forEach((arquivo, index) => {
-        window.setTimeout(() => downloadBlob(arquivo.name, arquivo.blob), index * 400);
-      });
-      onNotice("Não foi possível abrir o WhatsApp neste aparelho.");
+      setFila([]);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
       onNotice("Não foi possível gerar o fechamento.");
@@ -247,11 +286,11 @@ export function FechamentoTurno({
       </div>
       <button
         type="button"
-        disabled={gerando || escolhidas.length === 0}
+        disabled={gerando || (fila.length === 0 && escolhidas.length === 0)}
         onClick={() => void gerar()}
         className="mt-4 w-full rounded-tile bg-accent py-4 font-display text-3xl leading-none text-accent-ink disabled:opacity-40"
       >
-        {gerando ? "Gerando…" : "Enviar fechamento"}
+        {gerando ? "Gerando…" : fila.length > 0 ? "Enviar próxima" : "Enviar fechamento"}
       </button>
     </div>
   );
