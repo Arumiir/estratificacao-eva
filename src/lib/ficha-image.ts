@@ -546,7 +546,7 @@ const SECRETA_REL = 78;
 const SECRETA_FIXO = SECRETA_EST + SECRETA_LADO + SECRETA_NUM + SECRETA_REL;
 const SECRETA_PROB = 78;
 const SECRETA_LARGURA = SECRETA_MARGEM * 2 + SECRETA_FIXO + SECRETA_PROB * PROBLEMS.length;
-const SECRETA_CABECA = 420;
+const SECRETA_CABECA = 300;
 const SECRETA_LINHA = 40;
 const SECRETA_TOTAL = 64;
 
@@ -693,26 +693,39 @@ function drawFichaSecreta(
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.font = "700 22px 'Barlow Condensed', sans-serif";
-  const headMid = tableY + headH / 2;
-  ctx.fillText("EST.", tableX + estW / 2, headMid);
-  ctx.fillText("LADO", tableX + estW + ladoW / 2, headMid);
-  ctx.fillText("Nº", tableX + estW + ladoW + numW / 2, headMid);
-  ctx.fillText("REF.", tableX + fixed - relW / 2, headMid);
+  const baseRotulo = tableY + headH - 22;
+  ctx.fillText("EST.", tableX + estW / 2, baseRotulo);
+  ctx.fillText("LADO", tableX + estW + ladoW / 2, baseRotulo);
+  ctx.fillText("Nº", tableX + estW + ladoW + numW / 2, baseRotulo);
+  ctx.fillText("REF.", tableX + fixed - relW / 2, baseRotulo);
 
   PROBLEMS.forEach((problem, index) => {
-    const colX = tableX + fixed + index * probW + probW / 2;
+    const colX = tableX + fixed + index * probW;
     ctx.save();
-    ctx.translate(colX, tableY + headH - 16);
+    ctx.beginPath();
+    ctx.rect(colX + 3, tableY + 8, probW - 6, headH - 14);
+    ctx.clip();
+    ctx.translate(colX + probW / 2, tableY + headH - 14);
     ctx.rotate(-Math.PI / 2);
-    ctx.font = "700 22px 'Barlow Condensed', sans-serif";
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     ctx.fillStyle = cor.tinta;
-    const linhas = quebrarTexto(ctx, problem.name, headH - 40);
-    const linhaH = 24;
-    const topo = -((linhas.length - 1) * linhaH) / 2;
+    let tamanho = 20;
+    let linhas = [problem.name];
+    let larguras = [0];
+    const limite = headH - 32;
+    while (tamanho >= 14) {
+      ctx.font = `700 ${tamanho}px 'Barlow Condensed', sans-serif`;
+      linhas = quebrarTexto(ctx, problem.name, limite);
+      larguras = linhas.map((linha) => ctx.measureText(linha).width);
+      const ocupado = larguras.reduce((soma, item) => soma + item, 0) + 8 * Math.max(0, linhas.length - 1);
+      if (ocupado <= limite && linhas.length <= 2) break;
+      tamanho -= 1;
+    }
+    let cursor = 0;
     linhas.forEach((linha, linhaIndex) => {
-      ctx.fillText(linha, 0, topo + linhaIndex * linhaH);
+      ctx.fillText(linha, cursor, 0);
+      cursor += (larguras[linhaIndex] ?? 0) + 8;
     });
     ctx.restore();
   });
