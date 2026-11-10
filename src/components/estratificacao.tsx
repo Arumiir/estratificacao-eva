@@ -1528,7 +1528,7 @@ export function EstratificacaoApp() {
               </p>
             ) : null}
           </div>
-          {papel ? (
+          {papel || screen.kind === "fechamento" ? (
             <div data-nav="" className="hidden shrink-0 items-center gap-2 lg:flex">
               <button
                 type="button"
@@ -1776,7 +1776,7 @@ export function EstratificacaoApp() {
           <ChevronDown className="size-5 rotate-180" />
         </button>
       ) : null}
-      {papel ? (
+      {papel || screen.kind === "fechamento" ? (
         <nav data-nav="" className="shrink-0 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden">
           <div className="grid grid-cols-3">
             <button
