@@ -546,8 +546,9 @@ const SECRETA_LADO = 78;
 const SECRETA_NUM = 118;
 const SECRETA_REL = 78;
 const SECRETA_FIXO = SECRETA_EST + SECRETA_LADO + SECRETA_NUM + SECRETA_REL;
+const PROBLEMS_FICHA = PROBLEMS.filter((problem) => problem.id !== "contaminacao");
 const SECRETA_PROB = 112;
-const SECRETA_LARGURA = SECRETA_MARGEM * 2 + SECRETA_FIXO + SECRETA_PROB * PROBLEMS.length;
+const SECRETA_LARGURA = SECRETA_MARGEM * 2 + SECRETA_FIXO + SECRETA_PROB * PROBLEMS_FICHA.length;
 const SECRETA_CABECA = 156;
 const SECRETA_LINHA = 38;
 const SECRETA_TOTAL = 46;
@@ -691,7 +692,8 @@ function drawFichaSecreta(
   ctx.fillStyle = "#f6f6f6";
   ctx.fillRect(tableX, tableY, tableW, headH);
   ctx.fillStyle = cor.faixa;
-  ctx.fillRect(tableX, bodyBottom, tableW, SECRETA_TOTAL * 2);
+  ctx.fillRect(tableX, bodyBottom, tableW, SECRETA_TOTAL);
+  const fimTabela = bodyBottom + SECRETA_TOTAL;
   blocos.forEach((bloco, blocoIndex) => {
     if (blocoIndex % 2 !== 1) return;
     const y = tableY + headH + blocoIndex * rowH * 2;
@@ -701,14 +703,12 @@ function drawFichaSecreta(
 
   ctx.strokeStyle = cor.tinta;
   ctx.lineWidth = 1.5;
-  ctx.strokeRect(tableX, tableY, tableW, tableBottom - tableY);
+  ctx.strokeRect(tableX, tableY, tableW, fimTabela - tableY);
   ctx.beginPath();
   ctx.moveTo(tableX, tableY + headH);
   ctx.lineTo(tableX + tableW, tableY + headH);
   ctx.moveTo(tableX, bodyBottom);
   ctx.lineTo(tableX + tableW, bodyBottom);
-  ctx.moveTo(tableX, bodyBottom + SECRETA_TOTAL);
-  ctx.lineTo(tableX + tableW, bodyBottom + SECRETA_TOTAL);
   blocos.forEach((bloco, blocoIndex) => {
     const y = tableY + headH + blocoIndex * rowH * 2;
     if (blocoIndex > 0) {
@@ -716,15 +716,15 @@ function drawFichaSecreta(
       ctx.lineTo(tableX + tableW, y);
     }
     if (!bloco.unica) {
-      ctx.moveTo(tableX, y + rowH);
+      ctx.moveTo(tableX + estW, y + rowH);
       ctx.lineTo(tableX + tableW, y + rowH);
     }
   });
   let x = tableX;
-  [estW, ladoW, numW, relW, ...PROBLEMS.map(() => probW)].forEach((coluna, index) => {
+  [estW, ladoW, numW, relW, ...PROBLEMS_FICHA.map(() => probW)].forEach((coluna, index) => {
     x += coluna;
     ctx.moveTo(x, tableY);
-    ctx.lineTo(x, index < 3 ? bodyBottom : tableBottom);
+    ctx.lineTo(x, index < 3 ? bodyBottom : fimTabela);
   });
   ctx.stroke();
 
@@ -738,7 +738,7 @@ function drawFichaSecreta(
   ctx.fillText("Nº", tableX + estW + ladoW + numW / 2, meioCabeca);
   ctx.fillText("REF.", tableX + fixed - relW / 2, meioCabeca);
 
-  PROBLEMS.forEach((problem, index) => {
+  PROBLEMS_FICHA.forEach((problem, index) => {
     const colX = tableX + fixed + index * probW;
     const nome = nomeDeitado(ctx, problem.name, probW - 10);
     ctx.save();
@@ -784,8 +784,9 @@ function drawFichaSecreta(
       ctx.fillText(line.numero, tableX + estW + ladoW + numW / 2, matrixY);
       ctx.fillText(line.referencia, tableX + fixed - relW / 2, matrixY);
     });
-    PROBLEMS.forEach((_, problemIndex) => {
-      const colX = tableX + fixed + problemIndex * probW + probW / 2;
+    PROBLEMS_FICHA.forEach((problem) => {
+      const problemIndex = PROBLEMS.findIndex((item) => item.id === problem.id);
+      const colX = tableX + fixed + PROBLEMS_FICHA.indexOf(problem) * probW + probW / 2;
       if (bloco.unica) {
         const count = primeira.counts[problemIndex] ?? 0;
         if (!count) return;
@@ -802,9 +803,10 @@ function drawFichaSecreta(
     });
   });
 
-  const sums = PROBLEMS.map((_, problemIndex) =>
-    blocos.reduce((sum, bloco) => sum + bloco.linhas.reduce((parcial, line) => parcial + (line.counts[problemIndex] ?? 0), 0), 0),
-  );
+  const sums = PROBLEMS_FICHA.map((problem) => {
+    const problemIndex = PROBLEMS.findIndex((item) => item.id === problem.id);
+    return blocos.reduce((sum, bloco) => sum + bloco.linhas.reduce((parcial, line) => parcial + (line.counts[problemIndex] ?? 0), 0), 0);
+  });
   const grand = sums.reduce((sum, count) => sum + count, 0);
   ctx.fillStyle = "#fffaf7";
   ctx.textAlign = "center";
@@ -814,6 +816,12 @@ function drawFichaSecreta(
   sums.forEach((sum, problemIndex) => {
     ctx.fillText(String(sum), tableX + fixed + problemIndex * probW + probW / 2, bodyBottom + SECRETA_TOTAL / 2);
   });
+  const celulaY = fimTabela + 12;
+  ctx.fillStyle = cor.faixa;
+  ctx.fillRect(tableX, celulaY, fixed, SECRETA_TOTAL);
+  ctx.strokeStyle = cor.tinta;
+  ctx.strokeRect(tableX, celulaY, fixed, SECRETA_TOTAL);
+  ctx.fillStyle = "#fffaf7";
   ctx.font = "700 24px 'Barlow Condensed', sans-serif";
-  ctx.fillText(`TOTAL GERAL  ${grand}`, tableX + fixed / 2, bodyBottom + SECRETA_TOTAL + SECRETA_TOTAL / 2);
+  ctx.fillText(`TOTAL GERAL  ${grand}`, tableX + fixed / 2, celulaY + SECRETA_TOTAL / 2);
 }
