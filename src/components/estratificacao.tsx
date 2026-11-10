@@ -39,6 +39,7 @@ import {
   diaDeHoje,
   turnoPeloRelogio,
   diaOperacional,
+  matrizUnicaNoDia,
   NOITE_DOMINGO,
   SABADO_DA_NOITE,
   TURNO_LABEL,
@@ -57,7 +58,7 @@ import {
   type StationConfig,
 } from "@/lib/perdas";
 import { enviarPlanilha, pullApontamentos, pushApontamentos } from "@/lib/apontamentos.functions";
-import { AvisoSair, Teclado, campoInicial, teclaConta, teclaTexto, useToque, type Campo } from "@/components/teclado";
+import { AvisoSair, Teclado, campoInicial, teclaConta, teclaTexto, tecladoAberto, useFecharTeclado, useToque, type Campo } from "@/components/teclado";
 import { FechamentoTurno } from "@/components/fechamento";
 
 type Papel = "preparador" | "lider";
@@ -686,6 +687,11 @@ export function EstratificacaoApp() {
         skipPopRef.current -= 1;
         return;
       }
+      if (tecladoAberto()) {
+        window.history.pushState(stampDepth(depthRef.current), "");
+        tecladoAberto()?.();
+        return;
+      }
       if (bloqueioRef.current) {
         window.history.pushState(stampDepth(depthRef.current), "");
         pendenteRef.current = () => window.history.go(-2);
@@ -845,6 +851,10 @@ export function EstratificacaoApp() {
   }
 
   function back() {
+    if (tecladoAberto()) {
+      tecladoAberto()?.();
+      return;
+    }
     if (stackRef.current.length <= 1) return;
     if (bloqueioRef.current) {
       desfazerRef.current = null;
@@ -894,6 +904,10 @@ export function EstratificacaoApp() {
   }
 
   function leavePapel() {
+    if (tecladoAberto()) {
+      tecladoAberto()?.();
+      return;
+    }
     const sair = () => {
       saveSessao(null);
       setSessao(null);
@@ -912,6 +926,21 @@ export function EstratificacaoApp() {
       return;
     }
     sair();
+  }
+
+  function abrirApontamento(machine: MachineId, station: number, outro?: OutroMatriz) {
+    if (!state) return;
+    const ambos = outro ? outro.ambos : Boolean(state.stations[stationKey(machine, station)]?.ambos);
+    const posto = outro?.station || station;
+    if (matrizUnicaNoDia(state.date, ambos)) {
+      push({ kind: "problems", machine, station: posto, side: "esq", outroId: outro?.id });
+      return;
+    }
+    if (outro && !outro.ambos) {
+      push({ kind: "problems", machine, station: posto, side: outro.side, outroId: outro.id });
+      return;
+    }
+    push({ kind: "side", machine, station: posto, outroId: outro?.id });
   }
 
   function flash(text: string, undo?: () => void) {
@@ -1608,23 +1637,8 @@ export function EstratificacaoApp() {
               offDay={offDay}
               onDownload={() => void baixarFicha(screen.machine)}
               onEditar={() => push({ kind: "matrices", machine: screen.machine })}
-              onOpen={(station) => push({ kind: "side", machine: screen.machine, station })}
-              onOpenOutro={(outro) =>
-                outro.ambos
-                  ? push({
-                      kind: "side",
-                      machine: screen.machine,
-                      station: outro.station,
-                      outroId: outro.id,
-                    })
-                  : push({
-                      kind: "problems",
-                      machine: screen.machine,
-                      station: outro.station,
-                      side: outro.side,
-                      outroId: outro.id,
-                    })
-              }
+              onOpen={(station) => abrirApontamento(screen.machine, station)}
+              onOpenOutro={(outro) => abrirApontamento(screen.machine, outro.station, outro)}
               onDeleteOutro={removeOutro}
               onTrocar={() => push({ kind: "outros", machine: screen.machine })}
             />
@@ -2058,21 +2072,19 @@ function ProducaoScreen({
   const sessao = useRef<{ id: string; valor: string } | null>(null);
 
   function abrirProducao(id: string) {
-    if (!editando) return;
+    if (!editando || foco === id) return;
+    if (foco && foco !== id) {
+      const gravado = teclaConta(campo, "ok");
+      setSujo(true);
+      setValores((atual) => ({ ...atual, [foco]: gravado.texto === "0" ? "" : gravado.texto }));
+    }
     const valor = valores[id] ?? "";
     sessao.current = { id, valor };
-    setCampo(campoInicial(Number(valor) || 0));
+    setCampo(campoInicial(Number(valores[id]) || 0));
     setFoco(id);
   }
 
   function fecharProducao() {
-    const aberta = sessao.current;
-    if (aberta) setValores((atual) => ({ ...atual, [aberta.id]: aberta.valor }));
-    sessao.current = null;
-    setFoco(null);
-  }
-
-  function confirmarProducao() {
     if (!foco) return;
     const gravado = teclaConta(campo, "ok");
     setSujo(true);
@@ -2080,6 +2092,7 @@ function ProducaoScreen({
     sessao.current = null;
     setFoco(null);
   }
+  useFecharTeclado(Boolean(toque && foco && editando), fecharProducao);
 
   return (
     <div className="mx-auto flex min-h-[calc(100dvh-10.5rem)] w-full max-w-md flex-col">
@@ -2115,6 +2128,7 @@ function ProducaoScreen({
               {toque && editando ? (
                 <button
                   type="button"
+                  data-campo-teclado=""
                   onClick={() => abrirProducao(item.id)}
                   className={cx(
                     "mt-4 w-full rounded-2xl border px-3 py-3 text-center font-display text-3xl leading-none tabular-nums",
@@ -2155,8 +2169,6 @@ function ProducaoScreen({
               setSujo(true);
               setCampo((atual) => teclaConta(atual, tecla));
             }}
-            onFechar={fecharProducao}
-            onConfirmar={confirmarProducao}
           />
         ) : editando ? (
           <button
@@ -2758,29 +2770,28 @@ function ProblemsScreen({
     };
   }, [sujo, offDay, bloqueioRef]);
 
+  const unica = matrizUnicaNoDia(state.date, outro ? outro.ambos : Boolean(config?.ambos));
+
   function abrirCampo(id: string) {
-    if (!toque || offDay) return;
+    if (!toque || offDay || foco === id) return;
     setCampos((atual) => {
       const aberta = sessao.current;
-      const proximo = aberta && aberta.id !== id ? { ...atual, [aberta.id]: aberta.campo } : atual;
+      const proximo =
+        aberta && aberta.id !== id
+          ? { ...atual, [aberta.id]: teclaConta(atual[aberta.id] ?? campoInicial(counts.get(aberta.id) ?? 0), "ok") }
+          : atual;
       sessao.current = { id, campo: proximo[id] ?? campoInicial(counts.get(id) ?? 0) };
       return proximo;
     });
     setFoco(id);
   }
 
-  function fecharSemSalvar() {
-    const aberta = sessao.current;
-    if (aberta) setCampos((atual) => ({ ...atual, [aberta.id]: aberta.campo }));
-    sessao.current = null;
-    setFoco(null);
-  }
-
-  function confirmarCampo() {
+  function fecharTeclado() {
     if (foco) setCampos((atual) => ({ ...atual, [foco]: teclaConta(atual[foco] ?? campoInicial(0), "ok") }));
     sessao.current = null;
     setFoco(null);
   }
+  useFecharTeclado(Boolean(toque && foco && !offDay), fecharTeclado);
 
   function salvar() {
     if (offDay) return;
@@ -2810,6 +2821,7 @@ function ProblemsScreen({
                 {toque ? (
                   <button
                     type="button"
+                    data-campo-teclado=""
                     disabled={offDay}
                     onClick={() => abrirCampo(problem.id)}
                     className={cx(
@@ -2844,8 +2856,6 @@ function ProblemsScreen({
             modo="conta"
             conta={campos[foco]?.modo}
             onTecla={(tecla) => setCampos((atual) => ({ ...atual, [foco]: teclaConta(atual[foco] ?? campoInicial(0), tecla) }))}
-            onFechar={fecharSemSalvar}
-            onConfirmar={confirmarCampo}
           />
         ) : (
           <button
@@ -2876,13 +2886,15 @@ function ProblemsScreen({
           <div className="w-full max-w-sm rounded-3xl bg-white px-6 py-6 text-center shadow-xl">
             <p className="text-lg font-semibold">Apontamentos salvos.</p>
             <p className="mt-2 text-base text-muted">Deseja voltar?</p>
-            <div className="mt-5 grid grid-cols-2 gap-2">
+            <div className={cx("mt-5 grid gap-2", unica ? "grid-cols-1" : "grid-cols-2")}>
               <button type="button" onClick={onEstacoes} className="rounded-2xl bg-[#f3f6fb] py-3 text-sm font-semibold">
                 Estações
               </button>
-              <button type="button" onClick={onLados} className="rounded-2xl bg-[#2457b8] py-3 text-sm font-semibold text-white">
-                Lados
-              </button>
+              {unica ? null : (
+                <button type="button" onClick={onLados} className="rounded-2xl bg-[#2457b8] py-3 text-sm font-semibold text-white">
+                  Lados
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -3129,6 +3141,7 @@ function NumberPair({
     setFoco(null);
   }
   fecharRef.current = fechar;
+  useFecharTeclado(Boolean(foco), fechar);
 
   useEffect(() => {
     if (!foco) return;
@@ -3173,6 +3186,7 @@ function NumberPair({
         <span className="mb-1 block text-sm font-semibold text-muted">Numeração</span>
         <input
           readOnly
+          data-campo-teclado=""
           inputMode="none"
           value={foco === "numero" ? rascunho : numero}
           placeholder="Ex: 39/0"
@@ -3184,6 +3198,7 @@ function NumberPair({
         <span className="mb-1 block text-sm font-semibold text-muted">Referência</span>
         <input
           readOnly
+          data-campo-teclado=""
           inputMode="none"
           value={foco === "referencia" ? rascunho : referencia}
           placeholder="Ex: 1"
@@ -3196,7 +3211,7 @@ function NumberPair({
       </label>
       {foco ? (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-bg px-3 py-3">
-          <Teclado modo="matriz" onTecla={digitar} onFechar={fechar} />
+          <Teclado modo="matriz" onTecla={digitar} />
         </div>
       ) : null}
     </div>

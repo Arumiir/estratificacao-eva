@@ -497,12 +497,15 @@ function drawFicha(
     ctx.fillStyle = cor.tinta;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    if (index % 2 === 0 || line.outroId) {
+    if (line.unica || line.outroId || index % 2 === 0) {
       ctx.font = "700 28px 'Barlow Condensed', sans-serif";
-      ctx.fillText(line.station >= 1 ? pad2(line.station) : "Troca", tableX + estW / 2, y + rowH / 2);
+      const meio = line.unica || line.outroId ? y : y + rowH / 2;
+      ctx.fillText(line.station >= 1 ? pad2(line.station) : "Troca", tableX + estW / 2, meio);
     }
-    ctx.font = "600 20px 'Source Sans 3', sans-serif";
-    ctx.fillText(SIDE_SHORT[line.side], tableX + estW + ladoW / 2, y);
+    if (!line.unica) {
+      ctx.font = "600 20px 'Source Sans 3', sans-serif";
+      ctx.fillText(SIDE_SHORT[line.side], tableX + estW + ladoW / 2, y);
+    }
     if (!(line.shared && index % 2 === 1)) {
       const matrixY = line.shared ? y + rowH / 2 : y;
       ctx.font = "600 20px 'Source Sans 3', sans-serif";
@@ -697,14 +700,18 @@ function drawFichaSecreta(
     ctx.fillStyle = cor.tinta;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    if (index % 2 === 0 || line.outroId) {
+    if (line.unica || line.outroId || index % 2 === 0) {
       ctx.font = "700 26px 'Barlow Condensed', sans-serif";
-      ctx.fillText(line.station >= 1 ? pad2(line.station) : "Troca", tableX + estW / 2, y + rowH / 2);
+      const meio = line.unica || line.outroId ? y : y + rowH / 2;
+      ctx.fillText(line.station >= 1 ? pad2(line.station) : "Troca", tableX + estW / 2, meio);
     }
-    ctx.font = "600 16px 'Source Sans 3', sans-serif";
-    ctx.fillText(SIDE_SHORT[line.side], tableX + estW + ladoW / 2, y);
+    if (!line.unica) {
+      ctx.font = "600 16px 'Source Sans 3', sans-serif";
+      ctx.fillText(SIDE_SHORT[line.side], tableX + estW + ladoW / 2, y);
+    }
     if (!(line.shared && index % 2 === 1)) {
       const matrixY = line.shared ? y + rowH / 2 : y;
+      ctx.font = "600 16px 'Source Sans 3', sans-serif";
       ctx.fillText(line.numero, tableX + estW + ladoW + numW / 2, matrixY);
       ctx.fillText(line.referencia, tableX + fixed - relW / 2, matrixY);
     }

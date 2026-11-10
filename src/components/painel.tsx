@@ -44,7 +44,7 @@ import {
 } from "@/lib/perdas";
 import { pullEvolucaoMolde, pullHistorico } from "@/lib/apontamentos.functions";
 import { cx, pares, paresDasEntradas, percentualPerda, textoPercentual } from "@/components/comum";
-import { AvisoSair, Teclado, campoInicial, teclaConta, useToque, type Campo } from "@/components/teclado";
+import { AvisoSair, Teclado, campoInicial, teclaConta, tecladoAberto, useFecharTeclado, useToque, type Campo } from "@/components/teclado";
 import { perdasPorEstacao, perdasPorMaquina, perdasPorProblema, separarEntradas, somarProducao } from "@/components/painel-calculo";
 
 type Papel = "preparador" | "lider";
@@ -3081,27 +3081,25 @@ function CorrigirProducao({
   }, [date, turno, machine]);
 
   function abrirNumero(numero: string) {
-    if (!toque) return;
+    if (!toque || foco === numero) return;
+    if (foco) {
+      const gravado = teclaConta(campo, "ok");
+      setValores((atual) => ({ ...atual, [foco]: gravado.texto }));
+    }
     const valor = valores[numero] ?? "";
     sessao.current = { id: numero, valor };
-    setCampo(campoInicial(Number(valor) || 0));
+    setCampo(campoInicial(Number(valores[numero]) || 0));
     setFoco(numero);
   }
 
   function fecharTeclado() {
-    const aberta = sessao.current;
-    if (aberta) setValores((atual) => ({ ...atual, [aberta.id]: aberta.valor }));
-    sessao.current = null;
-    setFoco(null);
-  }
-
-  function confirmarNumero() {
     if (!foco) return;
     const gravado = teclaConta(campo, "ok");
     setValores((atual) => ({ ...atual, [foco]: gravado.texto }));
     sessao.current = null;
     setFoco(null);
   }
+  useFecharTeclado(Boolean(toque && foco), fecharTeclado);
 
   useEffect(() => {
     if (!foco || !listaRef.current) return;
@@ -3120,7 +3118,8 @@ function CorrigirProducao({
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-3 sm:items-center"
       onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        if (event.target !== event.currentTarget || tecladoAberto()) return;
+        onClose();
       }}
     >
       <div className="flex max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-white shadow-xl">
@@ -3146,6 +3145,7 @@ function CorrigirProducao({
                   {toque ? (
                     <button
                       type="button"
+                      data-campo-teclado=""
                       onClick={() => abrirNumero(numero)}
                       className={cx(
                         "mt-2 w-full rounded-xl border bg-white px-2 py-2 text-center font-display text-2xl leading-none tabular-nums",
@@ -3190,8 +3190,6 @@ function CorrigirProducao({
               modo="conta"
               conta={campo.modo}
               onTecla={(tecla) => setCampo((atual) => teclaConta(atual, tecla))}
-              onFechar={fecharTeclado}
-              onConfirmar={confirmarNumero}
             />
           ) : (
             <button
@@ -3289,28 +3287,25 @@ function EditarPerdas({
   const sujo = grupos.some((grupo) => Number(campos[grupo.ids[0]]?.texto ?? grupo.ids.length) !== grupo.ids.length);
 
   function abrirCampo(id: string, atual: number) {
-    if (!toque) return;
+    if (!toque || foco === id) return;
     setCampos((lista) => {
       const aberta = sessao.current;
-      const proximo = aberta && aberta.id !== id ? { ...lista, [aberta.id]: aberta.campo } : lista;
+      const proximo =
+        aberta && aberta.id !== id
+          ? { ...lista, [aberta.id]: teclaConta(lista[aberta.id] ?? campoInicial(atual), "ok") }
+          : lista;
       sessao.current = { id, campo: proximo[id] ?? campoInicial(atual) };
       return proximo;
     });
     setFoco(id);
   }
 
-  function fecharSemSalvar() {
-    const aberta = sessao.current;
-    if (aberta) setCampos((lista) => ({ ...lista, [aberta.id]: aberta.campo }));
-    sessao.current = null;
-    setFoco(null);
-  }
-
-  function confirmarCampo() {
+  function fecharTecladoPerdas() {
     if (foco) setCampos((lista) => ({ ...lista, [foco]: teclaConta(lista[foco] ?? campoInicial(0), "ok") }));
     sessao.current = null;
     setFoco(null);
   }
+  useFecharTeclado(Boolean(toque && foco), fecharTecladoPerdas);
 
   useEffect(() => {
     if (!foco || !listaRef.current) return;
@@ -3342,7 +3337,8 @@ function EditarPerdas({
     <div
       className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center"
       onClick={(event) => {
-        if (event.target === event.currentTarget) pedirFechar();
+        if (event.target !== event.currentTarget || tecladoAberto()) return;
+        pedirFechar();
       }}
     >
       <div className="flex max-h-[92dvh] w-full max-w-lg flex-col overflow-hidden rounded-3xl bg-white shadow-xl">
@@ -3374,6 +3370,7 @@ function EditarPerdas({
                     {toque ? (
                       <button
                         type="button"
+                        data-campo-teclado=""
                         onClick={() => abrirCampo(grupo.ids[0], grupo.ids.length)}
                         className={cx(
                           "grid h-12 w-16 shrink-0 place-items-center rounded-xl border font-display text-2xl leading-none tabular-nums",
@@ -3409,8 +3406,6 @@ function EditarPerdas({
               onTecla={(tecla) =>
                 setCampos((atual) => ({ ...atual, [foco]: teclaConta(atual[foco] ?? campoInicial(0), tecla) }))
               }
-              onFechar={fecharSemSalvar}
-              onConfirmar={confirmarCampo}
             />
           ) : (
             <button
@@ -3655,8 +3650,8 @@ function AcompanhamentoDiario({
                       </h4>
                       <div className="mt-2 grid gap-2">
                         {item.lados.map((lado) => (
-                          <div key={lado.lado}>
-                            <p className="text-xs font-semibold text-muted">{lado.lado}</p>
+                          <div key={lado.lado || lado.texto}>
+                            {lado.lado ? <p className="text-xs font-semibold text-muted">{lado.lado}</p> : null}
                             <p className="text-sm font-semibold leading-snug">{lado.texto}</p>
                             <p className="text-sm tabular-nums">
                               {lado.pares} {lado.pares === 1 ? "par" : "pares"}
@@ -3777,8 +3772,8 @@ function MaquinaDoDia({
                   </h4>
                   <div className="mt-2 grid gap-2">
                     {item.lados.map((lado) => (
-                      <div key={lado.lado}>
-                        <p className="text-xs font-semibold text-muted">{lado.lado}</p>
+                      <div key={lado.lado || lado.texto}>
+                        {lado.lado ? <p className="text-xs font-semibold text-muted">{lado.lado}</p> : null}
                         <p className="text-sm font-semibold leading-snug">{lado.texto}</p>
                         <p className="text-sm tabular-nums">
                           {lado.pares} {lado.pares === 1 ? "par" : "pares"}
@@ -3826,10 +3821,17 @@ function estacoesDoDia(state: State, machine: MachineId, lines: FichaLine[]) {
   const daGrade = STATIONS.flatMap((station) => {
     const doPosto = lines.filter((line) => !line.outroId && line.station === station);
     const config = state.stations[stationKey(machine, station)];
-    const ambos = Boolean(config?.ambos);
+    const unica = doPosto.some((line) => line.unica);
+    if (unica) {
+      const linha = doPosto[0];
+      const texto = describeMatrix(config, "esq") || textoDaLinha(linha) || "sem numeração";
+      const pares = perdasDasLinhas(doPosto).reduce((soma, item) => soma + item.pares, 0);
+      if (pares <= 0 && !texto) return [];
+      return [{ chave: `est-${station}`, titulo: pad2(station), troca: false, pares, lados: [{ lado: "", texto, pares }] }];
+    }
     const lados = SIDES.map((side) => {
       const linha = doPosto.find((item) => item.side === side);
-      const texto = (ambos ? describeMatrix(config, "esq") : describeMatrix(config, side)) || textoDaLinha(linha) || "sem numeração";
+      const texto = (Boolean(config?.ambos) ? describeMatrix(config, "esq") : describeMatrix(config, side)) || textoDaLinha(linha) || "sem numeração";
       const paresLado = perdasDasLinhas(linha ? [linha] : []).reduce((soma, item) => soma + item.pares, 0);
       return { lado: SIDE_SHORT[side], texto, pares: paresLado };
     }).filter((lado) => lado.pares > 0);
@@ -3856,7 +3858,7 @@ function estacoesDoDia(state: State, machine: MachineId, lines: FichaLine[]) {
       const primeiro = grupo[0];
       const lados = grupo
         .map((line) => ({
-          lado: SIDE_SHORT[line.side],
+          lado: line.unica ? "" : SIDE_SHORT[line.side],
           texto: textoDaLinha(line) || "sem numeração",
           pares: perdasDasLinhas([line]).reduce((soma, item) => soma + item.pares, 0),
         }))
@@ -4256,16 +4258,18 @@ function FichaTable({ lines }: { lines: FichaLine[] }) {
         </tr>
       </thead>
       <tbody>
-        {STATIONS.map((station) =>
-          SIDES.map((side, index) => {
-            const line = lines.find((item) => item.station === station && item.side === side);
+        {STATIONS.map((station) => {
+          const unica = lines.some((item) => item.station === station && item.unica && !item.outroId);
+          const lados = unica ? (["esq"] as const) : SIDES;
+          return lados.map((side, index) => {
+            const line = lines.find((item) => item.station === station && item.side === side && !item.outroId);
             const band = station % 2 === 1 ? "bg-surface" : "bg-surface-2";
             return (
               <tr key={`${station}-${side}`}>
                 {index === 0 ? (
                   <th
                     scope="rowgroup"
-                    rowSpan={2}
+                    rowSpan={unica ? 1 : 2}
                     className={cx(
                       "sticky left-0 z-10 w-14 border-b border-r border-line px-1 text-center font-display text-2xl",
                       band,
@@ -4280,7 +4284,7 @@ function FichaTable({ lines }: { lines: FichaLine[] }) {
                     band,
                   )}
                 >
-                  {SIDE_SHORT[side]}
+                  {unica ? "" : SIDE_SHORT[side]}
                 </td>
                 {index === 0 || !line?.shared ? (
                   <td
@@ -4322,8 +4326,8 @@ function FichaTable({ lines }: { lines: FichaLine[] }) {
                 })}
               </tr>
             );
-          }),
-        )}
+          });
+        })}
       </tbody>
     </table>
   );

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export function useToque() {
   const [toque, setToque] = useState(() => {
@@ -13,6 +13,33 @@ export function useToque() {
     return () => mq.removeEventListener("change", atualizar);
   }, []);
   return toque;
+}
+
+let fechadorAtual: (() => void) | null = null;
+
+export function tecladoAberto() {
+  return fechadorAtual;
+}
+
+/** Toque fora guarda o número e fecha o teclado. O voltar do celular usa tecladoAberto. */
+export function useFecharTeclado(aberto: boolean, fechar: () => void) {
+  const fecharRef = useRef(fechar);
+  fecharRef.current = fechar;
+  useEffect(() => {
+    if (!aberto) return;
+    const atual = () => fecharRef.current();
+    fechadorAtual = atual;
+    const onPointer = (event: PointerEvent) => {
+      const alvo = event.target;
+      if (alvo instanceof Element && alvo.closest("[data-teclado], [data-campo-teclado]")) return;
+      atual();
+    };
+    document.addEventListener("pointerdown", onPointer, true);
+    return () => {
+      if (fechadorAtual === atual) fechadorAtual = null;
+      document.removeEventListener("pointerdown", onPointer, true);
+    };
+  }, [aberto]);
 }
 
 export type Campo = {
@@ -110,7 +137,7 @@ function Tecla({
       onClick={onClick}
       className={
         ativo
-          ? "h-12 rounded-2xl bg-[#1e3a5f] font-display text-3xl leading-none text-white shadow-[inset_0_4px_0_rgba(0,0,0,0.35)]"
+          ? "h-12 rounded-2xl border-2 border-accent bg-white font-display text-3xl leading-none text-accent shadow-[inset_0_3px_0_rgba(30,58,95,0.2)]"
           : tom === "acao"
             ? "h-12 rounded-2xl bg-accent font-display text-3xl leading-none text-accent-ink"
             : tom === "apagar"
@@ -127,14 +154,10 @@ export function Teclado({
   modo,
   conta,
   onTecla,
-  onFechar,
-  onConfirmar,
 }: {
   modo: "conta" | "matriz";
   conta?: Campo["modo"];
   onTecla: (tecla: string) => void;
-  onFechar: () => void;
-  onConfirmar?: () => void;
 }) {
   const linhas =
     modo === "conta"
@@ -151,7 +174,7 @@ export function Teclado({
           ["/", "0", "⌫"],
         ];
   return (
-    <div className="rounded-3xl bg-accent-soft p-2">
+    <div data-teclado="" className="rounded-3xl bg-accent-soft p-2">
       <div className="grid gap-1.5">
         {linhas.map((linha) => (
           <div key={linha.join("")} className="grid grid-cols-3 gap-1.5">
@@ -173,34 +196,6 @@ export function Teclado({
           </Tecla>
         ) : null}
       </div>
-      {onConfirmar ? (
-        <div className="mt-2 grid grid-cols-2 gap-1.5">
-          <button
-            type="button"
-            aria-label="Fechar teclado"
-            onClick={onFechar}
-            className="grid h-14 place-items-center rounded-2xl bg-[#1e3a5f] font-display text-4xl leading-none text-white"
-          >
-            ×
-          </button>
-          <button
-            type="button"
-            onClick={onConfirmar}
-            className="grid h-14 place-items-center rounded-2xl bg-accent font-display text-4xl leading-none text-accent-ink"
-          >
-            ✓
-          </button>
-        </div>
-      ) : (
-        <button
-          type="button"
-          aria-label="Fechar teclado"
-          onClick={onFechar}
-          className="mt-2 grid h-14 w-full place-items-center rounded-2xl bg-[#1e3a5f] font-display text-4xl leading-none text-white"
-        >
-          ×
-        </button>
-      )}
     </div>
   );
 }
@@ -211,28 +206,9 @@ const LETRAS = [
   ["z", "x", "c", "v", "b", "n", "m"],
 ];
 
-export function TecladoLetras({
-  onTecla,
-  onFechar,
-  onConfirmar,
-}: {
-  onTecla: (tecla: string) => void;
-  onFechar: () => void;
-  onConfirmar: () => void;
-}) {
+export function TecladoLetras({ onTecla }: { onTecla: (tecla: string) => void }) {
   return (
-    <div className="rounded-3xl bg-accent-soft p-2">
-      <div className="mb-1 flex items-center justify-between px-1">
-        <p className="text-xs font-semibold text-muted">× descarta · ✓ grava este campo</p>
-        <button
-          type="button"
-          aria-label="Fechar sem salvar"
-          onClick={onFechar}
-          className="grid size-10 place-items-center rounded-xl text-2xl leading-none text-[#5c6b7e]"
-        >
-          ×
-        </button>
-      </div>
+    <div data-teclado="" className="rounded-3xl bg-accent-soft p-2">
       <div className="grid grid-cols-10 gap-1">
         {["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"].map((tecla) => (
           <button
@@ -272,13 +248,6 @@ export function TecladoLetras({
           ⌫
         </button>
       </div>
-      <button
-        type="button"
-        onClick={onConfirmar}
-        className="mt-2 w-full rounded-2xl bg-accent py-3 font-display text-2xl leading-none text-accent-ink"
-      >
-        ✓ Confirmar
-      </button>
     </div>
   );
 }

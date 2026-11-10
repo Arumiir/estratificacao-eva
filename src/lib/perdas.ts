@@ -280,6 +280,13 @@ export function diaDeHoje(now = Date.now()): string {
   return date;
 }
 
+/** Matriz única deixa de pedir lado a partir do 1º turno deste dia, às 07:00. */
+export const MATRIZ_UNICA_DESDE = "2026-11-10";
+
+export function matrizUnicaNoDia(date: string, ambos: boolean | undefined): boolean {
+  return Boolean(ambos) && date >= MATRIZ_UNICA_DESDE;
+}
+
 export function diasAte(ate: string, quantidade: number): string[] {
   const [year, month, day] = ate.split("-").map(Number);
   if (!year || !month || !day) return [];
@@ -974,6 +981,7 @@ export type FichaLine = {
   numero: string;
   referencia: string;
   shared: boolean;
+  unica?: boolean;
   counts: number[];
   outroId: string;
   cor: string;
@@ -991,9 +999,22 @@ export function nomesNaFicha(state: State, machine: MachineId): string {
 export function fichaLines(state: State, machine: MachineId): FichaLine[] {
   const entries = shiftEntries(state, machine).filter((entry) => !entry.outroId);
   const daGrade = STATIONS.flatMap((station) => {
-          const config = state.stations[stationKey(machine, station)];
-          const shared = Boolean(config?.ambos);
-          return SIDES.map((side) => {
+    const config = state.stations[stationKey(machine, station)];
+    const shared = Boolean(config?.ambos);
+    const doPosto = entries.filter((entry) => entry.station === station);
+    if (matrizUnicaNoDia(state.date, shared)) {
+      const slot = activeMatrix(config, "esq");
+      let numero = slot?.numero ?? "";
+      let referencia = slot ? referenciaLimpa(slot.referencia) : "";
+      if (!numero) {
+        const latest = [...doPosto].sort((a, b) => b.at - a.at)[0];
+        numero = numeroLimpo(latest?.matrizNumero ?? "");
+        referencia = numero ? referenciaLimpa(latest?.matrizRel ?? "") : "";
+      }
+      const counts = PROBLEMS.map((problem) => doPosto.filter((entry) => entry.problem === problem.id).length);
+      return [{ machine, station, side: "esq" as const, numero, referencia, shared: false, unica: true, counts, outroId: "", cor: "" }];
+    }
+    return SIDES.map((side) => {
             const slot = activeMatrix(config, side);
             let numero = slot?.numero ?? "";
             let referencia = slot ? referenciaLimpa(slot.referencia) : "";
@@ -1007,26 +1028,40 @@ export function fichaLines(state: State, machine: MachineId): FichaLine[] {
               (problem) => doLado.filter((entry) => entry.problem === problem.id).length,
             );
             return { machine, station, side, numero, referencia, shared, counts, outroId: "", cor: "" };
-          });
-        });
+    });
+  });
   const deOutros = state.outros
     .filter((item) => outroVivo(item) && item.machine === machine && item.date === state.date && item.turno === state.turno)
     .flatMap((item) => {
+      const doItem = shiftEntries(state, machine).filter((entry) => entry.outroId === item.id);
+      const numero = numeroLimpo(item.numero);
+      const referencia = numero ? referenciaLimpa(item.referencia) : "";
+      if (matrizUnicaNoDia(state.date, item.ambos)) {
+        const counts = PROBLEMS.map((problem) => doItem.filter((entry) => entry.problem === problem.id).length);
+        return [{
+          machine,
+          station: item.station,
+          side: "esq" as const,
+          numero,
+          referencia,
+          shared: false,
+          unica: true,
+          counts,
+          outroId: item.id,
+          cor: "",
+        }];
+      }
       const lados = item.ambos ? SIDES : [item.side];
       return lados.map((side) => {
-        const doItem = shiftEntries(state, machine).filter(
-          (entry) => entry.outroId === item.id && entry.side === side,
-        );
         const counts = PROBLEMS.map(
-          (problem) => doItem.filter((entry) => entry.problem === problem.id).length,
+          (problem) => doItem.filter((entry) => entry.problem === problem.id && entry.side === side).length,
         );
-        const numero = numeroLimpo(item.numero);
         return {
           machine,
           station: item.station,
           side,
           numero,
-          referencia: numero ? referenciaLimpa(item.referencia) : "",
+          referencia,
           shared: item.ambos,
           counts,
           outroId: item.id,
@@ -1054,7 +1089,7 @@ export function entryRows(state: State, machines: MachineId[]): TableRow[] {
       body.push([
         String(machine),
         String(line.station),
-        SIDE_LABEL[line.side],
+        line.unica ? "" : SIDE_LABEL[line.side],
         line.shared && line.side === "dir" ? "" : line.numero,
         line.shared && line.side === "dir" ? "" : line.referencia,
         ...line.counts.map(String),
