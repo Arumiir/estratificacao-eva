@@ -627,16 +627,18 @@ function blocosDaFicha(lines: FichaLine[]) {
   return [...grade, ...outros];
 }
 
-function nomeDeitado(ctx: CanvasRenderingContext2D, texto: string, maxW: number) {
-  let tamanho = 15;
-  let linhas = [texto];
-  while (tamanho >= 11) {
+function nomeDeitado(ctx: CanvasRenderingContext2D, texto: string, maxW: number, tamanho: number) {
+  ctx.font = `700 ${tamanho}px 'Barlow Condensed', sans-serif`;
+  return quebrarTexto(ctx, texto, maxW);
+}
+
+function tamanhoDosNomes(ctx: CanvasRenderingContext2D, nomes: string[], maxW: number) {
+  for (let tamanho = 15; tamanho >= 11; tamanho -= 1) {
     ctx.font = `700 ${tamanho}px 'Barlow Condensed', sans-serif`;
-    linhas = quebrarTexto(ctx, texto, maxW);
-    if (linhas.every((linha) => ctx.measureText(linha).width <= maxW)) return { tamanho, linhas };
-    tamanho -= 1;
+    const cabe = nomes.every((texto) => quebrarTexto(ctx, texto, maxW).every((linha) => ctx.measureText(linha).width <= maxW));
+    if (cabe) return tamanho;
   }
-  return { tamanho, linhas };
+  return 11;
 }
 
 function drawFichaSecreta(
@@ -738,20 +740,21 @@ function drawFichaSecreta(
   ctx.fillText("Nº", tableX + estW + ladoW + numW / 2, meioCabeca);
   ctx.fillText("REF.", tableX + fixed - relW / 2, meioCabeca);
 
+  const tamanhoNome = tamanhoDosNomes(ctx, PROBLEMS_FICHA.map((problem) => problem.name), probW - 10);
   PROBLEMS_FICHA.forEach((problem, index) => {
     const colX = tableX + fixed + index * probW;
-    const nome = nomeDeitado(ctx, problem.name, probW - 10);
+    const linhas = nomeDeitado(ctx, problem.name, probW - 10, tamanhoNome);
     ctx.save();
     ctx.beginPath();
     ctx.rect(colX + 2, tableY + 4, probW - 4, headH - 8);
     ctx.clip();
-    ctx.font = `700 ${nome.tamanho}px 'Barlow Condensed', sans-serif`;
+    ctx.font = `700 ${tamanhoNome}px 'Barlow Condensed', sans-serif`;
     ctx.fillStyle = cor.tinta;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    const linhaH = nome.tamanho + 3;
-    const topo = tableY + (headH - nome.linhas.length * linhaH) / 2 + linhaH / 2;
-    nome.linhas.forEach((linha, linhaIndex) => {
+    const linhaH = tamanhoNome + 3;
+    const topo = tableY + (headH - linhas.length * linhaH) / 2 + linhaH / 2;
+    linhas.forEach((linha, linhaIndex) => {
       ctx.fillText(linha, colX + probW / 2, topo + linhaIndex * linhaH);
     });
     ctx.restore();
