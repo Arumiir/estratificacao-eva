@@ -15,23 +15,6 @@ export function useToque() {
   return toque;
 }
 
-/** Depois do último dígito, o + ou o – volta à cor normal. Um toque no mesmo botão também solta. */
-export function useSelarOperacao(campo: Campo | undefined, aplicar: (proximo: Campo) => void) {
-  const campoRef = useRef(campo);
-  const aplicarRef = useRef(aplicar);
-  campoRef.current = campo;
-  aplicarRef.current = aplicar;
-  useEffect(() => {
-    if (!campo || campo.modo === "total" || !campo.digitos) return;
-    const timer = window.setTimeout(() => {
-      const atual = campoRef.current;
-      if (!atual || atual.modo === "total" || !atual.digitos) return;
-      aplicarRef.current(teclaConta(atual, "ok"));
-    }, 700);
-    return () => window.clearTimeout(timer);
-  }, [campo?.modo, campo?.digitos]);
-}
-
 let fechadorAtual: (() => void) | null = null;
 
 export function tecladoAberto() {
