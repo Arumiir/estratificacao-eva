@@ -37,11 +37,6 @@ function juntar(nomes: string[]) {
   return `${primeiro}, ${cauda.slice(0, -1).join(", ")} e ${cauda[cauda.length - 1]}`;
 }
 
-function textoOuTraco(valor: string) {
-  const texto = valor.trim();
-  return texto || "---";
-}
-
 export function FechamentoTurno({
   state,
   onCommit,
@@ -95,21 +90,6 @@ export function FechamentoTurno({
     setCampos((atual) => ({ ...atual, [machine]: { ...camposDe(machine), [chave]: valor } }));
   }
 
-  function textoDa(machine: MachineId) {
-    const conta = calcular(machine);
-    const digitado = camposDe(machine);
-    return [
-      `${machine}:`,
-      `• Horas Baixadas: ${textoOuTraco(digitado.horas)}`,
-      `• Produção: ${conta.producao}`,
-      `• Perdas: ${conta.perdas}`,
-      `• Percentual: ${conta.percentual}`,
-      `• Saldo: ${textoOuTraco(digitado.saldo)}`,
-      `• Setup: ${textoOuTraco(digitado.setup)}`,
-      `• Prob.: ${conta.problemas}.`,
-    ].join("\n");
-  }
-
   async function gerar() {
     if (escolhidas.length === 0 || gerando) return;
     setGerando(true);
@@ -135,29 +115,14 @@ export function FechamentoTurno({
         fechamentos: mergeFechamentos(current.fechamentos ?? [], salvos),
       }));
 
-      const { renderFichasDaMaquina, anexarLegenda, entregarArquivos } = await import("@/lib/ficha-image");
-      const arquivos: { name: string; blob: Blob }[] = [];
-      for (const machine of escolhidas) {
-        const linhas = textoDa(machine).split("\n");
-        if (!machineHasFicha(view, machine)) continue;
-        const grupos = await renderFichasDaMaquina(view, machine);
-        for (const [indice, grupo] of grupos.entries()) {
-          const sufixo = grupo.nome
-            ? `-${grupo.nome.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "")}`
-            : grupos.length > 1
-              ? `-${indice + 1}`
-              : "";
-          arquivos.push({
-            name: `ficha-${view.date}-${machine}${sufixo}.png`,
-            blob: await anexarLegenda(grupo.blob, linhas),
-          });
-        }
-      }
-      if (arquivos.length === 0) {
+      const comFicha = escolhidas.filter((machine) => machineHasFicha(view, machine));
+      if (comFicha.length === 0) {
         onNotice("Nenhuma ficha neste turno.");
         return;
       }
-      const resultado = await entregarArquivos(arquivos);
+      const { renderFichaJunta, entregarArquivos } = await import("@/lib/ficha-image");
+      const blob = await renderFichaJunta(view, comFicha);
+      const resultado = await entregarArquivos([{ name: `fichas-${view.date}.png`, blob }]);
       if (resultado === "cancelou") return;
       if (resultado === "baixou") onNotice("Não foi possível abrir o WhatsApp neste aparelho.");
     } catch (error) {
