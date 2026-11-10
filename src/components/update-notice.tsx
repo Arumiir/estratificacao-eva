@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 const RELOAD_KEY = "perdas-reload-for";
 
@@ -22,38 +22,32 @@ async function bundleRemoto() {
 }
 
 export function UpdateNotice() {
+  const [remoto, setRemoto] = useState("");
+
   useEffect(() => {
     if (!import.meta.env.PROD) return;
     if (window.parent !== window) return;
     let parado = false;
-    let alvo = "";
-
-    function aplicar(remoto: string) {
-      if (sessionStorage.getItem(RELOAD_KEY) === remoto) return;
-      sessionStorage.setItem(RELOAD_KEY, remoto);
-      window.location.reload();
-    }
 
     async function checar() {
       const atual = bundleAtual();
       if (!atual) return;
-      let remoto = "";
+      let proximo = "";
       try {
-        remoto = await bundleRemoto();
+        proximo = await bundleRemoto();
       } catch {
         return;
       }
-      if (parado || !remoto || atual === remoto) return;
-      alvo = remoto;
-      if (document.visibilityState === "hidden") aplicar(remoto);
-    }
-
-    function aoVoltar() {
-      if (document.visibilityState === "hidden" && alvo) aplicar(alvo);
+      if (parado || !proximo || atual === proximo) return;
+      if (sessionStorage.getItem(RELOAD_KEY) === proximo) return;
+      setRemoto(proximo);
     }
 
     void checar();
     const timer = window.setInterval(() => void checar(), 20_000);
+    const aoVoltar = () => {
+      if (document.visibilityState === "visible") void checar();
+    };
     document.addEventListener("visibilitychange", aoVoltar);
     return () => {
       parado = true;
@@ -62,5 +56,24 @@ export function UpdateNotice() {
     };
   }, []);
 
-  return null;
+  if (!remoto) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-6">
+      <div className="w-full max-w-sm rounded-3xl bg-white px-6 py-6 text-center shadow-xl">
+        <p className="text-lg font-semibold">Tem atualização</p>
+        <p className="mt-2 text-base text-muted">Toque para carregar a versão nova.</p>
+        <button
+          type="button"
+          onClick={() => {
+            sessionStorage.setItem(RELOAD_KEY, remoto);
+            window.location.reload();
+          }}
+          className="mt-5 w-full rounded-2xl bg-accent py-3 text-sm font-semibold text-accent-ink"
+        >
+          Atualizar
+        </button>
+      </div>
+    </div>
+  );
 }

@@ -3188,7 +3188,6 @@ function CorrigirProducao({
           {toque && foco ? (
             <Teclado
               modo="conta"
-              conta={campo.modo}
               onTecla={(tecla) => setCampo((atual) => teclaConta(atual, tecla))}
             />
           ) : (
@@ -3402,7 +3401,6 @@ function EditarPerdas({
           {toque && foco ? (
             <Teclado
               modo="conta"
-              conta={campos[foco]?.modo}
               onTecla={(tecla) =>
                 setCampos((atual) => ({ ...atual, [foco]: teclaConta(atual[foco] ?? campoInicial(0), tecla) }))
               }

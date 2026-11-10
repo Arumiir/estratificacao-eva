@@ -692,6 +692,35 @@ export function EstratificacaoApp() {
         tecladoAberto()?.();
         return;
       }
+      const nextState = window.history.state;
+      const temMarcador =
+        nextState && typeof nextState === "object" && typeof nextState.perdasDepth === "number";
+      if (!temMarcador) {
+        if (bloqueioRef.current && stackRef.current.length > 1) {
+          window.history.pushState(stampDepth(depthRef.current), "");
+          pendenteRef.current = () => {
+            const next = stackRef.current.slice(0, -1);
+            stackRef.current = next.length > 0 ? next : [homeRef.current];
+            depthRef.current = stackRef.current.length;
+            setDir("back");
+            setStack(stackRef.current);
+          };
+          desfazerRef.current = () => {};
+          bloqueioRef.current();
+          return;
+        }
+        if (stackRef.current.length > 1) {
+          const next = stackRef.current.slice(0, -1);
+          stackRef.current = next;
+          depthRef.current = next.length;
+          setDir("back");
+          setStack(next);
+          window.history.pushState(stampDepth(next.length), "");
+          return;
+        }
+        window.history.pushState(stampDepth(depthRef.current), "");
+        return;
+      }
       if (bloqueioRef.current) {
         window.history.pushState(stampDepth(depthRef.current), "");
         pendenteRef.current = () => window.history.go(-2);
@@ -699,11 +728,7 @@ export function EstratificacaoApp() {
         bloqueioRef.current();
         return;
       }
-      const nextState = window.history.state;
-      const depth =
-        nextState && typeof nextState === "object" && typeof nextState.perdasDepth === "number"
-          ? nextState.perdasDepth
-          : 1;
+      const depth = temMarcador ? nextState.perdasDepth : 1;
       depthRef.current = depth;
       const next = stackRef.current.slice(0, Math.max(1, depth));
       stackRef.current = next.length > 0 ? next : [homeRef.current];
@@ -1527,7 +1552,10 @@ export function EstratificacaoApp() {
           {papel ? (
             <button
               type="button"
-              onClick={leavePapel}
+              onClick={() => {
+                if (stack.length > 1) back();
+                else leavePapel();
+              }}
               className="shrink-0 rounded-tile bg-accent-soft px-3 py-2 text-sm font-semibold text-accent"
             >
               Voltar
@@ -2164,7 +2192,6 @@ function ProducaoScreen({
         {toque && foco && editando ? (
           <Teclado
             modo="conta"
-            conta={campo.modo}
             onTecla={(tecla) => {
               setSujo(true);
               setCampo((atual) => teclaConta(atual, tecla));
@@ -2854,7 +2881,6 @@ function ProblemsScreen({
         {toque && foco && !offDay ? (
           <Teclado
             modo="conta"
-            conta={campos[foco]?.modo}
             onTecla={(tecla) => setCampos((atual) => ({ ...atual, [foco]: teclaConta(atual[foco] ?? campoInicial(0), tecla) }))}
           />
         ) : (

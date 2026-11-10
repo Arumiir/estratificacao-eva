@@ -121,23 +121,28 @@ function Tecla({
   onClick,
   tom = "numero",
   label,
-  ativo = false,
 }: {
   children: string;
   onClick: () => void;
   tom?: "numero" | "acao" | "apagar";
   label?: string;
-  ativo?: boolean;
 }) {
+  const [aceso, setAceso] = useState(false);
+  const troca = children === "+" || children === "–" || children === "-";
   return (
     <button
       type="button"
       aria-label={label ?? children}
-      aria-pressed={ativo}
-      onClick={onClick}
+      onClick={() => {
+        if (troca) {
+          setAceso(true);
+          window.setTimeout(() => setAceso(false), 220);
+        }
+        onClick();
+      }}
       className={
-        ativo
-          ? "h-12 rounded-2xl border-2 border-accent bg-white font-display text-3xl leading-none text-accent shadow-[inset_0_3px_0_rgba(30,58,95,0.2)]"
+        aceso
+          ? "h-12 rounded-2xl border-2 border-accent bg-white font-display text-3xl leading-none text-accent"
           : tom === "acao"
             ? "h-12 rounded-2xl bg-accent font-display text-3xl leading-none text-accent-ink"
             : tom === "apagar"
@@ -152,11 +157,9 @@ function Tecla({
 
 export function Teclado({
   modo,
-  conta,
   onTecla,
 }: {
   modo: "conta" | "matriz";
-  conta?: Campo["modo"];
   onTecla: (tecla: string) => void;
 }) {
   const linhas =
@@ -182,7 +185,6 @@ export function Teclado({
               <Tecla
                 key={tecla}
                 tom={tecla === "+" || tecla === "-" || tecla === "/" ? "acao" : tecla === "⌫" ? "apagar" : "numero"}
-                ativo={(tecla === "+" && conta === "soma") || (tecla === "-" && conta === "tira")}
                 onClick={() => onTecla(tecla)}
               >
                 {tecla === "-" ? "–" : tecla}
