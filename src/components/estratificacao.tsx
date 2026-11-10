@@ -1800,7 +1800,6 @@ export function EstratificacaoApp() {
                 )
               }
               onNotice={(text) => flash(text)}
-              onModelo={alternarModelo}
               onCorrigirProducao={corrigirProducao}
               onLancarPerda={lancarCorrecao}
               onApagarPerda={apagarCorrecao}

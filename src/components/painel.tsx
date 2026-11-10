@@ -2,7 +2,6 @@ import { startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState,
 import { ChevronDown, ChevronLeft, ChevronRight, Eraser, ImageDown, X } from "lucide-react";
 import {
   MACHINES,
-  MAQUINAS_PISO,
   maquinaBase,
   maquinasDoFiltro,
   PROBLEMS,
@@ -236,7 +235,6 @@ export function SheetScreen({
   papel,
   onDelete,
   onNotice,
-  onModelo,
   onCorrigirProducao,
   onLancarPerda,
   onApagarPerda,
@@ -249,7 +247,6 @@ export function SheetScreen({
   papel: Papel;
   onDelete?: (entries: Entry[]) => void;
   onNotice: (text: string) => void;
-  onModelo: (machine: MaquinaPiso) => void;
   onCorrigirProducao?: (date: string, machine: MachineId, turno: Turno, valores: Record<string, number>) => void;
   onLancarPerda?: (sola: SolaCorrecao) => void;
   onApagarPerda?: (id: string) => void;
@@ -304,7 +301,7 @@ export function SheetScreen({
     <>
       {papel === "lider" ? (
         abaLider === "geral" ? (
-          <PainelHistorico state={state} today={today} onDate={onDate} aba={abaLider} onAba={setAbaLider} onModelo={onModelo} />
+          <PainelHistorico state={state} today={today} onDate={onDate} aba={abaLider} onAba={setAbaLider} />
         ) : (
           <AcompanhamentoDiario
             state={view}
@@ -573,65 +570,6 @@ function lerFiltros(): FiltrosDash {
   }
 }
 
-function ConfigModelos({ state, onToggle }: { state: State; onToggle: (machine: MaquinaPiso) => void }) {
-  const [aberto, setAberto] = useState(false);
-  return (
-    <>
-      <button
-        type="button"
-        onClick={() => setAberto(true)}
-        className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border border-[#d5dee8] bg-[#f7f9fc] px-3 text-sm font-semibold text-fg"
-      >
-        <svg viewBox="0 0 24 24" className="size-4 text-[#4682B4]" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-          <circle cx="12" cy="12" r="3" />
-          <path d="M12 3.5v2.2M12 18.3v2.2M3.5 12h2.2M18.3 12h2.2M5.8 5.8l1.6 1.6M16.6 16.6l1.6 1.6M18.2 5.8l-1.6 1.6M7.4 16.6l-1.6 1.6" strokeLinecap="round" />
-        </svg>
-        Configuração
-      </button>
-      {aberto ? (
-        <div
-          className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) setAberto(false);
-          }}
-        >
-          <div className="w-full max-w-sm rounded-3xl bg-white p-5 shadow-xl">
-            <h3 className="text-base font-semibold">A e B</h3>
-            <p className="mt-1 text-sm text-muted">Ligado, a máquina pede A ou B. Desligado, entra direto.</p>
-            <div className="mt-4 grid gap-2">
-              {MAQUINAS_PISO.map((machine) => {
-                const ligado = state.modelos.includes(machine);
-                return (
-                  <div key={machine} className="flex items-center justify-between gap-3 rounded-xl border border-[#d5dee8] px-3 py-2.5">
-                    <span className="font-display text-2xl leading-none">{machine}</span>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={ligado}
-                      aria-label={`${ligado ? "Desativar" : "Ativar"} A e B na ${machine}`}
-                      onClick={() => onToggle(machine)}
-                      className={cx("relative h-8 w-14 shrink-0 rounded-full", ligado ? "bg-[#4682B4]" : "bg-[#d5dee8]")}
-                    >
-                      <span
-                        className={cx(
-                          "absolute top-1 size-6 rounded-full bg-white shadow",
-                          ligado ? "left-7" : "left-1",
-                        )}
-                      />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-            <button type="button" onClick={() => setAberto(false)} className="mt-4 w-full rounded-2xl bg-[#f3f6fb] py-3 text-sm font-semibold">
-              Fechar
-            </button>
-          </div>
-        </div>
-      ) : null}
-    </>
-  );
-}
 
 type PeriodoBloco = "dia" | "semana" | "mes" | "ano";
 type RecorteBloco = { periodo: PeriodoBloco; turno: Turno | null };
@@ -728,14 +666,12 @@ function PainelHistorico({
   onDate,
   aba,
   onAba,
-  onModelo,
 }: {
   state: State;
   today: string;
   onDate: (date: string) => void;
   aba: "geral" | "diario";
   onAba: (aba: "geral" | "diario") => void;
-  onModelo: (machine: MaquinaPiso) => void;
 }) {
   const salvos = lerFiltros();
   const recortes = lerRecortes();
@@ -991,7 +927,6 @@ function PainelHistorico({
             </span>
           ) : null}
         </button>
-        <ConfigModelos state={state} onToggle={onModelo} />
         {filtrosAtivos > 0 ? (
           <button
             type="button"
