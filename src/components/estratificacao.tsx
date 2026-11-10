@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState, type MutableRefObject } fr
 import { cx, paresDasEntradas, percentualPerda, textoPercentual } from "@/components/comum";
 import { InstallPrompt } from "@/components/install-prompt";
 import { UpdateNotice } from "@/components/update-notice";
-import { ChevronLeft, ChevronDown, ImageDown } from "lucide-react";
+import { ChevronLeft, ChevronDown, House, ImageDown, Settings } from "lucide-react";
 import {
   MAQUINAS_PISO,
   variantesDe,
@@ -644,6 +644,7 @@ export function EstratificacaoApp() {
   const [sessao, setSessao] = useState<Sessao | null>(null);
   const [sessaoReady, setSessaoReady] = useState(false);
   const [stack, setStack] = useState<Screen[]>([{ kind: "papel" }]);
+  const [configAberta, setConfigAberta] = useState(false);
   const [dir, setDir] = useState<"forward" | "back">("forward");
   const [banner, setBanner] = useState<Banner | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -888,6 +889,31 @@ export function EstratificacaoApp() {
       return;
     }
     window.history.back();
+  }
+
+  function irParaCasa() {
+    if (tecladoAberto()) {
+      tecladoAberto()?.();
+      return;
+    }
+    const casa = homeRef.current;
+    if (stackRef.current.length <= 1 && screenKey(stackRef.current[0] ?? casa) === screenKey(casa)) return;
+    const ir = () => {
+      bloqueioRef.current = null;
+      adoptStack([casa]);
+    };
+    if (bloqueioRef.current) {
+      desfazerRef.current = null;
+      pendenteRef.current = ir;
+      bloqueioRef.current();
+      return;
+    }
+    ir();
+  }
+
+  function abrirConfig() {
+    if (tecladoAberto()) tecladoAberto()?.();
+    setConfigAberta(true);
   }
 
   function replaceTop(next: Screen) {
@@ -1509,16 +1535,6 @@ export function EstratificacaoApp() {
       <header className="shrink-0 border-b border-line bg-surface">
         <div className="h-1 bg-accent" />
         <div className="mx-auto flex w-full max-w-6xl items-center gap-3 px-4 py-3 lg:max-w-none lg:px-5">
-          {stack.length > 1 ? (
-            <button
-              type="button"
-              onClick={back}
-              aria-label="Voltar"
-              className="grid size-11 shrink-0 place-items-center rounded-tile bg-accent-soft text-accent"
-            >
-              <ChevronLeft className="size-6" />
-            </button>
-          ) : null}
           <div className="min-w-0 flex-1">
             {screen.kind === "sheet" ? (
               <>
@@ -1550,16 +1566,33 @@ export function EstratificacaoApp() {
             ) : null}
           </div>
           {papel ? (
-            <button
-              type="button"
-              onClick={() => {
-                if (stack.length > 1) back();
-                else leavePapel();
-              }}
-              className="shrink-0 rounded-tile bg-accent-soft px-3 py-2 text-sm font-semibold text-accent"
-            >
-              Voltar
-            </button>
+            <div className="hidden shrink-0 items-center gap-2 lg:flex">
+              <button
+                type="button"
+                onClick={back}
+                disabled={stack.length <= 1}
+                className="inline-flex items-center gap-2 rounded-tile border border-line bg-surface px-3 py-2 text-sm font-semibold disabled:opacity-40"
+              >
+                <ChevronLeft className="size-4" />
+                Voltar
+              </button>
+              <button
+                type="button"
+                onClick={irParaCasa}
+                className="inline-flex items-center gap-2 rounded-tile border border-line bg-surface px-3 py-2 text-sm font-semibold"
+              >
+                <House className="size-4" />
+                Início
+              </button>
+              <button
+                type="button"
+                onClick={abrirConfig}
+                className="inline-flex items-center gap-2 rounded-tile bg-accent px-3 py-2 text-sm font-semibold text-accent-ink"
+              >
+                <Settings className="size-4" />
+                Configuração
+              </button>
+            </div>
           ) : null}
         </div>
       </header>
@@ -1748,10 +1781,74 @@ export function EstratificacaoApp() {
           type="button"
           aria-label="Voltar ao início"
           onClick={() => scroller.current?.scrollTo({ top: 0, behavior: "smooth" })}
-          className="fixed bottom-6 right-4 z-40 grid size-11 place-items-center rounded-full border border-[#d5dee8] bg-white text-[#1e3a5f] shadow-[0_8px_20px_rgba(30,58,95,0.16)]"
+          className="fixed bottom-24 right-4 z-40 grid size-11 place-items-center rounded-full border border-[#d5dee8] bg-white text-[#1e3a5f] shadow-[0_8px_20px_rgba(30,58,95,0.16)] lg:bottom-6"
         >
           <ChevronDown className="size-5 rotate-180" />
         </button>
+      ) : null}
+      {papel ? (
+        <nav className="shrink-0 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden">
+          <div className="grid grid-cols-3">
+            <button
+              type="button"
+              onClick={back}
+              disabled={stack.length <= 1}
+              className="flex flex-col items-center gap-1 py-2 text-xs font-semibold text-accent disabled:opacity-40"
+            >
+              <ChevronLeft className="size-5" />
+              Voltar
+            </button>
+            <button
+              type="button"
+              onClick={irParaCasa}
+              className="flex flex-col items-center gap-1 py-2 text-xs font-semibold text-accent"
+            >
+              <House className="size-5" />
+              Início
+            </button>
+            <button
+              type="button"
+              onClick={abrirConfig}
+              className="flex flex-col items-center gap-1 py-2 text-xs font-semibold text-accent"
+            >
+              <Settings className="size-5" />
+              Configuração
+            </button>
+          </div>
+        </nav>
+      ) : null}
+      {configAberta && papel ? (
+        <div
+          className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 lg:place-items-center"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setConfigAberta(false);
+          }}
+        >
+          <div className="w-full max-w-sm rounded-3xl bg-white p-5 shadow-xl">
+            <p className="font-display text-3xl leading-none text-accent">Configuração</p>
+            <p className="mt-3 text-base font-semibold">{papel === "lider" ? "Dashboard" : "Apontamento"}</p>
+            <p className="text-sm text-muted">
+              {papel === "preparador" ? TURNO_LABEL[sessao?.turno ?? "1"] : "Visão geral"}
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setConfigAberta(false);
+                leavePapel();
+              }}
+              className="mt-5 w-full rounded-2xl bg-accent py-3 text-sm font-semibold text-accent-ink"
+            >
+              Trocar função
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfigAberta(false)}
+              className="mt-2 w-full rounded-2xl bg-[#f3f6fb] py-3 text-sm font-semibold"
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
       ) : null}
     </div>
   );
