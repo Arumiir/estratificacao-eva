@@ -59,6 +59,7 @@ export function FechamentoTurno({
     return inicial;
   });
   const [gerando, setGerando] = useState(false);
+  const [passo, setPasso] = useState("");
 
   function camposDe(machine: MachineId) {
     return campos[machine] ?? vazio();
@@ -135,17 +136,27 @@ export function FechamentoTurno({
         return;
       }
       const { renderFichaJunta, anexarLegenda, entregarArquivos } = await import("@/lib/ficha-image");
-      const blob = await renderFichaJunta(view, comFicha);
-      const linhas = comFicha.flatMap((machine, index) => (index === 0 ? textoDa(machine) : ["", ...textoDa(machine)]));
-      const comTexto = await anexarLegenda(blob, linhas);
-      const resultado = await entregarArquivos([{ name: `fichas-${view.date}.png`, blob: comTexto }], linhas.join("\n"));
-      if (resultado === "cancelou") return;
-      if (resultado === "baixou") onNotice("Não foi possível abrir o WhatsApp neste aparelho.");
+      let baixou = false;
+      for (let index = 0; index < comFicha.length; index += 1) {
+        const machine = comFicha[index]!;
+        setPasso(`Enviando ${index + 1} de ${comFicha.length}`);
+        const blob = await renderFichaJunta(view, [machine]);
+        const linhas = textoDa(machine);
+        const comTexto = await anexarLegenda(blob, linhas);
+        const resultado = await entregarArquivos(
+          [{ name: `ficha-${machine}-${view.date}.png`, blob: comTexto }],
+          linhas.join("\n"),
+        );
+        if (resultado === "cancelou") return;
+        if (resultado === "baixou") baixou = true;
+      }
+      if (baixou) onNotice("Não foi possível abrir o WhatsApp neste aparelho.");
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
       onNotice("Não foi possível gerar o fechamento.");
     } finally {
       setGerando(false);
+      setPasso("");
     }
   }
 
@@ -220,7 +231,7 @@ export function FechamentoTurno({
         onClick={() => void gerar()}
         className="mt-4 w-full rounded-tile bg-accent py-4 font-display text-3xl leading-none text-accent-ink disabled:opacity-40"
       >
-        {gerando ? "Gerando…" : "Enviar fechamento"}
+        {gerando ? passo || "Gerando…" : "Enviar fechamento"}
       </button>
     </div>
   );
