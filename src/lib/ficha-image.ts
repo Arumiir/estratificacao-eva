@@ -817,6 +817,7 @@ function drawFichaSecreta(
   ctx.font = "700 22px 'Barlow Condensed', sans-serif";
   ctx.fillText("TOTAL", tableX + fixed / 2, bodyBottom + SECRETA_TOTAL / 2);
   sums.forEach((sum, problemIndex) => {
+    if (!sum) return;
     ctx.fillText(String(sum), tableX + fixed + problemIndex * probW + probW / 2, bodyBottom + SECRETA_TOTAL / 2);
   });
   const celulaY = fimTabela + 12;
@@ -826,5 +827,5 @@ function drawFichaSecreta(
   ctx.strokeRect(tableX, celulaY, fixed, SECRETA_TOTAL);
   ctx.fillStyle = "#fffaf7";
   ctx.font = "700 24px 'Barlow Condensed', sans-serif";
-  ctx.fillText(`TOTAL GERAL  ${grand}`, tableX + fixed / 2, celulaY + SECRETA_TOTAL / 2);
+  ctx.fillText(grand ? `TOTAL GERAL  ${grand}` : "TOTAL GERAL", tableX + fixed / 2, celulaY + SECRETA_TOTAL / 2);
 }
