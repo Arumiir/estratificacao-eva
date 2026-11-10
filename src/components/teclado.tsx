@@ -21,8 +21,39 @@ export function tecladoAberto() {
   return fechadorAtual;
 }
 
+function scrollPai(elemento: HTMLElement) {
+  let pai = elemento.parentElement;
+  while (pai) {
+    const estilo = getComputedStyle(pai);
+    if (/(auto|scroll)/.test(estilo.overflowY) && pai.scrollHeight > pai.clientHeight + 4) return pai;
+    pai = pai.parentElement;
+  }
+  return null;
+}
+
+function subirCampoAtivo() {
+  const elemento = document.querySelector("[data-foco]");
+  if (!(elemento instanceof HTMLElement)) return;
+  const bloco = elemento.closest("[data-bloco]");
+  const alvo = bloco instanceof HTMLElement ? bloco : elemento;
+  const scroller = scrollPai(alvo);
+  if (!scroller) return;
+  const teclado = document.querySelector("[data-teclado]");
+  const nav = document.querySelector("nav[data-nav]");
+  const tecladoTopo = teclado instanceof HTMLElement ? teclado.getBoundingClientRect().top : window.innerHeight;
+  const navTopo = nav instanceof HTMLElement ? nav.getBoundingClientRect().top : window.innerHeight;
+  const pai = scroller.getBoundingClientRect();
+  const fundo = Math.min(tecladoTopo, navTopo, pai.bottom) - 12;
+  const topo = Math.max(pai.top + 8, 8);
+  const box = alvo.getBoundingClientRect();
+  let delta = 0;
+  if (box.bottom > fundo) delta = box.bottom - fundo;
+  else if (box.top < topo) delta = box.top - topo;
+  if (Math.abs(delta) > 2) scroller.scrollTo({ top: scroller.scrollTop + delta, behavior: "smooth" });
+}
+
 /** Toque fora guarda o número e fecha o teclado. O voltar do celular usa tecladoAberto. */
-export function useFecharTeclado(aberto: boolean, fechar: () => void) {
+export function useFecharTeclado(aberto: boolean, fechar: () => void, ancora?: string | null) {
   const fecharRef = useRef(fechar);
   fecharRef.current = fechar;
   useEffect(() => {
@@ -35,11 +66,13 @@ export function useFecharTeclado(aberto: boolean, fechar: () => void) {
       atual();
     };
     document.addEventListener("pointerdown", onPointer, true);
+    const timer = window.setTimeout(subirCampoAtivo, 60);
     return () => {
+      window.clearTimeout(timer);
       if (fechadorAtual === atual) fechadorAtual = null;
       document.removeEventListener("pointerdown", onPointer, true);
     };
-  }, [aberto]);
+  }, [aberto, ancora]);
 }
 
 export type Campo = {

@@ -2175,7 +2175,7 @@ function ProducaoScreen({
     sessao.current = null;
     setFoco(null);
   }
-  useFecharTeclado(Boolean(toque && foco && editando), fecharProducao);
+  useFecharTeclado(Boolean(toque && foco && editando), fecharProducao, foco);
 
   return (
     <div className="mx-auto flex min-h-[calc(100dvh-10.5rem)] w-full max-w-md flex-col">
@@ -2206,12 +2206,20 @@ function ProducaoScreen({
       ) : (
         <div className="mt-4 grid grid-cols-2 gap-3">
           {numeros.map((item) => (
-            <label key={item.id} className="flex flex-col items-center rounded-3xl bg-white p-4 text-center shadow-[0_8px_24px_rgba(47,84,150,0.08)]">
+            <label
+              key={item.id}
+              data-bloco=""
+              className={cx(
+                "flex flex-col items-center rounded-3xl bg-white p-4 text-center shadow-[0_8px_24px_rgba(47,84,150,0.08)]",
+                foco === item.id && "ring-2 ring-accent",
+              )}
+            >
               <span className="font-display text-4xl leading-none">{item.numero}</span>
               {toque && editando ? (
                 <button
                   type="button"
                   data-campo-teclado=""
+                  data-foco={foco === item.id ? "" : undefined}
                   onClick={() => abrirProducao(item.id)}
                   className={cx(
                     "mt-4 w-full rounded-2xl border px-3 py-3 text-center font-display text-3xl leading-none tabular-nums",
@@ -2874,7 +2882,7 @@ function ProblemsScreen({
     sessao.current = null;
     setFoco(null);
   }
-  useFecharTeclado(Boolean(toque && foco && !offDay), fecharTeclado);
+  useFecharTeclado(Boolean(toque && foco && !offDay), fecharTeclado, foco);
 
   function salvar() {
     if (offDay) return;
@@ -2899,12 +2907,20 @@ function ProblemsScreen({
             const campo = campos[problem.id] ?? campoInicial(counts.get(problem.id) ?? 0);
             const ativo = foco === problem.id;
             return (
-              <div key={problem.id} className="flex items-center gap-2 rounded-tile border border-line bg-surface px-3 py-2">
+              <div
+                key={problem.id}
+                data-bloco=""
+                className={cx(
+                  "flex items-center gap-2 rounded-tile border bg-surface px-3 py-2",
+                  ativo ? "border-accent" : "border-line",
+                )}
+              >
                 <p className="min-w-0 flex-1 text-sm font-semibold leading-snug">{problem.name}</p>
                 {toque ? (
                   <button
                     type="button"
                     data-campo-teclado=""
+                    data-foco={ativo ? "" : undefined}
                     disabled={offDay}
                     onClick={() => abrirCampo(problem.id)}
                     className={cx(
@@ -3224,7 +3240,7 @@ function NumberPair({
     setFoco(null);
   }
   fecharRef.current = fechar;
-  useFecharTeclado(Boolean(foco), fechar);
+  useFecharTeclado(Boolean(foco), fechar, foco);
 
   useEffect(() => {
     if (!foco) return;
@@ -3265,11 +3281,12 @@ function NumberPair({
 
   return (
     <div className="grid grid-cols-2 gap-2">
-      <label className="block">
+      <label data-bloco="" className="block">
         <span className="mb-1 block text-sm font-semibold text-muted">Numeração</span>
         <input
           readOnly
           data-campo-teclado=""
+          data-foco={foco === "numero" ? "" : undefined}
           inputMode="none"
           value={foco === "numero" ? rascunho : numero}
           placeholder="Ex: 39/0"
@@ -3277,11 +3294,12 @@ function NumberPair({
           className={cx("w-full rounded-tile border bg-surface-2 px-3 py-3 text-base text-fg placeholder:text-[#9aa8b8]", foco === "numero" ? "border-accent" : "border-line")}
         />
       </label>
-      <label className="block">
+      <label data-bloco="" className="block">
         <span className="mb-1 block text-sm font-semibold text-muted">Referência</span>
         <input
           readOnly
           data-campo-teclado=""
+          data-foco={foco === "referencia" ? "" : undefined}
           inputMode="none"
           value={foco === "referencia" ? rascunho : referencia}
           placeholder="Ex: 1"

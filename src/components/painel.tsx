@@ -3034,7 +3034,7 @@ function CorrigirProducao({
     sessao.current = null;
     setFoco(null);
   }
-  useFecharTeclado(Boolean(toque && foco), fecharTeclado);
+  useFecharTeclado(Boolean(toque && foco), fecharTeclado, foco);
 
   useEffect(() => {
     if (!foco || !listaRef.current) return;
@@ -3075,12 +3075,18 @@ function CorrigirProducao({
           ) : (
             <div className="grid grid-cols-2 gap-2">
               {numeros.map((numero) => (
-                <label key={numero} data-numero={numero} className="rounded-2xl border border-[#d5dee8] bg-[#f7f9fc] p-3 text-center">
+                <label
+                  key={numero}
+                  data-numero={numero}
+                  data-bloco=""
+                  className={cx("rounded-2xl border bg-[#f7f9fc] p-3 text-center", foco === numero && "border-[#2457b8]")}
+                >
                   <span className="font-display text-2xl leading-none">{numero}</span>
                   {toque ? (
                     <button
                       type="button"
                       data-campo-teclado=""
+                      data-foco={foco === numero ? "" : undefined}
                       onClick={() => abrirNumero(numero)}
                       className={cx(
                         "mt-2 w-full rounded-xl border bg-white px-2 py-2 text-center font-display text-2xl leading-none tabular-nums",
@@ -3240,7 +3246,7 @@ function EditarPerdas({
     sessao.current = null;
     setFoco(null);
   }
-  useFecharTeclado(Boolean(toque && foco), fecharTecladoPerdas);
+  useFecharTeclado(Boolean(toque && foco), fecharTecladoPerdas, foco);
 
   useEffect(() => {
     if (!foco || !listaRef.current) return;
@@ -3297,7 +3303,12 @@ function EditarPerdas({
                 const campo = campos[grupo.ids[0]] ?? campoInicial(grupo.ids.length);
                 const ativo = foco === grupo.ids[0];
                 return (
-                  <div key={grupo.ids[0]} data-perda={grupo.ids[0]} className="flex items-center gap-2 rounded-2xl border border-[#d5dee8] px-3 py-2.5">
+                  <div
+                    key={grupo.ids[0]}
+                    data-perda={grupo.ids[0]}
+                    data-bloco=""
+                    className={cx("flex items-center gap-2 rounded-2xl border px-3 py-2.5", ativo ? "border-[#2457b8]" : "border-[#d5dee8]")}
+                  >
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold leading-snug">{grupo.rotulo}</p>
                       <p className="text-xs leading-snug text-muted">{grupo.detalhe}</p>
@@ -3306,6 +3317,7 @@ function EditarPerdas({
                       <button
                         type="button"
                         data-campo-teclado=""
+                        data-foco={ativo ? "" : undefined}
                         onClick={() => abrirCampo(grupo.ids[0], grupo.ids.length)}
                         className={cx(
                           "grid h-12 w-16 shrink-0 place-items-center rounded-xl border font-display text-2xl leading-none tabular-nums",
