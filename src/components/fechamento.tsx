@@ -90,6 +90,20 @@ export function FechamentoTurno({
     setCampos((atual) => ({ ...atual, [machine]: { ...camposDe(machine), [chave]: valor } }));
   }
 
+  function textoDa(machine: MachineId) {
+    const conta = calcular(machine);
+    const digitado = camposDe(machine);
+    const linhas = [
+      machine,
+      `Produção ${conta.producao} · Perdas ${conta.perdas} · ${conta.percentual}`,
+      `Prob.: ${conta.problemas}`,
+    ];
+    if (digitado.horas.trim()) linhas.push(`Horas baixadas: ${digitado.horas.trim()}`);
+    if (digitado.saldo.trim()) linhas.push(`Saldo: ${digitado.saldo.trim()}`);
+    if (digitado.setup.trim()) linhas.push(`Setup: ${digitado.setup.trim()}`);
+    return linhas;
+  }
+
   async function gerar() {
     if (escolhidas.length === 0 || gerando) return;
     setGerando(true);
@@ -120,9 +134,11 @@ export function FechamentoTurno({
         onNotice("Nenhuma ficha neste turno.");
         return;
       }
-      const { renderFichaJunta, entregarArquivos } = await import("@/lib/ficha-image");
+      const { renderFichaJunta, anexarLegenda, entregarArquivos } = await import("@/lib/ficha-image");
       const blob = await renderFichaJunta(view, comFicha);
-      const resultado = await entregarArquivos([{ name: `fichas-${view.date}.png`, blob }]);
+      const linhas = comFicha.flatMap((machine, index) => (index === 0 ? textoDa(machine) : ["", ...textoDa(machine)]));
+      const comTexto = await anexarLegenda(blob, linhas);
+      const resultado = await entregarArquivos([{ name: `fichas-${view.date}.png`, blob: comTexto }], linhas.join("\n"));
       if (resultado === "cancelou") return;
       if (resultado === "baixou") onNotice("Não foi possível abrir o WhatsApp neste aparelho.");
     } catch (error) {

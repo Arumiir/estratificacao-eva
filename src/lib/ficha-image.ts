@@ -99,18 +99,30 @@ export function downloadBlob(filename: string, blob: Blob) {
 }
 
 /** No celular abre o menu de enviar (WhatsApp etc.) e não grava na galeria. No computador baixa. */
-export async function entregarArquivos(arquivos: { name: string; blob: Blob }[]): Promise<"compartilhou" | "baixou" | "cancelou"> {
+export async function entregarArquivos(
+  arquivos: { name: string; blob: Blob }[],
+  texto = "",
+): Promise<"compartilhou" | "baixou" | "cancelou"> {
   const files = arquivos.map((item) => new File([item.blob], item.name, { type: item.blob.type || "image/png" }));
   const pode =
     typeof navigator.share === "function" &&
     typeof navigator.canShare === "function" &&
     navigator.canShare({ files });
   if (pode) {
+    const title = arquivos.length === 1 ? arquivos[0].name : "Imagens";
     try {
-      await navigator.share({ files, title: arquivos.length === 1 ? arquivos[0].name : "Imagens" });
+      await navigator.share(texto ? { files, text: texto, title } : { files, title });
       return "compartilhou";
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return "cancelou";
+      if (texto) {
+        try {
+          await navigator.share({ files, title });
+          return "compartilhou";
+        } catch (deNovo) {
+          if (deNovo instanceof DOMException && deNovo.name === "AbortError") return "cancelou";
+        }
+      }
     }
   }
   arquivos.forEach((arquivo, index) => {
@@ -326,35 +338,39 @@ function carregarImagem(blob: Blob): Promise<HTMLImageElement> {
   });
 }
 
-/** Escreve o fechamento embaixo da ficha. O WhatsApp não tem legenda diferente por foto. */
+/** Escreve o fechamento embaixo da ficha. O WhatsApp descarta a legenda quando vai arquivo. */
 export async function anexarLegenda(blob: Blob, linhas: string[]): Promise<Blob> {
-  await document.fonts.load("600 28px 'Source Sans 3'");
+  const uteis = linhas.filter((linha) => linha.trim());
+  if (uteis.length === 0) return blob;
+  await document.fonts.load("600 32px 'Source Sans 3'");
   const image = await carregarImagem(blob);
-  const escala = image.width / W;
+  const largura = image.width;
+  const fonte = Math.max(32, Math.round(largura / 78));
   const medida = document.createElement("canvas").getContext("2d");
-  if (!medida || escala <= 0) return blob;
-  medida.font = "600 28px 'Source Sans 3', sans-serif";
+  if (!medida) return blob;
+  medida.font = `600 ${fonte}px 'Source Sans 3', sans-serif`;
+  const margem = Math.round(largura * 0.03);
   const quebradas = linhas.flatMap((linha) => {
-    const partes = quebrarTexto(medida, linha, W - 72);
+    if (!linha.trim()) return [""];
+    const partes = quebrarTexto(medida, linha, largura - margem * 2);
     return partes.length > 0 ? partes : [linha];
   });
-  const faixa = 36 + quebradas.length * 38;
+  const linhaH = Math.round(fonte * 1.4);
+  const faixa = linhaH * quebradas.length + margem * 2;
   const canvas = document.createElement("canvas");
-  canvas.width = image.width;
-  canvas.height = image.height + Math.round(faixa * escala);
+  canvas.width = largura;
+  canvas.height = image.height + faixa;
   const ctx = canvas.getContext("2d");
   if (!ctx) return blob;
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(image, 0, 0);
-  ctx.setTransform(escala, 0, 0, escala, 0, 0);
-  ctx.fillStyle = "#f4f6f8";
-  ctx.fillRect(36, H, W - 72, faixa - 16);
   ctx.fillStyle = "#1c1c1c";
+  ctx.font = `600 ${fonte}px 'Source Sans 3', sans-serif`;
   ctx.textBaseline = "top";
-  ctx.font = "600 28px 'Source Sans 3', sans-serif";
   quebradas.forEach((linha, index) => {
-    ctx.fillText(linha, 56, H + 16 + index * 38);
+    if (!linha) return;
+    ctx.fillText(linha, margem, image.height + margem + index * linhaH);
   });
   return canvasToBlob(canvas);
 }
