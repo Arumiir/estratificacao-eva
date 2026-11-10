@@ -659,7 +659,7 @@ export function EstratificacaoApp() {
   const bloqueioRef = useRef<(() => void) | null>(null);
   const pendenteRef = useRef<(() => void) | null>(null);
   const desfazerRef = useRef<(() => void) | null>(null);
-  const sairParaSelecaoRef = useRef<() => void>(() => {});
+  const voltarTelaRef = useRef<() => void>(() => {});
   const screen = stack[stack.length - 1] ?? { kind: "turnos" as const };
   const key = screenKey(screen);
 
@@ -692,61 +692,11 @@ export function EstratificacaoApp() {
         skipPopRef.current -= 1;
         return;
       }
-      if (tecladoAberto()) {
-        window.history.pushState(stampDepth(depthRef.current), "");
-        tecladoAberto()?.();
-        return;
-      }
-      const nextState = window.history.state;
-      const temMarcador =
-        nextState && typeof nextState === "object" && typeof nextState.perdasDepth === "number";
-      if (!temMarcador) {
-        if (bloqueioRef.current && stackRef.current.length > 1) {
-          window.history.pushState(stampDepth(depthRef.current), "");
-          pendenteRef.current = () => {
-            const next = stackRef.current.slice(0, -1);
-            stackRef.current = next.length > 0 ? next : [homeRef.current];
-            depthRef.current = stackRef.current.length;
-            setDir("back");
-            setStack(stackRef.current);
-          };
-          desfazerRef.current = () => {};
-          bloqueioRef.current();
-          return;
-        }
-        if (stackRef.current.length > 1) {
-          const next = stackRef.current.slice(0, -1);
-          stackRef.current = next;
-          depthRef.current = next.length;
-          setDir("back");
-          setStack(next);
-          window.history.pushState(stampDepth(next.length), "");
-          return;
-        }
-        window.history.pushState(stampDepth(depthRef.current), "");
-        if (stackRef.current[0]?.kind !== "papel") sairParaSelecaoRef.current();
-        return;
-      }
-      if (stackRef.current.length <= 1 && stackRef.current[0]?.kind !== "papel") {
-        window.history.pushState(stampDepth(depthRef.current), "");
-        sairParaSelecaoRef.current();
-        return;
-      }
-      if (bloqueioRef.current) {
-        window.history.pushState(stampDepth(depthRef.current), "");
-        pendenteRef.current = () => window.history.go(-2);
-        desfazerRef.current = () => window.history.back();
-        bloqueioRef.current();
-        return;
-      }
-      const depth = temMarcador ? nextState.perdasDepth : 1;
-      depthRef.current = depth;
-      const next = stackRef.current.slice(0, Math.max(1, depth));
-      stackRef.current = next.length > 0 ? next : [homeRef.current];
-      setDir("back");
-      setStack(stackRef.current);
+      window.history.pushState(stampDepth(depthRef.current), "");
+      voltarTelaRef.current();
     }
     window.addEventListener("popstate", onPop);
+    window.history.pushState(stampDepth(depthRef.current), "");
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
@@ -895,14 +845,23 @@ export function EstratificacaoApp() {
       if (stackRef.current[0]?.kind !== "papel") leavePapel();
       return;
     }
+    const ir = () => {
+      const next = stackRef.current.slice(0, -1);
+      stackRef.current = next.length > 0 ? next : [homeRef.current];
+      depthRef.current = stackRef.current.length;
+      setDir("back");
+      setStack(stackRef.current);
+      window.history.replaceState(stampDepth(stackRef.current.length), "");
+    };
     if (bloqueioRef.current) {
       desfazerRef.current = null;
-      pendenteRef.current = () => window.history.back();
+      pendenteRef.current = ir;
       bloqueioRef.current();
       return;
     }
-    window.history.back();
+    ir();
   }
+  voltarTelaRef.current = back;
 
   function irParaCasa() {
     if (tecladoAberto()) {
@@ -934,7 +893,7 @@ export function EstratificacaoApp() {
     stackRef.current = nextStack;
     setStack(nextStack);
     if (delta > 0) {
-      skipPopRef.current = 1;
+      skipPopRef.current = delta;
       depthRef.current = nextStack.length;
       window.history.go(-delta);
       return;
@@ -982,7 +941,6 @@ export function EstratificacaoApp() {
     }
     sair();
   }
-  sairParaSelecaoRef.current = leavePapel;
 
   function abrirApontamento(machine: MachineId, station: number, outro?: OutroMatriz) {
     if (!state) return;
@@ -1571,7 +1529,7 @@ export function EstratificacaoApp() {
             ) : null}
           </div>
           {papel ? (
-            <div className="hidden shrink-0 items-center gap-2 lg:flex">
+            <div data-nav="" className="hidden shrink-0 items-center gap-2 lg:flex">
               <button
                 type="button"
                 onClick={abrirConfig}
@@ -1819,7 +1777,7 @@ export function EstratificacaoApp() {
         </button>
       ) : null}
       {papel ? (
-        <nav className="shrink-0 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden">
+        <nav data-nav="" className="shrink-0 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden">
           <div className="grid grid-cols-3">
             <button
               type="button"

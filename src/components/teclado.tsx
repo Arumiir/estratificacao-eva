@@ -31,7 +31,7 @@ export function useFecharTeclado(aberto: boolean, fechar: () => void) {
     fechadorAtual = atual;
     const onPointer = (event: PointerEvent) => {
       const alvo = event.target;
-      if (alvo instanceof Element && alvo.closest("[data-teclado], [data-campo-teclado]")) return;
+      if (alvo instanceof Element && alvo.closest("[data-teclado], [data-campo-teclado], [data-nav]")) return;
       atual();
     };
     document.addEventListener("pointerdown", onPointer, true);
