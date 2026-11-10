@@ -112,7 +112,8 @@ type Screen =
   | { kind: "side"; machine: MachineId; station: number; outroId?: string; corId?: string }
   | { kind: "problems"; machine: MachineId; station: number; side: Side; outroId?: string; corId?: string }
   | { kind: "sheet"; machine: MachineId | null }
-  | { kind: "fechamento" };
+  | { kind: "fechamento" }
+  | { kind: "lados" };
 
 type Banner = {
   id: number;
@@ -624,6 +625,8 @@ function screenKey(screen: Screen): string {
       return `sheet-${screen.machine ?? "all"}`;
     case "fechamento":
       return "fechamento";
+    case "lados":
+      return "lados";
   }
 }
 
@@ -632,7 +635,8 @@ function machineFrom(screen: Screen): MachineId | null {
     screen.kind === "papel" ||
     screen.kind === "turnos" ||
     screen.kind === "machines" ||
-    screen.kind === "fechamento"
+    screen.kind === "fechamento" ||
+    screen.kind === "lados"
   ) {
     return null;
   }
@@ -644,7 +648,6 @@ export function EstratificacaoApp() {
   const [sessao, setSessao] = useState<Sessao | null>(null);
   const [sessaoReady, setSessaoReady] = useState(false);
   const [stack, setStack] = useState<Screen[]>([{ kind: "papel" }]);
-  const [configAberta, setConfigAberta] = useState(false);
   const [dir, setDir] = useState<"forward" | "back">("forward");
   const [banner, setBanner] = useState<Banner | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -656,6 +659,7 @@ export function EstratificacaoApp() {
   const bloqueioRef = useRef<(() => void) | null>(null);
   const pendenteRef = useRef<(() => void) | null>(null);
   const desfazerRef = useRef<(() => void) | null>(null);
+  const sairParaSelecaoRef = useRef<() => void>(() => {});
   const screen = stack[stack.length - 1] ?? { kind: "turnos" as const };
   const key = screenKey(screen);
 
@@ -720,6 +724,12 @@ export function EstratificacaoApp() {
           return;
         }
         window.history.pushState(stampDepth(depthRef.current), "");
+        if (stackRef.current[0]?.kind !== "papel") sairParaSelecaoRef.current();
+        return;
+      }
+      if (stackRef.current.length <= 1 && stackRef.current[0]?.kind !== "papel") {
+        window.history.pushState(stampDepth(depthRef.current), "");
+        sairParaSelecaoRef.current();
         return;
       }
       if (bloqueioRef.current) {
@@ -881,7 +891,10 @@ export function EstratificacaoApp() {
       tecladoAberto()?.();
       return;
     }
-    if (stackRef.current.length <= 1) return;
+    if (stackRef.current.length <= 1) {
+      if (stackRef.current[0]?.kind !== "papel") leavePapel();
+      return;
+    }
     if (bloqueioRef.current) {
       desfazerRef.current = null;
       pendenteRef.current = () => window.history.back();
@@ -896,24 +909,15 @@ export function EstratificacaoApp() {
       tecladoAberto()?.();
       return;
     }
-    const casa = homeRef.current;
-    if (stackRef.current.length <= 1 && screenKey(stackRef.current[0] ?? casa) === screenKey(casa)) return;
-    const ir = () => {
-      bloqueioRef.current = null;
-      adoptStack([casa]);
-    };
-    if (bloqueioRef.current) {
-      desfazerRef.current = null;
-      pendenteRef.current = ir;
-      bloqueioRef.current();
-      return;
-    }
-    ir();
+    leavePapel();
   }
 
   function abrirConfig() {
-    if (tecladoAberto()) tecladoAberto()?.();
-    setConfigAberta(true);
+    if (tecladoAberto()) {
+      tecladoAberto()?.();
+      return;
+    }
+    push({ kind: "lados" });
   }
 
   function replaceTop(next: Screen) {
@@ -978,6 +982,7 @@ export function EstratificacaoApp() {
     }
     sair();
   }
+  sairParaSelecaoRef.current = leavePapel;
 
   function abrirApontamento(machine: MachineId, station: number, outro?: OutroMatriz) {
     if (!state) return;
@@ -1569,12 +1574,11 @@ export function EstratificacaoApp() {
             <div className="hidden shrink-0 items-center gap-2 lg:flex">
               <button
                 type="button"
-                onClick={back}
-                disabled={stack.length <= 1}
-                className="inline-flex items-center gap-2 rounded-tile border border-line bg-surface px-3 py-2 text-sm font-semibold disabled:opacity-40"
+                onClick={abrirConfig}
+                className="inline-flex items-center gap-2 rounded-tile border border-line bg-surface px-3 py-2 text-sm font-semibold"
               >
-                <ChevronLeft className="size-4" />
-                Voltar
+                <Settings className="size-4" />
+                Configuração
               </button>
               <button
                 type="button"
@@ -1586,11 +1590,11 @@ export function EstratificacaoApp() {
               </button>
               <button
                 type="button"
-                onClick={abrirConfig}
+                onClick={back}
                 className="inline-flex items-center gap-2 rounded-tile bg-accent px-3 py-2 text-sm font-semibold text-accent-ink"
               >
-                <Settings className="size-4" />
-                Configuração
+                <ChevronLeft className="size-4" />
+                Voltar
               </button>
             </div>
           ) : null}
@@ -1645,6 +1649,35 @@ export function EstratificacaoApp() {
 
           {screen.kind === "fechamento" ? (
             <FechamentoTurno state={state} onCommit={commit} onNotice={(text) => flash(text)} />
+          ) : null}
+
+          {screen.kind === "lados" ? (
+            <div className="mx-auto w-full max-w-md">
+              <p className="font-display text-4xl leading-none text-accent">A e B</p>
+              <p className="mt-2 text-sm font-semibold text-muted">
+                Ligado, a máquina pede A ou B. Desligado, entra direto.
+              </p>
+              <div className="mt-4 grid gap-2">
+                {MAQUINAS_PISO.map((machine) => {
+                  const ligado = state.modelos.includes(machine);
+                  return (
+                    <div key={machine} className="flex items-center justify-between gap-3 rounded-tile border border-line bg-surface px-4 py-3">
+                      <span className="font-display text-3xl leading-none">{machine}</span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={ligado}
+                        aria-label={`${ligado ? "Desativar" : "Ativar"} A e B na ${machine}`}
+                        onClick={() => alternarModelo(machine)}
+                        className={cx("relative h-8 w-14 shrink-0 rounded-full", ligado ? "bg-accent" : "bg-line")}
+                      >
+                        <span className={cx("absolute top-1 size-6 rounded-full bg-white", ligado ? "left-7" : "left-1")} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           ) : null}
 
           {papel === "preparador" && screen.kind === "machines" ? (
@@ -1791,12 +1824,11 @@ export function EstratificacaoApp() {
           <div className="grid grid-cols-3">
             <button
               type="button"
-              onClick={back}
-              disabled={stack.length <= 1}
-              className="flex flex-col items-center gap-1 py-2 text-xs font-semibold text-accent disabled:opacity-40"
+              onClick={abrirConfig}
+              className="flex flex-col items-center gap-1 py-2 text-xs font-semibold text-accent"
             >
-              <ChevronLeft className="size-5" />
-              Voltar
+              <Settings className="size-5" />
+              Configuração
             </button>
             <button
               type="button"
@@ -1808,47 +1840,14 @@ export function EstratificacaoApp() {
             </button>
             <button
               type="button"
-              onClick={abrirConfig}
+              onClick={back}
               className="flex flex-col items-center gap-1 py-2 text-xs font-semibold text-accent"
             >
-              <Settings className="size-5" />
-              Configuração
+              <ChevronLeft className="size-5" />
+              Voltar
             </button>
           </div>
         </nav>
-      ) : null}
-      {configAberta && papel ? (
-        <div
-          className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 lg:place-items-center"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) setConfigAberta(false);
-          }}
-        >
-          <div className="w-full max-w-sm rounded-3xl bg-white p-5 shadow-xl">
-            <p className="font-display text-3xl leading-none text-accent">Configuração</p>
-            <p className="mt-3 text-base font-semibold">{papel === "lider" ? "Dashboard" : "Apontamento"}</p>
-            <p className="text-sm text-muted">
-              {papel === "preparador" ? TURNO_LABEL[sessao?.turno ?? "1"] : "Visão geral"}
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                setConfigAberta(false);
-                leavePapel();
-              }}
-              className="mt-5 w-full rounded-2xl bg-accent py-3 text-sm font-semibold text-accent-ink"
-            >
-              Trocar função
-            </button>
-            <button
-              type="button"
-              onClick={() => setConfigAberta(false)}
-              className="mt-2 w-full rounded-2xl bg-[#f3f6fb] py-3 text-sm font-semibold"
-            >
-              Fechar
-            </button>
-          </div>
-        </div>
       ) : null}
     </div>
   );
@@ -1911,6 +1910,8 @@ function headerFor(screen: Screen): { context: string } {
       return { context: "Lançamentos" };
     case "fechamento":
       return { context: "Fechamento do turno" };
+    case "lados":
+      return { context: "A e B" };
     case "papel":
       return { context: "" };
   }

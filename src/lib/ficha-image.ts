@@ -29,14 +29,15 @@ export async function renderFichasDaMaquina(
   machine: MachineId,
 ): Promise<{ nome: string; blob: Blob }[]> {
   await document.fonts.load("700 64px 'Barlow Condensed'");
-  await document.fonts.load("600 20px 'Source Sans 3'");
+  await document.fonts.load("700 22px 'Barlow Condensed'");
+  await document.fonts.load("600 26px 'Source Sans 3'");
   await document.fonts.ready;
   const grupos = gruposFicha(fichaLines(state, machine));
   const arquivos: { nome: string; blob: Blob }[] = [];
   for (const grupo of grupos) {
-    const surface = createSurface();
+    const surface = createSurfaceSized(SECRETA_LARGURA, alturaSecreta(grupo.lines.length), [2, 1]);
     if (!surface) throw new Error("Não foi possível gerar a ficha.");
-    drawFicha(surface.ctx, state, machine, grupo.lines, grupo.nome);
+    drawFichaSecreta(surface.ctx, state, machine, grupo.lines, grupo.nome);
     arquivos.push({ nome: grupo.nome, blob: await canvasToBlob(surface.canvas) });
   }
   return arquivos;
@@ -638,12 +639,6 @@ function drawFichaSecreta(
   const headH = SECRETA_CABECA;
   const rowH = SECRETA_LINHA;
 
-  lines.forEach((line, index) => {
-    if (Math.floor(index / 2) % 2 === 1) {
-      ctx.fillStyle = cor.zebra;
-      ctx.fillRect(tableX, tableY + headH + index * rowH, tableW, rowH);
-    }
-  });
   ctx.fillStyle = cor.faixa;
   ctx.fillRect(tableX, bodyBottom, tableW, SECRETA_TOTAL);
   ctx.strokeStyle = cor.tinta;
@@ -654,11 +649,38 @@ function drawFichaSecreta(
   ctx.lineTo(tableX + tableW, tableY + headH);
   ctx.moveTo(tableX, bodyBottom);
   ctx.lineTo(tableX + tableW, bodyBottom);
-  for (let i = 2; i < lines.length; i += 2) {
-    const y = tableY + headH + i * rowH;
-    ctx.moveTo(tableX, y);
-    ctx.lineTo(tableX + tableW, y);
+  let cursor = 0;
+  const blocos: { inicio: number; linhas: FichaLine[] }[] = [];
+  while (cursor < lines.length) {
+    const atual = lines[cursor];
+    const proxima = lines[cursor + 1];
+    const par =
+      atual &&
+      !atual.unica &&
+      proxima &&
+      !proxima.unica &&
+      proxima.station === atual.station &&
+      proxima.outroId === atual.outroId
+        ? [atual, proxima]
+        : atual
+          ? [atual]
+          : [];
+    if (par.length === 0) break;
+    blocos.push({ inicio: cursor, linhas: par });
+    cursor += par.length;
   }
+  blocos.forEach((bloco, blocoIndex) => {
+    const y = tableY + headH + bloco.inicio * rowH;
+    const altura = bloco.linhas.length * rowH;
+    if (blocoIndex % 2 === 1) {
+      ctx.fillStyle = cor.zebra;
+      ctx.fillRect(tableX, y, tableW, altura);
+    }
+    if (blocoIndex > 0) {
+      ctx.moveTo(tableX, y);
+      ctx.lineTo(tableX + tableW, y);
+    }
+  });
   let x = tableX;
   [estW, ladoW, numW, relW, ...PROBLEMS.map(() => probW)].forEach((coluna, index) => {
     x += coluna;
@@ -695,30 +717,34 @@ function drawFichaSecreta(
     ctx.restore();
   });
 
-  lines.forEach((line, index) => {
-    const y = tableY + headH + index * rowH + rowH / 2;
+  blocos.forEach((bloco) => {
+    const topo = tableY + headH + bloco.inicio * rowH;
+    const meioBloco = topo + (bloco.linhas.length * rowH) / 2;
+    const primeira = bloco.linhas[0];
+    if (!primeira) return;
     ctx.fillStyle = cor.tinta;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    if (line.unica || line.outroId || index % 2 === 0) {
-      ctx.font = "700 26px 'Barlow Condensed', sans-serif";
-      const meio = line.unica || line.outroId ? y : y + rowH / 2;
-      ctx.fillText(line.station >= 1 ? pad2(line.station) : "Troca", tableX + estW / 2, meio);
-    }
-    if (!line.unica) {
-      ctx.font = "600 16px 'Source Sans 3', sans-serif";
-      ctx.fillText(SIDE_SHORT[line.side], tableX + estW + ladoW / 2, y);
-    }
-    if (!(line.shared && index % 2 === 1)) {
-      const matrixY = line.shared ? y + rowH / 2 : y;
-      ctx.font = "600 16px 'Source Sans 3', sans-serif";
-      ctx.fillText(line.numero, tableX + estW + ladoW + numW / 2, matrixY);
-      ctx.fillText(line.referencia, tableX + fixed - relW / 2, matrixY);
-    }
-    line.counts.forEach((count, problemIndex) => {
-      if (!count) return;
-      ctx.font = "700 26px 'Barlow Condensed', sans-serif";
-      ctx.fillText(String(count), tableX + fixed + problemIndex * probW + probW / 2, y);
+    ctx.font = "700 26px 'Barlow Condensed', sans-serif";
+    ctx.fillText(primeira.station >= 1 ? pad2(primeira.station) : "Troca", tableX + estW / 2, meioBloco);
+    const compartilhado = bloco.linhas.length === 2 && bloco.linhas.every((line) => line.shared);
+    bloco.linhas.forEach((line, index) => {
+      const y = topo + index * rowH + rowH / 2;
+      if (!line.unica) {
+        ctx.font = "600 16px 'Source Sans 3', sans-serif";
+        ctx.fillText(SIDE_SHORT[line.side], tableX + estW + ladoW / 2, y);
+      }
+      if (!(compartilhado && index === 1)) {
+        const matrixY = compartilhado ? meioBloco : y;
+        ctx.font = "600 16px 'Source Sans 3', sans-serif";
+        ctx.fillText(line.numero, tableX + estW + ladoW + numW / 2, matrixY);
+        ctx.fillText(line.referencia, tableX + fixed - relW / 2, matrixY);
+      }
+      line.counts.forEach((count, problemIndex) => {
+        if (!count) return;
+        ctx.font = "700 26px 'Barlow Condensed', sans-serif";
+        ctx.fillText(String(count), tableX + fixed + problemIndex * probW + probW / 2, y);
+      });
     });
   });
 
