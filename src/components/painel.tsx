@@ -44,7 +44,7 @@ import {
 } from "@/lib/perdas";
 import { pullEvolucaoMolde, pullHistorico } from "@/lib/apontamentos.functions";
 import { cx, pares, paresDasEntradas, percentualPerda, textoPercentual } from "@/components/comum";
-import { AvisoSair, Teclado, campoInicial, teclaConta, tecladoAberto, useFecharTeclado, useToque, type Campo } from "@/components/teclado";
+import { AvisoSair, Teclado, campoInicial, teclaConta, tecladoAberto, useFecharTeclado, useSelarOperacao, useToque, type Campo } from "@/components/teclado";
 import { perdasPorEstacao, perdasPorMaquina, perdasPorProblema, separarEntradas, somarProducao } from "@/components/painel-calculo";
 
 type Papel = "preparador" | "lider";
@@ -3100,6 +3100,7 @@ function CorrigirProducao({
     setFoco(null);
   }
   useFecharTeclado(Boolean(toque && foco), fecharTeclado);
+  useSelarOperacao(foco ? campo : undefined, setCampo);
 
   useEffect(() => {
     if (!foco || !listaRef.current) return;
@@ -3188,6 +3189,7 @@ function CorrigirProducao({
           {toque && foco ? (
             <Teclado
               modo="conta"
+              conta={campo.modo}
               onTecla={(tecla) => setCampo((atual) => teclaConta(atual, tecla))}
             />
           ) : (
@@ -3305,6 +3307,10 @@ function EditarPerdas({
     setFoco(null);
   }
   useFecharTeclado(Boolean(toque && foco), fecharTecladoPerdas);
+  useSelarOperacao(foco ? campos[foco] : undefined, (proximo) => {
+    if (!foco) return;
+    setCampos((atual) => ({ ...atual, [foco]: proximo }));
+  });
 
   useEffect(() => {
     if (!foco || !listaRef.current) return;
@@ -3401,6 +3407,7 @@ function EditarPerdas({
           {toque && foco ? (
             <Teclado
               modo="conta"
+              conta={campos[foco]?.modo}
               onTecla={(tecla) =>
                 setCampos((atual) => ({ ...atual, [foco]: teclaConta(atual[foco] ?? campoInicial(0), tecla) }))
               }

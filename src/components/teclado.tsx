@@ -15,6 +15,23 @@ export function useToque() {
   return toque;
 }
 
+/** Depois do último dígito, o + ou o – volta à cor normal. Um toque no mesmo botão também solta. */
+export function useSelarOperacao(campo: Campo | undefined, aplicar: (proximo: Campo) => void) {
+  const campoRef = useRef(campo);
+  const aplicarRef = useRef(aplicar);
+  campoRef.current = campo;
+  aplicarRef.current = aplicar;
+  useEffect(() => {
+    if (!campo || campo.modo === "total" || !campo.digitos) return;
+    const timer = window.setTimeout(() => {
+      const atual = campoRef.current;
+      if (!atual || atual.modo === "total" || !atual.digitos) return;
+      aplicarRef.current(teclaConta(atual, "ok"));
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [campo?.modo, campo?.digitos]);
+}
+
 let fechadorAtual: (() => void) | null = null;
 
 export function tecladoAberto() {
@@ -68,10 +85,12 @@ function mostrar(campo: Campo): Campo {
 export function teclaConta(campo: Campo, tecla: string): Campo {
   if (tecla === "+") {
     const atual = valor(campo);
+    if (campo.modo === "soma") return { texto: String(atual), modo: "total", ancora: atual, digitos: "" };
     return { texto: String(atual), modo: "soma", ancora: atual, digitos: "" };
   }
   if (tecla === "-") {
     const atual = valor(campo);
+    if (campo.modo === "tira") return { texto: String(atual), modo: "total", ancora: atual, digitos: "" };
     return { texto: String(atual), modo: "tira", ancora: atual, digitos: "" };
   }
   if (tecla === "ok") {
@@ -121,27 +140,22 @@ function Tecla({
   onClick,
   tom = "numero",
   label,
+  ativo = false,
 }: {
   children: string;
   onClick: () => void;
   tom?: "numero" | "acao" | "apagar";
   label?: string;
+  ativo?: boolean;
 }) {
-  const [aceso, setAceso] = useState(false);
-  const troca = children === "+" || children === "–" || children === "-";
   return (
     <button
       type="button"
       aria-label={label ?? children}
-      onClick={() => {
-        if (troca) {
-          setAceso(true);
-          window.setTimeout(() => setAceso(false), 220);
-        }
-        onClick();
-      }}
+      aria-pressed={ativo}
+      onClick={onClick}
       className={
-        aceso
+        ativo
           ? "h-12 rounded-2xl border-2 border-accent bg-white font-display text-3xl leading-none text-accent"
           : tom === "acao"
             ? "h-12 rounded-2xl bg-accent font-display text-3xl leading-none text-accent-ink"
@@ -157,9 +171,11 @@ function Tecla({
 
 export function Teclado({
   modo,
+  conta,
   onTecla,
 }: {
   modo: "conta" | "matriz";
+  conta?: Campo["modo"];
   onTecla: (tecla: string) => void;
 }) {
   const linhas =
@@ -185,6 +201,7 @@ export function Teclado({
               <Tecla
                 key={tecla}
                 tom={tecla === "+" || tecla === "-" || tecla === "/" ? "acao" : tecla === "⌫" ? "apagar" : "numero"}
+                ativo={(tecla === "+" && conta === "soma") || (tecla === "-" && conta === "tira")}
                 onClick={() => onTecla(tecla)}
               >
                 {tecla === "-" ? "–" : tecla}

@@ -58,7 +58,7 @@ import {
   type StationConfig,
 } from "@/lib/perdas";
 import { enviarPlanilha, pullApontamentos, pushApontamentos } from "@/lib/apontamentos.functions";
-import { AvisoSair, Teclado, campoInicial, teclaConta, teclaTexto, tecladoAberto, useFecharTeclado, useToque, type Campo } from "@/components/teclado";
+import { AvisoSair, Teclado, campoInicial, teclaConta, teclaTexto, tecladoAberto, useFecharTeclado, useSelarOperacao, useToque, type Campo } from "@/components/teclado";
 import { FechamentoTurno } from "@/components/fechamento";
 
 type Papel = "preparador" | "lider";
@@ -2121,6 +2121,7 @@ function ProducaoScreen({
     setFoco(null);
   }
   useFecharTeclado(Boolean(toque && foco && editando), fecharProducao);
+  useSelarOperacao(foco ? campo : undefined, setCampo);
 
   return (
     <div className="mx-auto flex min-h-[calc(100dvh-10.5rem)] w-full max-w-md flex-col">
@@ -2192,6 +2193,7 @@ function ProducaoScreen({
         {toque && foco && editando ? (
           <Teclado
             modo="conta"
+            conta={campo.modo}
             onTecla={(tecla) => {
               setSujo(true);
               setCampo((atual) => teclaConta(atual, tecla));
@@ -2819,6 +2821,10 @@ function ProblemsScreen({
     setFoco(null);
   }
   useFecharTeclado(Boolean(toque && foco && !offDay), fecharTeclado);
+  useSelarOperacao(foco ? campos[foco] : undefined, (proximo) => {
+    if (!foco) return;
+    setCampos((atual) => ({ ...atual, [foco]: proximo }));
+  });
 
   function salvar() {
     if (offDay) return;
@@ -2881,6 +2887,7 @@ function ProblemsScreen({
         {toque && foco && !offDay ? (
           <Teclado
             modo="conta"
+            conta={campos[foco]?.modo}
             onTecla={(tecla) => setCampos((atual) => ({ ...atual, [foco]: teclaConta(atual[foco] ?? campoInicial(0), tecla) }))}
           />
         ) : (
