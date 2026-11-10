@@ -142,16 +142,15 @@ export function FechamentoTurno({
         onNotice("Nenhuma ficha neste turno.");
         return;
       }
-      const { renderFichaJunta, anexarLegenda, entregarArquivos } = await import("@/lib/ficha-image");
+      const { renderFichaJunta, entregarArquivos } = await import("@/lib/ficha-image");
       let baixou = false;
       for (let index = 0; index < comFicha.length; index += 1) {
         const machine = comFicha[index]!;
         setPasso(`Enviando ${index + 1} de ${comFicha.length}`);
         const blob = await renderFichaJunta(view, [machine]);
         const linhas = textoDa(machine);
-        const comTexto = await anexarLegenda(blob, linhas);
         const resultado = await entregarArquivos(
-          [{ name: `ficha-${machine}-${view.date}.png`, blob: comTexto }],
+          [{ name: `ficha-${machine}-${view.date}.png`, blob }],
           linhas.join("\n"),
         );
         if (resultado === "cancelou") return;
