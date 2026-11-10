@@ -2801,7 +2801,7 @@ function ProblemsScreen({
       </div>
       <div className="mt-3 min-h-0 flex-1 overflow-y-auto">
         <div className="grid gap-2 pr-1">
-          {PROBLEMS.map((problem) => {
+          {PROBLEMS.filter((problem) => problem.id !== "contaminacao").map((problem) => {
             const campo = campos[problem.id] ?? campoInicial(counts.get(problem.id) ?? 0);
             const ativo = foco === problem.id;
             return (
