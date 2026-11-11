@@ -814,7 +814,16 @@ function PainelHistorico({
     const listas = calculo.listas[graficoRecorte.periodo];
     return graficoRecorte.turno ? listas[graficoRecorte.turno] : listas.todos;
   }, [calculo, graficoRecorte]);
-  const ativas = useMemo(() => new Set(maquinasDoFiltro(state.modelos)), [state.modelos]);
+  const ativas = useMemo(
+    () =>
+      new Set(
+        maquinasDoFiltro(state.modelos, [
+          ...base.map((entry) => entry.machine),
+          ...producaoBase.map((item) => item.machine),
+        ]),
+      ),
+    [state.modelos, base, producaoBase],
+  );
   const porProblema = useMemo(() => perdasPorProblema(graficoLista), [graficoLista]);
   const porMaquina = useMemo(
     () => perdasPorMaquina(graficoLista).filter((item) => ativas.has(item.machine)),
@@ -3406,7 +3415,12 @@ function AcompanhamentoDiario({
   const [pedir, setPedir] = useState(false);
   const [edicao, setEdicao] = useState<{ machine: MachineId; passo: "escolha" | "producao" | "perdas" } | null>(null);
   const toque = useToque();
-  const visiveis = maquinasDoFiltro(state.modelos);
+  const visiveis = maquinasDoFiltro(state.modelos, [
+    ...state.entries.filter((entry) => entry.date === state.date && entry.turno === state.turno).map((entry) => entry.machine),
+    ...(state.producao ?? [])
+      .filter((item) => diaDoApontamento(item) === state.date && item.turno === state.turno)
+      .map((item) => item.machine),
+  ]);
   const aberta = painel ? visiveis.find((machine) => machine === painel.machine) ?? null : null;
   const linhas = aberta ? fichaLines(state, aberta) : [];
   const estacoes = aberta ? estacoesDoDia(state, aberta, linhas).filter((item) => item.pares > 0) : [];

@@ -416,12 +416,18 @@ export function readModelos(value: unknown): { machines: MaquinaPiso[]; salvoEm:
   return { machines, salvoEm };
 }
 
-export function maquinasDoFiltro(modelos: readonly MaquinaPiso[], _comDado: Iterable<MachineId> = []): MachineId[] {
+export function maquinasDoFiltro(modelos: readonly MaquinaPiso[], comDado: Iterable<MachineId> = []): MachineId[] {
   const ligados = new Set(modelos);
   const lista: MachineId[] = [];
   for (const base of MAQUINAS_PISO) {
     if (ligados.has(base)) lista.push(...variantesDe(base));
     else lista.push(base);
+  }
+  const ja = new Set(lista);
+  for (const machine of comDado) {
+    if (ja.has(machine) || !(MACHINES as readonly string[]).includes(machine)) continue;
+    lista.push(machine);
+    ja.add(machine);
   }
   return lista;
 }
