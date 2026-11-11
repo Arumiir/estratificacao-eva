@@ -29,7 +29,7 @@ function ponto(texto: string) {
 }
 
 function nomeCurto(nome: string) {
-  return nome.split(" - ")[0]?.split(" (")[0]?.trim() || nome;
+  return nome.split(" - ")[0]?.trim() || nome;
 }
 
 function juntar(nomes: string[]) {
