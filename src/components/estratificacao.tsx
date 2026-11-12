@@ -1237,7 +1237,11 @@ export function EstratificacaoApp() {
       return;
     }
     if (!cleanNumero && !cleanRef) {
-      flash("Informe a numeração ou a referência.");
+      flash("Informe a numeração e a referência.");
+      return;
+    }
+    if (!cleanNumero || !cleanRef) {
+      flash(cleanNumero ? "Falta a referência." : "Falta a numeração.");
       return;
     }
     if (read()?.date !== todayISO()) {
@@ -2658,6 +2662,30 @@ function OutrosScreen({
   const [side, setSide] = useState<Side>("esq");
   const [numero, setNumero] = useState("");
   const [referencia, setReferencia] = useState("");
+  const [falha, setFalha] = useState("");
+
+  function adicionar() {
+    const temNumero = Boolean(numeroLimpo(numero));
+    const temReferencia = Boolean(referenciaLimpa(referencia));
+    if (station < 1 || station > 8) {
+      setFalha("Escolha a estação.");
+      return;
+    }
+    if (!temNumero && !temReferencia) {
+      setFalha("Informe a numeração e a referência. Os dois vazios não registram a troca.");
+      return;
+    }
+    if (temNumero && !temReferencia) {
+      setFalha("Falta a referência. Número e referência andam juntos.");
+      return;
+    }
+    if (!temNumero && temReferencia) {
+      setFalha("Falta a numeração. Número e referência andam juntos.");
+      return;
+    }
+    onSave(station, ambos, side, numero, referencia);
+  }
+
   return (
     <div className="mx-auto flex min-h-[calc(100dvh-10.5rem)] w-full max-w-md flex-col">
       {offDay ? <p className="mb-2 text-center text-sm font-semibold text-accent">Dia fechado.</p> : null}
@@ -2713,12 +2741,28 @@ function OutrosScreen({
         <button
           type="button"
           disabled={offDay}
-          onClick={() => onSave(station, ambos, side, numero, referencia)}
+          onClick={adicionar}
           className="w-full rounded-2xl bg-accent py-4 font-display text-3xl leading-none text-accent-ink disabled:opacity-50"
         >
           Adicionar troca
         </button>
       </div>
+      {falha ? (
+        <div
+          className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setFalha("");
+          }}
+        >
+          <div className="w-full max-w-sm rounded-3xl bg-white p-5 shadow-xl">
+            <p className="text-lg font-semibold">Não salvei a troca</p>
+            <p className="mt-2 text-sm font-semibold">{falha}</p>
+            <button type="button" onClick={() => setFalha("")} className="mt-4 w-full rounded-2xl bg-accent py-3 text-sm font-semibold text-accent-ink">
+              Entendi
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
