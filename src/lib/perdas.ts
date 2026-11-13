@@ -482,11 +482,20 @@ export function problemName(id: string): string {
   return problemById(id)?.name ?? id;
 }
 
-/** Mantém só dígitos e barra. "37 (nova)" vira "37". "sem" ou "vazio" vira vazio. */
+/** Mantém só dígitos e barra. "33/4" e "39/0" viram "33/34" e "39/40". */
 export function numeroLimpo(valor: string): string {
   const bruto = valor.replace(/[^\d/]/g, "");
   const limpo = bruto.replace(/\/{2,}/g, "/").replace(/^\/+|\/+$/g, "");
-  return /\d/.test(limpo) ? limpo : "";
+  if (!/\d/.test(limpo)) return "";
+  const partes = limpo.split("/");
+  if (partes.length !== 2) return limpo;
+  const [esquerda, direitaBruta] = partes;
+  if (!esquerda || !direitaBruta) return limpo;
+  const direita = String(Number(direitaBruta));
+  const base = String(Number(esquerda));
+  if (direita.length >= base.length) return `${base}/${direita}`;
+  const seguinte = String(Number(base) + 1);
+  return seguinte.endsWith(direita) ? `${base}/${seguinte}` : `${base}/${direita}`;
 }
 
 /** "01", "001" e "1" são a mesma referência. Texto que não é só número fica como está. */
