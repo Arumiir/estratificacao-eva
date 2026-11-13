@@ -115,16 +115,9 @@ export function FechamentoTurno({
     ];
   }
 
-  async function enviarTexto(texto: string) {
-    if (typeof navigator.share === "function") {
-      try {
-        await navigator.share({ text: texto });
-        return;
-      } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-      }
-    }
-    window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank", "noopener,noreferrer");
+  function enviarTexto(texto: string) {
+    const url = `https://wa.me/?text=${encodeURIComponent(texto)}`;
+    window.location.assign(url);
   }
 
   async function gerar() {
