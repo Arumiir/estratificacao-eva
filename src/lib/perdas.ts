@@ -482,6 +482,12 @@ export function problemName(id: string): string {
   return problemById(id)?.name ?? id;
 }
 
+/** Numeração fechada da matriz. Fora desta lista não entra. */
+export const NUMEROS_MATRIZ = ["33/34", "35", "36", "37", "37/38", "38", "39", "39/40", "40", "41", "42", "43/44"] as const;
+
+/** Referência da matriz, só número, de 1 a 10. */
+export const REFERENCIAS_MATRIZ = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"] as const;
+
 /** Mantém só dígitos e barra. "33/4" e "39/0" viram "33/34" e "39/40". */
 export function numeroLimpo(valor: string): string {
   const bruto = valor.replace(/[^\d/]/g, "");

@@ -23,7 +23,9 @@ import {
   loadState,
   machineHasMatrices,
   numeroLimpo,
+  NUMEROS_MATRIZ,
   referenciaLimpa,
+  REFERENCIAS_MATRIZ,
   mergeOutros,
   mergeCores,
   mergeFechamentos,
@@ -58,7 +60,7 @@ import {
   type StationConfig,
 } from "@/lib/perdas";
 import { enviarPlanilha, pullApontamentos, pushApontamentos } from "@/lib/apontamentos.functions";
-import { AvisoSair, Teclado, campoInicial, teclaConta, teclaTexto, tecladoAberto, useFecharTeclado, useToque, type Campo } from "@/components/teclado";
+import { AvisoSair, Teclado, campoInicial, teclaConta, tecladoAberto, useFecharTeclado, useToque, type Campo } from "@/components/teclado";
 import { FechamentoTurno } from "@/components/fechamento";
 
 type Papel = "preparador" | "lider";
@@ -3274,6 +3276,11 @@ function MatrixGradeScreen({
   );
 }
 
+function opcoesComAtual(lista: readonly string[], atual: string) {
+  if (!atual || lista.includes(atual)) return lista;
+  return [atual, ...lista];
+}
+
 function NumberPair({
   numero,
   referencia,
@@ -3285,110 +3292,37 @@ function NumberPair({
   onNumero: (value: string) => void;
   onReferencia: (value: string) => void;
 }) {
-  const toque = useToque();
-  const [foco, setFoco] = useState<"numero" | "referencia" | null>(null);
-  const [rascunho, setRascunho] = useState("");
-  const rascunhoRef = useRef("");
-  const fecharRef = useRef<() => void>(() => {});
-
-  function abrir(qual: "numero" | "referencia") {
-    window.dispatchEvent(new Event("teclado-matriz"));
-    const atual = qual === "numero" ? numero : referencia;
-    rascunhoRef.current = atual;
-    setRascunho(atual);
-    setFoco(qual);
-  }
-
-  function digitar(tecla: string) {
-    const proximo = teclaTexto(rascunhoRef.current, tecla);
-    rascunhoRef.current = proximo;
-    setRascunho(proximo);
-    if (foco === "numero") onNumero(proximo);
-    else onReferencia(proximo);
-  }
-
-  function fechar() {
-    const texto = rascunhoRef.current;
-    if (foco === "numero") onNumero(numeroLimpo(texto));
-    if (foco === "referencia") onReferencia(referenciaLimpa(texto));
-    setFoco(null);
-  }
-  fecharRef.current = fechar;
-  useFecharTeclado(Boolean(foco), fechar, foco);
-
-  useEffect(() => {
-    if (!foco) return;
-    const aoFechar = () => fecharRef.current();
-    window.addEventListener("teclado-matriz", aoFechar);
-    return () => window.removeEventListener("teclado-matriz", aoFechar);
-  }, [foco]);
-
-  if (!toque) {
-    return (
-      <div className="grid grid-cols-2 gap-2">
-        <label className="block">
-          <span className="mb-1 block text-sm font-semibold text-muted">Numeração</span>
-          <input
-            value={numero}
-            placeholder="Ex: 39/0"
-            inputMode="text"
-            autoComplete="off"
-            onChange={(event) => onNumero(event.target.value.replace(/[^\d/]/g, "").replace(/\/{2,}/g, "/").slice(0, 16))}
-            onBlur={() => onNumero(numeroLimpo(numero))}
-            className="w-full rounded-tile border border-line bg-surface-2 px-3 py-3 text-base text-fg placeholder:text-[#9aa8b8]"
-          />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-sm font-semibold text-muted">Referência</span>
-          <input
-            value={referencia}
-            placeholder="Ex: 1"
-            maxLength={32}
-            autoComplete="off"
-            onChange={(event) => onReferencia(referenciaLimpa(event.target.value))}
-            className="w-full rounded-tile border border-line bg-surface-2 px-3 py-3 text-base text-fg placeholder:text-[#9aa8b8]"
-          />
-        </label>
-      </div>
-    );
-  }
+  const numeroAtual = numeroLimpo(numero);
+  const referenciaAtual = referenciaLimpa(referencia);
+  const numeros = opcoesComAtual(NUMEROS_MATRIZ, numeroAtual);
+  const referencias = opcoesComAtual(REFERENCIAS_MATRIZ, referenciaAtual);
+  const campo =
+    "w-full appearance-none rounded-tile border border-line bg-surface-2 px-3 py-3 text-base text-fg";
 
   return (
     <div className="grid grid-cols-2 gap-2">
-      <label data-bloco="" className="block">
+      <label className="block">
         <span className="mb-1 block text-sm font-semibold text-muted">Numeração</span>
-        <input
-          readOnly
-          data-campo-teclado=""
-          data-foco={foco === "numero" ? "" : undefined}
-          inputMode="none"
-          value={foco === "numero" ? rascunho : numero}
-          placeholder="Ex: 39/0"
-          onClick={() => abrir("numero")}
-          className={cx("w-full rounded-tile border bg-surface-2 px-3 py-3 text-base text-fg placeholder:text-[#9aa8b8]", foco === "numero" ? "border-accent" : "border-line")}
-        />
+        <select value={numeroAtual} onChange={(event) => onNumero(event.target.value)} className={campo}>
+          <option value="">—</option>
+          {numeros.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </select>
       </label>
-      <label data-bloco="" className="block">
+      <label className="block">
         <span className="mb-1 block text-sm font-semibold text-muted">Referência</span>
-        <input
-          readOnly
-          data-campo-teclado=""
-          data-foco={foco === "referencia" ? "" : undefined}
-          inputMode="none"
-          value={foco === "referencia" ? rascunho : referencia}
-          placeholder="Ex: 1"
-          onClick={() => abrir("referencia")}
-          className={cx(
-            "w-full rounded-tile border bg-surface-2 px-3 py-3 text-base text-fg placeholder:text-[#9aa8b8]",
-            foco === "referencia" ? "border-accent" : "border-line",
-          )}
-        />
+        <select value={referenciaAtual} onChange={(event) => onReferencia(event.target.value)} className={campo}>
+          <option value="">—</option>
+          {referencias.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </select>
       </label>
-      {foco ? (
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-bg px-3 py-3">
-          <Teclado modo="matriz" onTecla={digitar} />
-        </div>
-      ) : null}
     </div>
   );
 }
