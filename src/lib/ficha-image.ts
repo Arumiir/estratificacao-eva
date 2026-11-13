@@ -41,7 +41,7 @@ export async function renderFichasDaMaquina(
   if (!medida) throw new Error("Não foi possível gerar a ficha.");
   for (const grupo of grupos) {
     const layout = medirFicha(medida, grupo.lines);
-    const surface = createSurfaceSized(layout.largura, layout.altura, [2, 1]);
+    const surface = createSurfaceSized(layout.largura, layout.altura, escalasDaFicha(layout.largura, layout.altura));
     if (!surface) throw new Error("Não foi possível gerar a ficha.");
     drawFichaSecreta(surface.ctx, state, machine, grupo.nome, layout);
     arquivos.push({ nome: grupo.nome, blob: await canvasToBlob(surface.canvas) });
@@ -291,6 +291,12 @@ function quebrarTexto(ctx: CanvasRenderingContext2D, texto: string, maxW: number
 
 function createSurface(): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null {
   return createSurfaceSized(W, H);
+}
+
+function escalasDaFicha(largura: number, altura: number) {
+  const maior = Math.max(largura, altura, 1);
+  const ideal = Math.min(8, Math.max(2, Math.ceil(7680 / maior)));
+  return [...new Set([ideal, 4, 3, 2])];
 }
 
 function createSurfaceSized(
@@ -749,7 +755,7 @@ function drawFichaSecreta(
     const estW = colunas.find((coluna) => coluna.chave === "est")?.w ?? 0;
     const ladoW = colunas.find((coluna) => coluna.chave === "lado")?.w ?? 0;
     if (!compartilhado) {
-      ctx.moveTo(tableX, corte);
+      ctx.moveTo(tableX + estW, corte);
       ctx.lineTo(tableX + tableW, corte);
       return;
     }
