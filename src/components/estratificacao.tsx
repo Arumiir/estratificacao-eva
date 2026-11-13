@@ -162,6 +162,28 @@ function diaMenos(iso: string, dias: number) {
   return `${cursor.getUTCFullYear()}-${mes}-${dia}`;
 }
 
+async function puxarDia(date: string) {
+  let falha: unknown;
+  for (let tentativa = 0; tentativa < 3; tentativa += 1) {
+    try {
+      return await pullApontamentos({ data: { date } });
+    } catch (error) {
+      falha = error;
+      await new Promise((resolve) => window.setTimeout(resolve, 1200 * (tentativa + 1)));
+    }
+  }
+  throw falha;
+}
+
+function novoId() {
+  const cryptoApi = globalThis.crypto;
+  if (cryptoApi && typeof cryptoApi.randomUUID === "function") return cryptoApi.randomUUID();
+  return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (digito) => {
+    const valor = Number(digito);
+    return (valor ^ (Math.floor(Math.random() * 16) & (15 >> (valor / 4)))).toString(16);
+  });
+}
+
 function enxugar(state: State): State {
   const limitePerda = diaMenos(state.date, 2);
   const limiteProducao = diaMenos(state.date, 45);
@@ -461,7 +483,7 @@ function usePerdas() {
     puxando.current = true;
     const gen = gradesGen.current;
     try {
-      const remote = await pullApontamentos({ data: { date: started.date } });
+      const remote = await puxarDia(started.date);
       const current = ref.current;
       if (!current || current.date !== started.date || gradesGen.current !== gen) return true;
       setCloud(remote.cloud);
@@ -469,11 +491,15 @@ function usePerdas() {
         booted.current = true;
         setLigado(true);
       }
-      const next = enxugar(takeRemote(current, remote));
-      if (next === current) return true;
-      ref.current = next;
-      lastEntries.current = next.entries;
-      setState(next);
+      try {
+        const next = enxugar(takeRemote(current, remote));
+        if (next === current) return true;
+        ref.current = next;
+        lastEntries.current = next.entries;
+        setState(next);
+      } catch {
+        /* o servidor respondeu; um dado local ruim não apaga o sinal */
+      }
       return true;
     } finally {
       puxando.current = false;
@@ -536,7 +562,7 @@ function usePerdas() {
     if (!state) return;
     let cancel = false;
     const gen = gradesGen.current;
-    void pullApontamentos({ data: { date: state.date } })
+    void puxarDia(state.date)
       .then((remote) => {
         if (cancel || !ref.current || ref.current.date !== state.date || gradesGen.current !== gen) return;
         setCloud(remote.cloud);
@@ -544,11 +570,15 @@ function usePerdas() {
           booted.current = true;
           setLigado(true);
         }
-        const next = enxugar(takeRemote(ref.current, remote));
-        if (next === ref.current) return;
-        ref.current = next;
-        lastEntries.current = next.entries;
-        setState(next);
+        try {
+          const next = enxugar(takeRemote(ref.current, remote));
+          if (next === ref.current) return;
+          ref.current = next;
+          lastEntries.current = next.entries;
+          setState(next);
+        } catch {
+          /* o servidor respondeu */
+        }
       })
       .catch(() => setCloud(false));
     return () => {
@@ -1081,7 +1111,7 @@ export function EstratificacaoApp() {
     corId: string;
     corNome: string;
   }) {
-    const entry: Entry = { ...sola, id: crypto.randomUUID(), at: Date.now(), autor: "" };
+    const entry: Entry = { ...sola, id: novoId(), at: Date.now(), autor: "" };
     commit((current) => ({ ...current, entries: [...current.entries, entry] }));
   }
 
@@ -1183,7 +1213,7 @@ export function EstratificacaoApp() {
       return;
     }
     const cor: Cor = {
-      id: crypto.randomUUID(),
+      id: novoId(),
       date: todayISO(),
       turno: sessao?.turno ?? read()?.turno ?? "1",
       machine,
@@ -1254,7 +1284,7 @@ export function EstratificacaoApp() {
       return;
     }
     const item: OutroMatriz = {
-      id: crypto.randomUUID(),
+      id: novoId(),
       date: todayISO(),
       turno: turnoTroca,
       machine,
@@ -1358,7 +1388,7 @@ export function EstratificacaoApp() {
       for (const [problem, quantidade] of faltas) {
         for (let i = 0; i < quantidade; i += 1) {
           novas.push({
-            id: crypto.randomUUID(),
+            id: novoId(),
             date: dia,
             turno,
             machine,
@@ -1398,7 +1428,7 @@ export function EstratificacaoApp() {
       flash("Fora do horário.");
       return;
     }
-    const id = crypto.randomUUID();
+    const id = novoId();
     let snapshot = { numero: "", referencia: "" };
     commit((stateNow) => {
       const outro = outroId ? stateNow.outros.find((item) => item.id === outroId) : undefined;
