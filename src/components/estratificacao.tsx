@@ -62,7 +62,6 @@ import {
 import { enviarPlanilha, pullApontamentos, pushApontamentos } from "@/lib/apontamentos.functions";
 import { AvisoSair, Teclado, campoInicial, teclaConta, tecladoAberto, useFecharTeclado, useToque, type Campo } from "@/components/teclado";
 import { FechamentoTurno } from "@/components/fechamento";
-import { VereditoTeste } from "@/components/veredito-teste";
 
 type Papel = "preparador" | "lider";
 const SheetScreen = lazy(() => import("@/components/painel").then((mod) => ({ default: mod.SheetScreen })));
@@ -117,8 +116,7 @@ type Screen =
   | { kind: "sheet"; machine: MachineId | null }
   | { kind: "fechamento" }
   | { kind: "lados" }
-  | { kind: "menu" }
-  | { kind: "veredito" };
+  | { kind: "menu" };
 
 type Banner = {
   id: number;
@@ -664,8 +662,6 @@ function screenKey(screen: Screen): string {
       return "lados";
     case "menu":
       return "menu";
-    case "veredito":
-      return "veredito";
   }
 }
 
@@ -676,8 +672,7 @@ function machineFrom(screen: Screen): MachineId | null {
     screen.kind === "machines" ||
     screen.kind === "fechamento" ||
     screen.kind === "lados" ||
-    screen.kind === "menu" ||
-    screen.kind === "veredito"
+    screen.kind === "menu"
   ) {
     return null;
   }
@@ -1573,8 +1568,7 @@ export function EstratificacaoApp() {
               </p>
             ) : null}
           </div>
-          {papel || screen.kind === "fechamento" || screen.kind === "veredito" ? (
-            <div data-nav="" className="hidden shrink-0 items-center gap-2 lg:flex">
+          <div data-nav="" className="hidden shrink-0 items-center gap-2 lg:flex">
               <button
                 type="button"
                 onClick={abrirMenu}
@@ -1600,7 +1594,6 @@ export function EstratificacaoApp() {
                 Voltar
               </button>
             </div>
-          ) : null}
         </div>
       </header>
 
@@ -1647,7 +1640,7 @@ export function EstratificacaoApp() {
           )}
         >
           {screen.kind === "papel" ? (
-            <PortaScreen onPick={chooseSessao} onFechamento={() => push({ kind: "veredito" })} />
+            <PortaScreen onPick={chooseSessao} />
           ) : null}
 
           {screen.kind === "menu" ? (
@@ -1671,8 +1664,6 @@ export function EstratificacaoApp() {
               </button>
             </div>
           ) : null}
-
-          {screen.kind === "veredito" ? <VereditoTeste /> : null}
 
           {screen.kind === "fechamento" ? (
             <FechamentoTurno state={state} onCommit={commit} onNotice={(text) => flash(text)} />
@@ -1845,8 +1836,7 @@ export function EstratificacaoApp() {
           <ChevronDown className="size-5 rotate-180" />
         </button>
       ) : null}
-      {papel || screen.kind === "fechamento" || screen.kind === "veredito" ? (
-        <nav data-nav="" className="shrink-0 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden">
+      <nav data-nav="" className="shrink-0 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden">
           <div className="grid grid-cols-3">
             <button
               type="button"
@@ -1874,7 +1864,6 @@ export function EstratificacaoApp() {
             </button>
           </div>
         </nav>
-      ) : null}
     </div>
   );
 }
@@ -1940,8 +1929,6 @@ function headerFor(screen: Screen): { context: string } {
       return { context: "A e B" };
     case "menu":
       return { context: "Menu" };
-    case "veredito":
-      return { context: "Teste" };
     case "papel":
       return { context: "" };
   }
@@ -1982,44 +1969,14 @@ function Field({
   );
 }
 
-function PortaScreen({ onPick, onFechamento }: { onPick: (sessao: Sessao) => void; onFechamento: () => void }) {
-  const segurando = useRef<number | null>(null);
-  const segurou = useRef(false);
-
-  function comecar(turno: Turno) {
-    if (turno !== "1") return;
-    segurou.current = false;
-    if (segurando.current) window.clearTimeout(segurando.current);
-    segurando.current = window.setTimeout(() => {
-      segurando.current = null;
-      segurou.current = true;
-      onFechamento();
-    }, 550);
-  }
-
-  function soltar() {
-    if (!segurando.current) return;
-    window.clearTimeout(segurando.current);
-    segurando.current = null;
-  }
-
+function PortaScreen({ onPick }: { onPick: (sessao: Sessao) => void }) {
   return (
     <div className="mx-auto flex w-full max-w-md flex-col justify-center gap-3">
       {(["1", "2", "3"] as const).map((turno) => (
         <button
           key={turno}
           type="button"
-          onPointerDown={() => comecar(turno)}
-          onPointerUp={soltar}
-          onPointerCancel={soltar}
-          onContextMenu={(event) => event.preventDefault()}
-          onClick={() => {
-            if (segurou.current) {
-              segurou.current = false;
-              return;
-            }
-            onPick({ papel: "preparador", turno });
-          }}
+          onClick={() => onPick({ papel: "preparador", turno })}
           className="rounded-tile bg-accent py-5 font-display text-4xl leading-none text-accent-ink"
         >
           {TURNO_LABEL[turno]}

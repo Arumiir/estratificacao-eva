@@ -226,14 +226,16 @@ export function FechamentoTurno({
           );
         })}
       </div>
-      <button
-        type="button"
-        disabled={gerando || escolhidas.length === 0}
-        onClick={() => void gerar()}
-        className="mt-4 w-full rounded-tile bg-accent py-4 font-display text-3xl leading-none text-accent-ink disabled:opacity-40"
-      >
-        {gerando ? "Enviando…" : "Enviar texto"}
-      </button>
+      <div className="sticky bottom-0 z-10 -mx-4 mt-4 border-t border-line bg-bg/95 px-4 py-3 backdrop-blur">
+        <button
+          type="button"
+          disabled={gerando || escolhidas.length === 0}
+          onClick={() => void gerar()}
+          className="w-full rounded-tile bg-accent py-4 font-display text-3xl leading-none text-accent-ink disabled:opacity-40"
+        >
+          {gerando ? "Enviando…" : "Enviar texto"}
+        </button>
+      </div>
     </div>
   );
 }
