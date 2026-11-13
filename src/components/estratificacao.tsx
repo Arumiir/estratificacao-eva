@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState, type MutableRefObject } fr
 import { cx, paresDasEntradas, percentualPerda, textoPercentual } from "@/components/comum";
 import { InstallPrompt } from "@/components/install-prompt";
 import { UpdateNotice } from "@/components/update-notice";
-import { ChevronLeft, ChevronDown, House, ImageDown, Settings } from "lucide-react";
+import { ChevronLeft, ChevronDown, House, ImageDown, Menu } from "lucide-react";
 import {
   MAQUINAS_PISO,
   variantesDe,
@@ -62,6 +62,7 @@ import {
 import { enviarPlanilha, pullApontamentos, pushApontamentos } from "@/lib/apontamentos.functions";
 import { AvisoSair, Teclado, campoInicial, teclaConta, tecladoAberto, useFecharTeclado, useToque, type Campo } from "@/components/teclado";
 import { FechamentoTurno } from "@/components/fechamento";
+import { VereditoTeste } from "@/components/veredito-teste";
 
 type Papel = "preparador" | "lider";
 const SheetScreen = lazy(() => import("@/components/painel").then((mod) => ({ default: mod.SheetScreen })));
@@ -115,7 +116,9 @@ type Screen =
   | { kind: "problems"; machine: MachineId; station: number; side: Side; outroId?: string; corId?: string }
   | { kind: "sheet"; machine: MachineId | null }
   | { kind: "fechamento" }
-  | { kind: "lados" };
+  | { kind: "lados" }
+  | { kind: "menu" }
+  | { kind: "veredito" };
 
 type Banner = {
   id: number;
@@ -659,6 +662,10 @@ function screenKey(screen: Screen): string {
       return "fechamento";
     case "lados":
       return "lados";
+    case "menu":
+      return "menu";
+    case "veredito":
+      return "veredito";
   }
 }
 
@@ -668,7 +675,9 @@ function machineFrom(screen: Screen): MachineId | null {
     screen.kind === "turnos" ||
     screen.kind === "machines" ||
     screen.kind === "fechamento" ||
-    screen.kind === "lados"
+    screen.kind === "lados" ||
+    screen.kind === "menu" ||
+    screen.kind === "veredito"
   ) {
     return null;
   }
@@ -903,12 +912,12 @@ export function EstratificacaoApp() {
     leavePapel();
   }
 
-  function abrirConfig() {
+  function abrirMenu() {
     if (tecladoAberto()) {
       tecladoAberto()?.();
       return;
     }
-    push({ kind: "lados" });
+    push({ kind: "menu" });
   }
 
   function replaceTop(next: Screen) {
@@ -1564,15 +1573,15 @@ export function EstratificacaoApp() {
               </p>
             ) : null}
           </div>
-          {papel || screen.kind === "fechamento" ? (
+          {papel || screen.kind === "fechamento" || screen.kind === "veredito" ? (
             <div data-nav="" className="hidden shrink-0 items-center gap-2 lg:flex">
               <button
                 type="button"
-                onClick={abrirConfig}
+                onClick={abrirMenu}
                 className="inline-flex items-center gap-2 rounded-tile border border-line bg-surface px-3 py-2 text-sm font-semibold"
               >
-                <Settings className="size-4" />
-                Configuração
+                <Menu className="size-4" />
+                Menu
               </button>
               <button
                 type="button"
@@ -1638,8 +1647,32 @@ export function EstratificacaoApp() {
           )}
         >
           {screen.kind === "papel" ? (
-            <PortaScreen onPick={chooseSessao} onFechamento={() => push({ kind: "fechamento" })} />
+            <PortaScreen onPick={chooseSessao} onFechamento={() => push({ kind: "veredito" })} />
           ) : null}
+
+          {screen.kind === "menu" ? (
+            <div className="mx-auto flex w-full max-w-md flex-col gap-3">
+              <p className="font-display text-4xl leading-none text-accent">Menu</p>
+              <button
+                type="button"
+                onClick={() => push({ kind: "lados" })}
+                className="rounded-tile bg-accent py-5 text-left px-5"
+              >
+                <span className="block font-display text-4xl leading-none text-accent-ink">Lados</span>
+                <span className="mt-1 block text-sm font-semibold text-accent-ink/80">Ativar A e B nas máquinas</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => push({ kind: "fechamento" })}
+                className="rounded-tile border border-line bg-surface py-5 text-left px-5"
+              >
+                <span className="block font-display text-4xl leading-none text-fg">Fechamento</span>
+                <span className="mt-1 block text-sm font-semibold text-muted">Texto do turno para a gestão</span>
+              </button>
+            </div>
+          ) : null}
+
+          {screen.kind === "veredito" ? <VereditoTeste /> : null}
 
           {screen.kind === "fechamento" ? (
             <FechamentoTurno state={state} onCommit={commit} onNotice={(text) => flash(text)} />
@@ -1812,16 +1845,16 @@ export function EstratificacaoApp() {
           <ChevronDown className="size-5 rotate-180" />
         </button>
       ) : null}
-      {papel || screen.kind === "fechamento" ? (
+      {papel || screen.kind === "fechamento" || screen.kind === "veredito" ? (
         <nav data-nav="" className="shrink-0 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden">
           <div className="grid grid-cols-3">
             <button
               type="button"
-              onClick={abrirConfig}
+              onClick={abrirMenu}
               className="flex flex-col items-center gap-1 py-2 text-xs font-semibold text-accent"
             >
-              <Settings className="size-5" />
-              Configuração
+              <Menu className="size-5" />
+              Menu
             </button>
             <button
               type="button"
@@ -1905,6 +1938,10 @@ function headerFor(screen: Screen): { context: string } {
       return { context: "Fechamento do turno" };
     case "lados":
       return { context: "A e B" };
+    case "menu":
+      return { context: "Menu" };
+    case "veredito":
+      return { context: "Teste" };
     case "papel":
       return { context: "" };
   }
