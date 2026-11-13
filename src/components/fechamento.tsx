@@ -5,7 +5,6 @@ import {
   diaDoApontamento,
   diaOperacional,
   formatDateBR,
-  machineHasFicha,
   maquinasDoFiltro,
   mergeFechamentos,
   TURNO_LABEL,
@@ -24,8 +23,13 @@ function vazio(): Campos {
 }
 
 function ponto(texto: string) {
-  if (!texto) return "";
+  if (!texto || texto === "----") return texto;
   return /[.!?]$/.test(texto) ? texto : `${texto}.`;
+}
+
+function preenchido(texto: string) {
+  const limpo = texto.trim();
+  return limpo || "----";
 }
 
 function nomeCurto(nome: string) {
@@ -34,7 +38,7 @@ function nomeCurto(nome: string) {
 
 function juntar(nomes: string[]) {
   const lista = nomes.filter(Boolean);
-  if (lista.length === 0) return "---";
+  if (lista.length === 0) return "----";
   const [primeiro, ...resto] = lista;
   const cauda = resto.map((nome) => nome.charAt(0).toLocaleLowerCase("pt-BR") + nome.slice(1));
   if (cauda.length === 0) return primeiro;
@@ -64,7 +68,6 @@ export function FechamentoTurno({
     return inicial;
   });
   const [gerando, setGerando] = useState(false);
-  const [passo, setPasso] = useState("");
 
   function camposDe(machine: MachineId) {
     return campos[machine] ?? vazio();
@@ -83,7 +86,7 @@ export function FechamentoTurno({
     return {
       perdas,
       producao,
-      percentual: percentual === null ? "—" : `${textoPercentual(percentual)}%`,
+      percentual: percentual === null ? "----" : `${textoPercentual(percentual)}%`,
       problemas: juntar(problemas),
     };
   }
@@ -99,26 +102,39 @@ export function FechamentoTurno({
   function textoDa(machine: MachineId) {
     const conta = calcular(machine);
     const digitado = camposDe(machine);
-    const problemas = conta.problemas === "---" ? "" : conta.problemas;
+    const setup = digitado.setup.trim();
     return [
       `${machine}:`,
-      `• Horas Baixadas: ${digitado.horas.trim()}`,
+      `• Horas Baixadas: ${preenchido(digitado.horas)}`,
       `• Produção: ${conta.producao}`,
       `• Perdas: ${conta.perdas}`,
       `• Percentual: ${conta.percentual}`,
-      `• Saldo: ${digitado.saldo.trim()}`,
-      `• Setup: ${ponto(digitado.setup.trim())}`,
-      `• Prob.: ${ponto(problemas)}`,
+      `• Saldo: ${preenchido(digitado.saldo)}`,
+      `• Setup: ${setup ? ponto(setup) : "----"}`,
+      `• Prob.: ${ponto(conta.problemas)}`,
     ];
+  }
+
+  async function enviarTexto(texto: string) {
+    if (typeof navigator.share === "function") {
+      try {
+        await navigator.share({ text: texto });
+        return;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+      }
+    }
+    window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank", "noopener,noreferrer");
   }
 
   async function gerar() {
     if (escolhidas.length === 0 || gerando) return;
+    const lista = maquinas.filter((machine) => escolhidas.includes(machine));
     setGerando(true);
     try {
       const salvos: Fechamento[] = [];
       const agora = Date.now();
-      for (const machine of escolhidas) {
+      for (const machine of lista) {
         const digitado = camposDe(machine);
         salvos.push({
           id: `${view.date}|${TURNO}|${machine}`,
@@ -136,33 +152,12 @@ export function FechamentoTurno({
         ...current,
         fechamentos: mergeFechamentos(current.fechamentos ?? [], salvos),
       }));
-
-      const comFicha = escolhidas.filter((machine) => machineHasFicha(view, machine));
-      if (comFicha.length === 0) {
-        onNotice("Nenhuma ficha neste turno.");
-        return;
-      }
-      const { renderFichaJunta, entregarArquivos } = await import("@/lib/ficha-image");
-      let baixou = false;
-      for (let index = 0; index < comFicha.length; index += 1) {
-        const machine = comFicha[index]!;
-        setPasso(`Enviando ${index + 1} de ${comFicha.length}`);
-        const blob = await renderFichaJunta(view, [machine]);
-        const linhas = textoDa(machine);
-        const resultado = await entregarArquivos(
-          [{ name: `ficha-${machine}-${view.date}.png`, blob }],
-          linhas.join("\n"),
-        );
-        if (resultado === "cancelou") return;
-        if (resultado === "baixou") baixou = true;
-      }
-      if (baixou) onNotice("Não foi possível abrir o WhatsApp neste aparelho.");
+      await enviarTexto(lista.map((machine) => textoDa(machine).join("\n")).join("\n\n"));
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
-      onNotice("Não foi possível gerar o fechamento.");
+      onNotice("Não foi possível enviar o texto.");
     } finally {
       setGerando(false);
-      setPasso("");
     }
   }
 
@@ -237,7 +232,7 @@ export function FechamentoTurno({
         onClick={() => void gerar()}
         className="mt-4 w-full rounded-tile bg-accent py-4 font-display text-3xl leading-none text-accent-ink disabled:opacity-40"
       >
-        {gerando ? passo || "Gerando…" : "Enviar fechamento"}
+        {gerando ? "Enviando…" : "Enviar texto"}
       </button>
     </div>
   );
