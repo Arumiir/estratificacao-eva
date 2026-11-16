@@ -408,7 +408,8 @@ async function seloDoDia(sql: Awaited<ReturnType<typeof getSql>>, date: string) 
       coalesce(max(at), 0) as ultimo,
       md5(coalesce(string_agg(linha, '' order by linha), '')) as corpo
     from (
-      select md5(
+      select at,
+        md5(
         id || '|' || problem || '|' || numero || '|' || referencia || '|' ||
         coalesce(outro, '') || '|' || coalesce(cor, '') || '|' || coalesce(cor_nome, '') || '|' || coalesce(autor, '')
       ) as linha
