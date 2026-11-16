@@ -3,12 +3,26 @@ import { pendingMigrations } from "../../scripts/migration-plan.mjs";
 /** Which database backend is active. */
 export type DbSource = "neon" | "pglite";
 
+function envLimpo(...nomes: string[]) {
+  if (typeof process === "undefined") return undefined;
+  for (const nome of nomes) {
+    const valor = process.env[nome]?.trim();
+    if (valor) return valor;
+  }
+  return undefined;
+}
+
 // An empty/whitespace DATABASE_URL (an easy misconfig in deploy UIs) must mean
 // "unset" — otherwise production would silently run on the PGLite fallback.
-const rawDatabaseUrl =
-  typeof process !== "undefined" ? process.env.DATABASE_URL : undefined;
-const databaseUrl =
-  rawDatabaseUrl && rawDatabaseUrl.trim() ? rawDatabaseUrl : undefined;
+// PRISMA_* exists when the new database is connected beside the suspended Neon.
+const databaseUrl = envLimpo(
+  "PRISMA_DATABASE_URL_POOLED",
+  "PRISMA_DATABASE_URL",
+  "PRISMA_POSTGRES_URL",
+  "PRISMA_URL",
+  "DATABASE_URL_POOLED",
+  "DATABASE_URL",
+);
 
 /**
  * Active backend: real **Neon** when `DATABASE_URL` is set (deployed / configured
@@ -93,9 +107,7 @@ function createNeonSql(): Promise<Sql> {
     types.setTypeParser(OID_INT8, Number);
     types.setTypeParser(OID_DATE, identity);
     types.setTypeParser(OID_INTERVAL, identity);
-    const pool = new Pool({
-      connectionString: process.env.DATABASE_URL_POOLED?.trim() || databaseUrl,
-    });
+    const pool = new Pool({ connectionString: databaseUrl });
     return toSql(async <T>(text: string, params: unknown[]) => {
       const res = await pool.query(text, params);
       return res.rows as T[];
