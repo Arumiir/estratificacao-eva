@@ -522,54 +522,63 @@ function usePerdas() {
 
   useEffect(() => {
     if (!state) return;
-    const timer = window.setInterval(() => {
+    const retry = window.setInterval(() => {
       const current = ref.current;
       const known = synced.current;
-      if (current && known) {
-        const upserts = current.entries.filter((entry) => !known.has(entry.id) && !held.current.has(entry.id));
-        const removed = [...pendingRemoved.current.values()];
-        const reviveIds = [...revives.current];
-        const outros = current.outros.filter((item) => item.date === current.date);
-        const cores = current.cores.filter((item) => item.date === current.date);
-        const fechamentos = (current.fechamentos ?? []).filter((item) => item.date === current.date);
-        const producao = current.producao ?? [];
-        const outrosMudou = JSON.stringify(outros) !== lastOutros.current;
-        const coresMudou = JSON.stringify(cores) !== lastCores.current;
-        const fechamentosMudou = JSON.stringify(fechamentos) !== lastFechamentos.current;
-        const producaoMudou = JSON.stringify(producao) !== lastProducao.current;
-        const modelosMudou = current.modelosEm > lastModelosEm.current;
-        if (booted.current && (upserts.length > 0 || removed.length > 0 || reviveIds.length > 0 || outrosMudou || coresMudou || fechamentosMudou || producaoMudou || modelosMudou)) {
-          const modeloEnviado = modelosMudou ? { machines: current.modelos, salvoEm: current.modelosEm } : null;
-          void pushApontamentos({
-            data: {
-              upserts,
-              removed,
-              revives: reviveIds,
-              date: current.date,
-              outros: outrosMudou ? outros : [],
-              cores: coresMudou ? cores : [],
-              fechamentos: fechamentosMudou ? fechamentos : [],
-              producao: producaoMudou ? producao : [],
-              modelos: modeloEnviado,
-            },
-          })
-            .then((result) => {
-              setCloud(result.cloud);
-              for (const entry of upserts) known.add(entry.id);
-              for (const id of reviveIds) revives.current.delete(id);
-              if (outrosMudou) lastOutros.current = JSON.stringify(outros);
-              if (coresMudou) lastCores.current = JSON.stringify(cores);
-              if (fechamentosMudou) lastFechamentos.current = JSON.stringify(fechamentos);
-              if (producaoMudou) lastProducao.current = JSON.stringify(producao);
-              if (modeloEnviado) lastModelosEm.current = modeloEnviado.salvoEm;
-            })
-            .catch(() => setCloud(false));
-        }
-      }
-      if (document.visibilityState === "hidden") return;
-      void refresh().catch(() => setCloud(false));
+      if (!current || !known || !booted.current) return;
+      const upserts = current.entries.filter((entry) => !known.has(entry.id) && !held.current.has(entry.id));
+      const removed = [...pendingRemoved.current.values()];
+      const reviveIds = [...revives.current];
+      const outros = current.outros.filter((item) => item.date === current.date);
+      const cores = current.cores.filter((item) => item.date === current.date);
+      const fechamentos = (current.fechamentos ?? []).filter((item) => item.date === current.date);
+      const producao = current.producao ?? [];
+      const outrosMudou = JSON.stringify(outros) !== lastOutros.current;
+      const coresMudou = JSON.stringify(cores) !== lastCores.current;
+      const fechamentosMudou = JSON.stringify(fechamentos) !== lastFechamentos.current;
+      const producaoMudou = JSON.stringify(producao) !== lastProducao.current;
+      const modelosMudou = current.modelosEm > lastModelosEm.current;
+      if (upserts.length === 0 && removed.length === 0 && reviveIds.length === 0 && !outrosMudou && !coresMudou && !fechamentosMudou && !producaoMudou && !modelosMudou) return;
+      const modeloEnviado = modelosMudou ? { machines: current.modelos, salvoEm: current.modelosEm } : null;
+      void pushApontamentos({
+        data: {
+          upserts,
+          removed,
+          revives: reviveIds,
+          date: current.date,
+          outros: outrosMudou ? outros : [],
+          cores: coresMudou ? cores : [],
+          fechamentos: fechamentosMudou ? fechamentos : [],
+          producao: producaoMudou ? producao : [],
+          modelos: modeloEnviado,
+        },
+      })
+        .then((result) => {
+          setCloud(result.cloud);
+          for (const entry of upserts) known.add(entry.id);
+          for (const id of reviveIds) revives.current.delete(id);
+          if (outrosMudou) lastOutros.current = JSON.stringify(outros);
+          if (coresMudou) lastCores.current = JSON.stringify(cores);
+          if (fechamentosMudou) lastFechamentos.current = JSON.stringify(fechamentos);
+          if (producaoMudou) lastProducao.current = JSON.stringify(producao);
+          if (modeloEnviado) lastModelosEm.current = modeloEnviado.salvoEm;
+        })
+        .catch(() => setCloud(false));
     }, 60000);
-    return () => window.clearInterval(timer);
+    const passo = 15 * 60 * 1000;
+    let pullTimer = 0;
+    const agendar = () => {
+      const espera = passo - (Date.now() % passo);
+      pullTimer = window.setTimeout(() => {
+        if (document.visibilityState !== "hidden") void refresh().catch(() => setCloud(false));
+        agendar();
+      }, espera || passo);
+    };
+    agendar();
+    return () => {
+      window.clearInterval(retry);
+      window.clearTimeout(pullTimer);
+    };
   }, [Boolean(state)]);
 
   useEffect(() => {
