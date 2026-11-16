@@ -451,9 +451,11 @@ function usePerdas() {
       podeAlterarApontamento(entry) ? aplicarMatriz(entry, { ...current, stations }) : entry,
     );
     if (!synced.current) synced.current = new Set();
+    const veioDoBanco = new Set(remote.entries.map((entry) => entry.id));
     for (let index = 0; index < entries.length; index += 1) {
       const entry = entries[index];
       if (!entry) continue;
+      if (!veioDoBanco.has(entry.id)) continue;
       if (entry === merged[index]) synced.current.add(entry.id);
       else synced.current.delete(entry.id);
     }
