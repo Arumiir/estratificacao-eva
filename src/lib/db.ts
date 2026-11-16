@@ -16,6 +16,9 @@ function envLimpo(...nomes: string[]) {
 // "unset" — otherwise production would silently run on the PGLite fallback.
 // PRISMA_* exists when the new database is connected beside the suspended Neon.
 const databaseUrl = envLimpo(
+  "STORAGE_DATABASE_URL_POOLED",
+  "STORAGE_DATABASE_URL",
+  "STORAGE_POSTGRES_URL",
   "PRISMA_DATABASE_URL_POOLED",
   "PRISMA_DATABASE_URL",
   "PRISMA_POSTGRES_URL",

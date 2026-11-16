@@ -19,6 +19,8 @@ import pg from "pg";
 import { pendingMigrations } from "./migration-plan.mjs";
 
 const databaseUrl =
+  process.env.STORAGE_DATABASE_URL?.trim() ||
+  process.env.STORAGE_POSTGRES_URL?.trim() ||
   process.env.PRISMA_DATABASE_URL?.trim() ||
   process.env.PRISMA_POSTGRES_URL?.trim() ||
   process.env.PRISMA_URL?.trim() ||
