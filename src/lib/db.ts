@@ -16,14 +16,15 @@ function envLimpo(...nomes: string[]) {
 // "unset" — otherwise production would silently run on the PGLite fallback.
 // PRISMA_* exists when the new database is connected beside the suspended Neon.
 const databaseUrl = envLimpo(
-  "STORAGE_DATABASE_URL_POOLED",
   "STORAGE_DATABASE_URL",
   "STORAGE_POSTGRES_URL",
-  "PRISMA_DATABASE_URL_POOLED",
+  "STORAGE_DATABASE_URL_POOLED",
   "PRISMA_DATABASE_URL",
   "PRISMA_POSTGRES_URL",
   "PRISMA_URL",
-  "DATABASE_URL_POOLED",
+  "PRISMA_DATABASE_URL_POOLED",
+  "DATABASE_URL_UNPOOLED",
+  "POSTGRES_URL_NON_POOLING",
   "DATABASE_URL",
 );
 
@@ -110,10 +111,29 @@ function createNeonSql(): Promise<Sql> {
     types.setTypeParser(OID_INT8, Number);
     types.setTypeParser(OID_DATE, identity);
     types.setTypeParser(OID_INTERVAL, identity);
-    const pool = new Pool({ connectionString: databaseUrl });
+    const escolhido = [
+      "STORAGE_DATABASE_URL",
+      "STORAGE_POSTGRES_URL",
+      "STORAGE_DATABASE_URL_POOLED",
+      "PRISMA_DATABASE_URL",
+      "DATABASE_URL_UNPOOLED",
+      "POSTGRES_URL_NON_POOLING",
+      "DATABASE_URL",
+    ].find((nome) => process.env[nome]?.trim());
+    console.info("[db] usando", escolhido ?? "nenhum");
+    const pool = new Pool({
+      connectionString: databaseUrl,
+      max: 1,
+      ssl: { rejectUnauthorized: false },
+    });
     return toSql(async <T>(text: string, params: unknown[]) => {
-      const res = await pool.query(text, params);
-      return res.rows as T[];
+      try {
+        const res = await pool.query(text, params);
+        return res.rows as T[];
+      } catch (err) {
+        console.error("[db]", err instanceof Error ? err.message : err);
+        throw err;
+      }
     });
   })().catch((err) => {
     globalRef.__pgSqlPromise__ = undefined;
