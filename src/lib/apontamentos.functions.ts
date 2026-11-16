@@ -15,6 +15,8 @@ type SyncResult = {
   producao: ProducaoPares[];
   modelos: ModeloSalvo | null;
   cloud: boolean;
+  selo?: string;
+  igual?: boolean;
 };
 
 function usesBlob() {
@@ -400,10 +402,40 @@ export const pushApontamentos = createServerFn({ method: "POST" })
     return { ok: true as const, cloud: cloudOn() };
   });
 
+async function seloDoDia(sql: Awaited<ReturnType<typeof getSql>>, date: string) {
+  const corpo = await sql<{ n: number; ultimo: string | number; corpo: string }>`
+    select count(*)::int as n,
+      coalesce(max(at), 0) as ultimo,
+      md5(coalesce(string_agg(linha, '' order by linha), '')) as corpo
+    from (
+      select md5(
+        id || '|' || problem || '|' || numero || '|' || referencia || '|' ||
+        coalesce(outro, '') || '|' || coalesce(cor, '') || '|' || coalesce(cor_nome, '') || '|' || coalesce(autor, '')
+      ) as linha
+      from apontamentos
+      where date = ${date}
+    ) linhas
+  `;
+  const removidos = await sql<{ n: number; corpo: string }>`
+    select count(*)::int as n, md5(coalesce(string_agg(id, '' order by id), '')) as corpo
+    from apontamentos_removidos
+    where date = ${date}
+  `;
+  const grades = await sql<{ corpo: string }>`
+    select md5(coalesce(string_agg(date || key || config::text, '' order by date, key), '')) as corpo
+    from grades
+    where date = ${date} or (date = ${"modelos"} and key = ${"__modelos__"})
+  `;
+  const linha = corpo[0];
+  const fora = removidos[0];
+  return `${linha?.n ?? 0}.${linha?.ultimo ?? 0}.${linha?.corpo ?? ""}.${fora?.n ?? 0}.${fora?.corpo ?? ""}.${grades[0]?.corpo ?? ""}`;
+}
+
 export const pullApontamentos = createServerFn({ method: "POST" })
-  .validator((data: { date?: unknown }) => {
+  .validator((data: { date?: unknown; selo?: unknown }) => {
     const date = typeof data?.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(data.date) ? data.date : "";
-    return { date };
+    const selo = typeof data?.selo === "string" ? data.selo.slice(0, 200) : "";
+    return { date, selo };
   })
   .handler(async ({ data }): Promise<SyncResult> => {
     if (!data.date) return { entries: [], removed: [], grades: {}, outros: [], cores: [], fechamentos: [], producao: [], modelos: null, cloud: cloudOn() };
@@ -413,6 +445,22 @@ export const pullApontamentos = createServerFn({ method: "POST" })
     }
     await garantirAcerto();
     const sql = await getSql();
+    const selo = await seloDoDia(sql, data.date);
+    if (data.selo && data.selo === selo) {
+      return {
+        entries: [],
+        removed: [],
+        grades: {},
+        outros: [],
+        cores: [],
+        fechamentos: [],
+        producao: [],
+        modelos: null,
+        cloud: cloudOn(),
+        selo,
+        igual: true,
+      };
+    }
     const rows = await sql<{
       id: string;
       date: string;
@@ -484,6 +532,7 @@ export const pullApontamentos = createServerFn({ method: "POST" })
       producao,
       modelos: readModelos(modeloRow[0]?.config),
       cloud: cloudOn(),
+      selo,
     };
   });
 

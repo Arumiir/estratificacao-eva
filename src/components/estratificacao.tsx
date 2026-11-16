@@ -165,11 +165,14 @@ function diaMenos(iso: string, dias: number) {
   return `${cursor.getUTCFullYear()}-${mes}-${dia}`;
 }
 
+const seloVisto = new Map<string, string>();
+
 async function puxarDia(date: string) {
   let falha: unknown;
   for (let tentativa = 0; tentativa < 3; tentativa += 1) {
     try {
-      return await pullApontamentos({ data: { date } });
+      const remote = await pullApontamentos({ data: { date, selo: seloVisto.get(date) ?? "" } });
+      return remote;
     } catch (error) {
       falha = error;
       await new Promise((resolve) => window.setTimeout(resolve, 1200 * (tentativa + 1)));
@@ -494,12 +497,20 @@ function usePerdas() {
         booted.current = true;
         setLigado(true);
       }
+      if (remote.igual) {
+        if (remote.selo) seloVisto.set(started.date, remote.selo);
+        return true;
+      }
       try {
         const next = enxugar(takeRemote(current, remote));
-        if (next === current) return true;
+        if (next === current) {
+          if (remote.selo) seloVisto.set(started.date, remote.selo);
+          return true;
+        }
         ref.current = next;
         lastEntries.current = next.entries;
         setState(next);
+        if (remote.selo) seloVisto.set(started.date, remote.selo);
       } catch {
         /* o servidor respondeu; um dado local ruim não apaga o sinal */
       }
@@ -573,12 +584,20 @@ function usePerdas() {
           booted.current = true;
           setLigado(true);
         }
+        if (remote.igual) {
+          if (remote.selo) seloVisto.set(state.date, remote.selo);
+          return;
+        }
         try {
           const next = enxugar(takeRemote(ref.current, remote));
-          if (next === ref.current) return;
+          if (next === ref.current) {
+            if (remote.selo) seloVisto.set(state.date, remote.selo);
+            return;
+          }
           ref.current = next;
           lastEntries.current = next.entries;
           setState(next);
+          if (remote.selo) seloVisto.set(state.date, remote.selo);
         } catch {
           /* o servidor respondeu */
         }
