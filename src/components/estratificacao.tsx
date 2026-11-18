@@ -62,6 +62,7 @@ import {
 import { enviarPlanilha, pullApontamentos, pushApontamentos } from "@/lib/apontamentos.functions";
 import { AvisoSair, Teclado, campoInicial, teclaConta, tecladoAberto, useFecharTeclado, useToque, type Campo } from "@/components/teclado";
 import { FechamentoTurno } from "@/components/fechamento";
+import { AcompanhamentoHoras } from "@/components/AcompanhamentoHoras";
 
 type Papel = "preparador" | "lider";
 const SheetScreen = lazy(() => import("@/components/painel").then((mod) => ({ default: mod.SheetScreen })));
@@ -115,6 +116,7 @@ type Screen =
   | { kind: "problems"; machine: MachineId; station: number; side: Side; outroId?: string; corId?: string }
   | { kind: "sheet"; machine: MachineId | null }
   | { kind: "fechamento" }
+  | { kind: "horas" }
   | { kind: "lados" }
   | { kind: "menu" };
 
@@ -688,6 +690,8 @@ function screenKey(screen: Screen): string {
       return `sheet-${screen.machine ?? "all"}`;
     case "fechamento":
       return "fechamento";
+    case "horas":
+      return "horas";
     case "lados":
       return "lados";
     case "menu":
@@ -701,6 +705,7 @@ function machineFrom(screen: Screen): MachineId | null {
     screen.kind === "turnos" ||
     screen.kind === "machines" ||
     screen.kind === "fechamento" ||
+    screen.kind === "horas" ||
     screen.kind === "lados" ||
     screen.kind === "menu"
   ) {
@@ -1692,12 +1697,22 @@ export function EstratificacaoApp() {
                 <span className="block font-display text-4xl leading-none text-fg">Fechamento</span>
                 <span className="mt-1 block text-sm font-semibold text-muted">Texto do turno para a gestão</span>
               </button>
+              <button
+                type="button"
+                onClick={() => push({ kind: "horas" })}
+                className="rounded-tile border border-line bg-surface py-5 text-left px-5"
+              >
+                <span className="block font-display text-4xl leading-none text-fg">Horas</span>
+                <span className="mt-1 block text-sm font-semibold text-muted">Programas e horas das máquinas</span>
+              </button>
             </div>
           ) : null}
 
           {screen.kind === "fechamento" ? (
             <FechamentoTurno state={state} onCommit={commit} onNotice={(text) => flash(text)} />
           ) : null}
+
+          {screen.kind === "horas" ? <AcompanhamentoHoras /> : null}
 
           {screen.kind === "lados" ? (
             <div className="mx-auto w-full max-w-md">
@@ -1955,6 +1970,8 @@ function headerFor(screen: Screen): { context: string } {
       return { context: "Lançamentos" };
     case "fechamento":
       return { context: "Fechamento do turno" };
+    case "horas":
+      return { context: "Acompanhamento de horas" };
     case "lados":
       return { context: "A e B" };
     case "menu":
