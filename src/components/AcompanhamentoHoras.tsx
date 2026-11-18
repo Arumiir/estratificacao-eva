@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Plus, Pencil, Trash2, ChevronDown, Clock, Check, Box } from "lucide-react";
-import { NUMEROS_MATRIZ, numeroLimpo, type MachineId, type Turno } from "@/lib/perdas";
+import { NUMEROS_MATRIZ, TURNO_LABEL, diaDeHoje, diaOperacional, formatDateBR, numeroLimpo, turnoPeloRelogio, type MachineId, type Turno } from "@/lib/perdas";
+import { horasVazias, juntarHoras, lerHorasLocal, salvarHorasLocal, type HorasDia } from "@/lib/horas-sync";
 
 type Destino = "saldo" | "baixada";
-type Caixa = { destino: Destino; date?: string; turno?: Turno };
+type Caixa = { destino: Destino | null; date?: string; turno?: Turno; em?: number };
 
 type Numero = {
   id: string;
@@ -14,6 +15,7 @@ type Numero = {
   marcadas: boolean[];
   caixas?: (Caixa | Destino | null)[];
   modoSaldo?: boolean;
+  em?: number;
 };
 
 type Programa = {
@@ -21,6 +23,7 @@ type Programa = {
   nome: string;
   documento: string;
   numeros: Numero[];
+  em?: number;
 };
 
 type Maquina = {
@@ -31,10 +34,10 @@ type Maquina = {
 };
 
 type Data = {
+  date?: string;
   maquinas: Maquina[];
+  apagados?: { id: string; em: number }[];
 };
-
-const STORAGE_KEY = "horas_maquinas_v3";
 
 export function formatHours(h: number): string {
   if (isNaN(h) || h < 0) return "00:00";
@@ -48,7 +51,7 @@ function parseNum(s: string): number {
 
 function lerCaixa(bruto: Caixa | Destino | null | undefined, marcada = false): Caixa | null {
   if (bruto === "saldo" || bruto === "baixada") return { destino: bruto };
-  if (bruto && typeof bruto === "object" && (bruto.destino === "saldo" || bruto.destino === "baixada")) return bruto;
+  if (bruto && typeof bruto === "object" && (bruto.destino === "saldo" || bruto.destino === "baixada" || bruto.destino === null)) return bruto;
   return marcada ? { destino: "baixada" } : null;
 }
 
@@ -136,35 +139,33 @@ function totaisMaquina(m: Maquina) {
 }
 
 export function lerHorasTurno(date: string, turno: Turno): Record<string, { hb: number; sd: number }> {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return {};
-    const data = JSON.parse(raw) as Data;
-    const mapa: Record<string, { hb: number; sd: number }> = {};
-    for (const maquina of data.maquinas ?? []) {
-      let hb = 0;
-      let sd = 0;
-      for (const programa of maquina.programas ?? []) {
-        for (const numero of programa.numeros ?? []) {
-          const conta = calcNumber(numero);
-          const padrao = parseNum(numero.padrao);
-          if (padrao <= 0) continue;
-          const caixas = caixasDe(numero);
-          for (let i = 0; i < conta.totalCaixas; i++) {
-            const caixa = caixas[i];
-            if (!caixa || caixa.date !== date || caixa.turno !== turno) continue;
-            const horas = (i < conta.qtdCheias ? conta.paresCheia : conta.ultima) / padrao;
-            if (caixa.destino === "baixada") hb += horas;
-            if (caixa.destino === "saldo") sd += horas;
-          }
+  const guardado = lerHorasLocal();
+  if (!guardado) return {};
+  const mapa: Record<string, { hb: number; sd: number }> = {};
+  for (const maquina of guardado.maquinas) {
+    let hb = 0;
+    let sd = 0;
+    for (const programa of maquina.programas) {
+      for (const numero of programa.numeros) {
+        const totalPares = parseNum(numero.totalPares);
+        const paresCheia = parseNum(numero.paresCheia);
+        const padrao = parseNum(numero.padrao);
+        if (padrao <= 0) continue;
+        const qtdCheias = paresCheia > 0 ? Math.floor(totalPares / paresCheia) : 0;
+        const ultima = paresCheia > 0 ? totalPares % paresCheia : 0;
+        const totalCaixas = qtdCheias + (ultima > 0 ? 1 : 0);
+        for (let i = 0; i < totalCaixas; i += 1) {
+          const caixa = numero.caixas[i];
+          if (!caixa?.destino || caixa.date !== date || caixa.turno !== turno) continue;
+          const horas = (i < qtdCheias ? paresCheia : ultima) / padrao;
+          if (caixa.destino === "baixada") hb += horas;
+          if (caixa.destino === "saldo") sd += horas;
         }
       }
-      if (hb > 0 || sd > 0) mapa[`SIE${maquina.id}`] = { hb, sd };
     }
-    return mapa;
-  } catch {
-    return {};
+    if (hb > 0 || sd > 0) mapa[`SIE${maquina.id}`] = { hb, sd };
   }
+  return mapa;
 }
 
 function getHoldingMaquina(m: Maquina) {
@@ -194,19 +195,128 @@ function initMaquinas(data: Data): Data {
   return data;
 }
 
+function dadosDe(dia: HorasDia): Data {
+  return initMaquinas({
+    date: dia.date,
+    apagados: dia.apagados,
+    maquinas: dia.maquinas.map((maquina) => ({
+      id: maquina.id,
+      nome: `Máq. ${maquina.id}`,
+      saldo: 0,
+      programas: maquina.programas.map((programa) => ({
+        id: programa.id,
+        nome: programa.nome,
+        documento: programa.documento,
+        em: programa.em,
+        numeros: programa.numeros.map((numero) => ({
+          id: numero.id,
+          numero: numero.numero,
+          padrao: numero.padrao,
+          totalPares: numero.totalPares,
+          paresCheia: numero.paresCheia,
+          modoSaldo: numero.modoSaldo,
+          em: numero.em,
+          marcadas: numero.caixas.map((caixa) => Boolean(caixa.destino)),
+          caixas: numero.caixas.map((caixa) => ({ destino: caixa.destino, date: caixa.date, turno: caixa.turno, em: caixa.em })),
+        })),
+      })),
+    })),
+  });
+}
+
+function paraDia(origem: Data): HorasDia {
+  const base = horasVazias(origem.date || diaDeHoje());
+  let em = 0;
+  const maquinas = base.maquinas.map((maquina) => {
+    const local = origem.maquinas.find((item) => item.id === maquina.id);
+    return {
+      id: maquina.id,
+      programas: (local?.programas ?? []).map((programa) => {
+        em = Math.max(em, programa.em ?? 0);
+        return {
+          id: programa.id,
+          nome: programa.nome,
+          documento: programa.documento,
+          em: programa.em ?? 0,
+          numeros: (programa.numeros ?? []).map((numero) => {
+            em = Math.max(em, numero.em ?? 0);
+            return {
+              id: numero.id,
+              numero: numero.numero,
+              padrao: numero.padrao,
+              totalPares: numero.totalPares,
+              paresCheia: numero.paresCheia,
+              modoSaldo: Boolean(numero.modoSaldo),
+              em: numero.em ?? 0,
+              caixas: caixasDe(numero).map((caixa) => {
+                em = Math.max(em, caixa?.em ?? 0);
+                return { destino: caixa?.destino ?? null, date: caixa?.date, turno: caixa?.turno, em: caixa?.em ?? 0 };
+              }),
+            };
+          }),
+        };
+      }),
+    };
+  });
+  for (const apagado of origem.apagados ?? []) em = Math.max(em, apagado.em);
+  return { date: base.date, em, maquinas, apagados: origem.apagados ?? [] };
+}
+
+function carimbar(antes: Data, depois: Data): Data {
+  const now = Date.now();
+  const apagados = [...(depois.apagados ?? antes.apagados ?? [])];
+  const maquinas = depois.maquinas.map((maquina) => {
+    const velha = antes.maquinas.find((item) => item.id === maquina.id);
+    const idsNovos = new Set((maquina.programas ?? []).map((programa) => programa.id));
+    for (const programa of velha?.programas ?? []) {
+      if (!idsNovos.has(programa.id)) apagados.push({ id: programa.id, em: now });
+    }
+    return {
+      ...maquina,
+      programas: (maquina.programas ?? []).map((programa) => {
+        const antiga = velha?.programas.find((item) => item.id === programa.id);
+        const estrutura =
+          !antiga || antiga.nome !== programa.nome || antiga.documento !== programa.documento || antiga.numeros.length !== programa.numeros.length;
+        return {
+          ...programa,
+          em: estrutura ? now : programa.em ?? antiga?.em ?? now,
+          numeros: programa.numeros.map((numero) => {
+            const antigo = antiga?.numeros.find((item) => item.id === numero.id);
+            const mudou =
+              !antigo ||
+              antigo.numero !== numero.numero ||
+              antigo.padrao !== numero.padrao ||
+              antigo.totalPares !== numero.totalPares ||
+              antigo.paresCheia !== numero.paresCheia ||
+              Boolean(antigo.modoSaldo) !== Boolean(numero.modoSaldo);
+            return { ...numero, em: mudou ? now : numero.em ?? antigo?.em ?? 0 };
+          }),
+        };
+      }),
+    };
+  });
+  return { ...depois, date: diaDeHoje(), maquinas, apagados };
+}
+
+function assinatura(dia: HorasDia) {
+  return JSON.stringify({ maquinas: dia.maquinas, apagados: dia.apagados });
+}
+
 export function AcompanhamentoHoras({
   aoVoltar,
-  date,
-  turno,
   onProducao,
   enviarProducao,
+  remoto,
+  onGravar,
 }: {
   aoVoltar: { current: (() => boolean) | null };
-  date: string;
-  turno: Turno;
   onProducao: (machine: MachineId, numero: string, pares: number, date: string, turno: Turno) => void;
   enviarProducao: boolean;
+  remoto: HorasDia | null;
+  onGravar: (dia: HorasDia) => void;
 }) {
+  const [turnoAtivo, setTurnoAtivo] = useState<Turno>(() => turnoPeloRelogio());
+  const dia = diaOperacional(turnoAtivo);
   const [data, setData] = useState<Data>({ maquinas: [] });
   const [screen, setScreen] = useState<"home" | "maq" | "prog">("home");
   const [currentMaqId, setCurrentMaqId] = useState<string | null>(null);
@@ -247,17 +357,27 @@ export function AcompanhamentoHoras({
   }, [aoVoltar]);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        setData(initMaquinas(parsed));
-      } else {
-        setData(initMaquinas({ maquinas: [] }));
-      }
-    } catch {
-      setData(initMaquinas({ maquinas: [] }));
-    }
+    const hoje = diaDeHoje();
+    const local = lerHorasLocal();
+    setData(dadosDe(local && local.date === hoje ? local : horasVazias(hoje)));
+  }, []);
+
+  useEffect(() => {
+    if (!remoto || remoto.date !== diaDeHoje()) return;
+    setData((atual) => {
+      if (!atual.maquinas.length) return atual;
+      const junto = juntarHoras(paraDia(atual), remoto);
+      if (!junto || assinatura(junto) === assinatura(paraDia(atual))) return atual;
+      return dadosDe(junto);
+    });
+  }, [remoto]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const hoje = diaDeHoje();
+      setData((atual) => (atual.date === hoje ? atual : dadosDe(horasVazias(hoje))));
+    }, 30000);
+    return () => window.clearInterval(id);
   }, []);
 
   const enviado = useRef(false);
@@ -271,14 +391,15 @@ export function AcompanhamentoHoras({
         numeros: (programa.numeros || []).map((numero) => {
           const caixas = caixasDe(numero).map((caixa) =>
             caixa && (caixa.destino === "baixada" || caixa.destino === "saldo") && (!caixa.date || !caixa.turno)
-              ? { destino: caixa.destino, date, turno }
+              ? { destino: caixa.destino, date: dia, turno: turnoAtivo }
               : caixa,
           );
           return { ...numero, caixas, marcadas: caixas.map((caixa) => Boolean(caixa?.destino)) };
         }),
       })),
     }));
-    setData({ maquinas });
+    setData((atual) => ({ ...atual, maquinas }));
+    onGravar(paraDia({ ...data, date: diaDeHoje(), maquinas }));
     for (const maquina of maquinas) {
       if (!enviarProducao) break;
       for (const item of somasDe(maquina).values()) {
@@ -286,20 +407,25 @@ export function AcompanhamentoHoras({
         onProducao(`SIE${maquina.id}` as MachineId, item.numero, Math.floor(item.pares), item.date, item.turno);
       }
     }
-  }, [data, date, turno, onProducao, enviarProducao]);
+  }, [data, dia, turnoAtivo, onProducao, enviarProducao]);
 
   useEffect(() => {
-    if (data.maquinas.length) localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    if (!data.maquinas.length || data.date !== diaDeHoje()) return;
+    salvarHorasLocal(paraDia(data));
   }, [data]);
 
   const maq = data.maquinas.find((m) => m.id === currentMaqId);
   const prog = maq?.programas.find((p) => p.id === currentProgId);
 
   function updateMaq(id: string, updater: (m: Maquina) => Maquina) {
-    setData((d) => ({
-      ...d,
-      maquinas: d.maquinas.map((m) => (m.id === id ? updater(m) : m)),
-    }));
+    setData((d) => {
+      const next = carimbar(d, {
+        ...d,
+        maquinas: d.maquinas.map((m) => (m.id === id ? updater(m) : m)),
+      });
+      onGravar(paraDia(next));
+      return next;
+    });
   }
 
   function somasDe(m: Maquina) {
@@ -353,11 +479,11 @@ export function AcompanhamentoHoras({
                   caixas[idx] =
                     atual?.destino === "baixada" && atual.date && atual.turno
                       ? atual
-                      : { destino: "baixada", date, turno };
+                      : { destino: "baixada", date: dia, turno: turnoAtivo, em: Date.now() };
                 } else if (destino === "saldo") {
-                  caixas[idx] = { destino: "saldo", date: atual?.date || date, turno: atual?.turno || turno };
+                  caixas[idx] = { destino: "saldo", date: atual?.date || dia, turno: atual?.turno || turnoAtivo, em: Date.now() };
                 } else {
-                  caixas[idx] = null;
+                  caixas[idx] = { destino: null, em: Date.now() };
                 }
                 return { ...n, caixas, marcadas: caixas.map((item) => Boolean(item?.destino)) };
               }),
@@ -385,6 +511,23 @@ export function AcompanhamentoHoras({
 
   return (
     <div className="text-fg">
+      <div className="mb-3">
+        <div className="grid grid-cols-3 gap-2">
+          {(["1", "2", "3"] as Turno[]).map((item) => (
+            <button
+              key={item}
+              type="button"
+              onClick={() => setTurnoAtivo(item)}
+              className={`rounded-2xl py-3 font-display text-3xl leading-none ${item === turnoAtivo ? "bg-accent text-accent-ink" : "border border-line bg-surface text-fg"}`}
+            >
+              {item}º
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-center text-sm font-semibold text-muted">
+          Apontando no {TURNO_LABEL[turnoAtivo]} · {formatDateBR(dia)}
+        </p>
+      </div>
       {screen === "home" && (
         <div className="grid grid-cols-2 gap-2">
             {data.maquinas.map((m) => {

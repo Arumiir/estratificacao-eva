@@ -59,10 +59,11 @@ import {
   type State,
   type StationConfig,
 } from "@/lib/perdas";
-import { enviarPlanilha, pullApontamentos, pushApontamentos } from "@/lib/apontamentos.functions";
+import { enviarPlanilha, pullApontamentos, pullHoras, pushApontamentos } from "@/lib/apontamentos.functions";
 import { AvisoSair, Teclado, campoInicial, teclaConta, tecladoAberto, useFecharTeclado, useToque, type Campo } from "@/components/teclado";
 import { FechamentoTurno } from "@/components/fechamento";
 import { AcompanhamentoHoras } from "@/components/AcompanhamentoHoras";
+import { juntarHoras, salvarHorasLocal, type HorasDia } from "@/lib/horas-sync";
 
 type Papel = "preparador" | "lider";
 const SheetScreen = lazy(() => import("@/components/painel").then((mod) => ({ default: mod.SheetScreen })));
@@ -579,9 +580,14 @@ function usePerdas() {
       }, espera || passo);
     };
     agendar();
+    const aoVoltar = () => {
+      if (document.visibilityState === "visible") void refresh().catch(() => setCloud(false));
+    };
+    document.addEventListener("visibilitychange", aoVoltar);
     return () => {
       window.clearInterval(retry);
       window.clearTimeout(pullTimer);
+      document.removeEventListener("visibilitychange", aoVoltar);
     };
   }, [Boolean(state)]);
 
@@ -733,12 +739,36 @@ export function EstratificacaoApp() {
   const voltarTelaRef = useRef<() => void>(() => {});
   const horasDentro = useRef<(() => boolean) | null>(null);
   const [pelasHoras, setPelasHoras] = useState(true);
+  const [horasDia, setHorasDia] = useState<HorasDia | null>(null);
+  const horasRef = useRef<HorasDia | null>(null);
   const screen = stack[stack.length - 1] ?? { kind: "turnos" as const };
   const key = screenKey(screen);
 
   useEffect(() => {
     setPelasHoras(localStorage.getItem("producao_pelas_horas") !== "0");
   }, []);
+
+  useEffect(() => {
+    if (screen.kind !== "horas") return;
+    let vivo = true;
+    const puxar = () => {
+      void pullHoras({ data: { date: diaDeHoje() } })
+        .then((remote) => {
+          if (!vivo || !remote.horas) return;
+          const junto = juntarHoras(horasRef.current, remote.horas);
+          horasRef.current = junto;
+          if (junto) salvarHorasLocal(junto);
+          setHorasDia(junto);
+        })
+        .catch(() => undefined);
+    };
+    puxar();
+    const id = window.setInterval(puxar, 15000);
+    return () => {
+      vivo = false;
+      window.clearInterval(id);
+    };
+  }, [screen.kind]);
 
   function alternarProducaoHoras() {
     setPelasHoras((atual) => {
@@ -1579,6 +1609,27 @@ export function EstratificacaoApp() {
     });
   }
 
+  function gravarHoras(dia: HorasDia) {
+    const junto = juntarHoras(horasRef.current, dia) ?? dia;
+    horasRef.current = junto;
+    salvarHorasLocal(junto);
+    setHorasDia(junto);
+    void pushApontamentos({
+      data: {
+        upserts: [],
+        removed: [],
+        revives: [],
+        date: dia.date,
+        outros: [],
+        cores: [],
+        fechamentos: [],
+        producao: [],
+        horas: junto,
+        modelos: null,
+      },
+    });
+  }
+
   const header = headerFor(screen);
   const telaFixa = screen.kind === "hub" || screen.kind === "modelo" || screen.kind === "papel";
   const telaProblemas = screen.kind === "problems";
@@ -1748,10 +1799,10 @@ export function EstratificacaoApp() {
           {screen.kind === "horas" ? (
             <AcompanhamentoHoras
               aoVoltar={horasDentro}
-              date={state.date}
-              turno={state.turno}
               onProducao={(machine, numero, pares, date, turno) => corrigirProducao(date, machine, turno, { [numero]: pares })}
               enviarProducao={pelasHoras}
+              remoto={horasDia}
+              onGravar={gravarHoras}
             />
           ) : null}
 
