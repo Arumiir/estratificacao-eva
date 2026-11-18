@@ -738,14 +738,14 @@ export function EstratificacaoApp() {
   const desfazerRef = useRef<(() => void) | null>(null);
   const voltarTelaRef = useRef<() => void>(() => {});
   const horasDentro = useRef<(() => boolean) | null>(null);
-  const [pelasHoras, setPelasHoras] = useState(true);
+  const [pelasHoras, setPelasHoras] = useState(false);
   const [horasDia, setHorasDia] = useState<HorasDia | null>(null);
   const horasRef = useRef<HorasDia | null>(null);
   const screen = stack[stack.length - 1] ?? { kind: "turnos" as const };
   const key = screenKey(screen);
 
   useEffect(() => {
-    setPelasHoras(localStorage.getItem("producao_pelas_horas") !== "0");
+    setPelasHoras(localStorage.getItem("producao_pelas_horas") === "1");
   }, []);
 
   useEffect(() => {
