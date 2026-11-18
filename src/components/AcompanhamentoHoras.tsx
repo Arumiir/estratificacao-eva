@@ -1,5 +1,9 @@
-import { useEffect, useState } from "react";
-import { ChevronLeft, Plus, Pencil, Trash2, ChevronDown, Clock, AlertTriangle, Check, Box } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Plus, Pencil, Trash2, ChevronDown, Clock, Check, Box } from "lucide-react";
+import { NUMEROS_MATRIZ, numeroLimpo, type MachineId, type Turno } from "@/lib/perdas";
+
+type Destino = "saldo" | "baixada";
+type Caixa = { destino: Destino; date?: string; turno?: Turno };
 
 type Numero = {
   id: string;
@@ -8,6 +12,8 @@ type Numero = {
   totalPares: string;
   paresCheia: string;
   marcadas: boolean[];
+  caixas?: (Caixa | Destino | null)[];
+  modoSaldo?: boolean;
 };
 
 type Programa = {
@@ -30,19 +36,7 @@ type Data = {
 
 const STORAGE_KEY = "horas_maquinas_v3";
 
-function parseHours(str: string): number {
-  if (!str?.trim()) return 0;
-  const s = str.trim().replace(",", ".");
-  if (s.includes(":")) {
-    const [h, m] = s.split(":").map((n) => parseInt(n, 10) || 0);
-    if (m >= 60 || m < 0 || h < 0) return NaN;
-    return h + m / 60;
-  }
-  const n = parseFloat(s);
-  return isNaN(n) ? NaN : n;
-}
-
-function formatHours(h: number): string {
+export function formatHours(h: number): string {
   if (isNaN(h) || h < 0) return "00:00";
   const t = Math.round(h * 60);
   return String(Math.floor(t / 60)).padStart(2, "0") + ":" + String(t % 60).padStart(2, "0");
@@ -50,6 +44,26 @@ function formatHours(h: number): string {
 
 function parseNum(s: string): number {
   return s ? parseFloat(String(s).replace(",", ".")) || 0 : 0;
+}
+
+function lerCaixa(bruto: Caixa | Destino | null | undefined, marcada = false): Caixa | null {
+  if (bruto === "saldo" || bruto === "baixada") return { destino: bruto };
+  if (bruto && typeof bruto === "object" && (bruto.destino === "saldo" || bruto.destino === "baixada")) return bruto;
+  return marcada ? { destino: "baixada" } : null;
+}
+
+function destinoCaixa(num: Numero, index: number): Destino | null {
+  return lerCaixa(num.caixas?.[index], !num.caixas && Boolean(num.marcadas?.[index]))?.destino ?? null;
+}
+
+function caixasDe(num: Numero): (Caixa | null)[] {
+  const total = calcNumber(num).totalCaixas;
+  if (!num.caixas) {
+    return Array.from({ length: total }, (_, index) => (num.marcadas?.[index] ? { destino: "baixada" } : null));
+  }
+  const lista = num.caixas.slice(0, total).map((item) => lerCaixa(item));
+  while (lista.length < total) lista.push(null);
+  return lista;
 }
 
 function calcNumber(num: Numero) {
@@ -60,46 +74,109 @@ function calcNumber(num: Numero) {
   const ultima = paresCheia > 0 ? totalPares % paresCheia : 0;
   const totalCaixas = qtdCheias + (ultima > 0 ? 1 : 0);
   const totalHoras = padrao > 0 ? totalPares / padrao : 0;
-  const marcadas = num.marcadas || [];
-  let prod = 0;
-  for (let i = 0; i < totalCaixas; i++) if (marcadas[i]) prod += i < qtdCheias ? paresCheia : ultima;
-  const horasProduzidas = padrao > 0 ? prod / padrao : 0;
+  let paresSaldo = 0;
+  let paresBaixada = 0;
+  for (let i = 0; i < totalCaixas; i++) {
+    const pares = i < qtdCheias ? paresCheia : ultima;
+    const destino = destinoCaixa(num, i);
+    if (destino === "saldo") paresSaldo += pares;
+    if (destino === "baixada") paresBaixada += pares;
+  }
+  const horasSaldo = padrao > 0 ? paresSaldo / padrao : 0;
+  const horasBaixadas = padrao > 0 ? paresBaixada / padrao : 0;
+  const horasProduzidas = horasSaldo + horasBaixadas;
   const restante = Math.max(0, totalHoras - horasProduzidas);
-  return { totalHoras, horasProduzidas, restante, totalCaixas, paresCheia, ultima, qtdCheias, totalPares };
+  return { totalHoras, horasProduzidas, horasSaldo, horasBaixadas, restante, totalCaixas, paresCheia, ultima, qtdCheias, totalPares };
 }
 
 function calcProgram(prog: Programa) {
-  let maxTotal = 0, maxRest = 0;
+  let produzidas = 0;
+  let saldo = 0;
+  let maxSaldo = 0;
+  let maxRest = 0;
   let segurando: { numero: string; restante: number } | null = null;
+  let atrasado: { numero: string; restante: number } | null = null;
   for (const n of prog.numeros || []) {
     const c = calcNumber(n);
-    if (c.totalHoras > maxTotal) maxTotal = c.totalHoras;
+    produzidas += c.horasBaixadas;
+    saldo += c.horasSaldo;
+    if (c.horasSaldo > maxSaldo) {
+      maxSaldo = c.horasSaldo;
+      segurando = { numero: n.numero, restante: c.horasSaldo };
+    }
     if (c.restante > maxRest) {
       maxRest = c.restante;
-      segurando = { numero: n.numero, restante: c.restante };
+      atrasado = { numero: n.numero, restante: c.restante };
     }
   }
   return {
-    produzidas: Math.max(0, maxTotal - maxRest),
+    produzidas,
+    saldo,
     segurando,
+    atrasado,
     concluido: (prog.numeros || []).length > 0 && (prog.numeros || []).every((n) => calcNumber(n).restante <= 0.01),
   };
 }
 
-function calcMaquina(m: Maquina) {
-  let t = m.saldo || 0;
-  for (const p of m.programas || []) t += calcProgram(p).produzidas;
-  return t;
+function totaisMaquina(m: Maquina) {
+  let hb = 0;
+  let sd = 0;
+  let maxRest = 0;
+  let atrasado: { numero: string; restante: number } | null = null;
+  for (const p of m.programas || []) {
+    const c = calcProgram(p);
+    hb += c.produzidas;
+    sd += c.saldo;
+    if (c.atrasado && c.atrasado.restante > maxRest) {
+      maxRest = c.atrasado.restante;
+      atrasado = c.atrasado;
+    }
+  }
+  return { hb, sd, atrasado };
+}
+
+export function lerHorasTurno(date: string, turno: Turno): Record<string, { hb: number; sd: number }> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return {};
+    const data = JSON.parse(raw) as Data;
+    const mapa: Record<string, { hb: number; sd: number }> = {};
+    for (const maquina of data.maquinas ?? []) {
+      let hb = 0;
+      let sd = 0;
+      for (const programa of maquina.programas ?? []) {
+        for (const numero of programa.numeros ?? []) {
+          const conta = calcNumber(numero);
+          const padrao = parseNum(numero.padrao);
+          if (padrao <= 0) continue;
+          const caixas = caixasDe(numero);
+          for (let i = 0; i < conta.totalCaixas; i++) {
+            const caixa = caixas[i];
+            if (!caixa || caixa.date !== date || caixa.turno !== turno) continue;
+            const horas = (i < conta.qtdCheias ? conta.paresCheia : conta.ultima) / padrao;
+            if (caixa.destino === "baixada") hb += horas;
+            if (caixa.destino === "saldo") sd += horas;
+          }
+        }
+      }
+      if (hb > 0 || sd > 0) mapa[`SIE${maquina.id}`] = { hb, sd };
+    }
+    return mapa;
+  } catch {
+    return {};
+  }
 }
 
 function getHoldingMaquina(m: Maquina) {
   let max = 0;
   let seg: { numero: string; restante: number } | null = null;
   for (const p of m.programas || []) {
-    const c = calcProgram(p);
-    if (c.segurando && c.segurando.restante > max) {
-      max = c.segurando.restante;
-      seg = c.segurando;
+    for (const n of p.numeros || []) {
+      const c = calcNumber(n);
+      if (c.horasSaldo > max) {
+        max = c.horasSaldo;
+        seg = { numero: n.numero, restante: c.horasSaldo };
+      }
     }
   }
   return seg;
@@ -117,7 +194,19 @@ function initMaquinas(data: Data): Data {
   return data;
 }
 
-export function AcompanhamentoHoras() {
+export function AcompanhamentoHoras({
+  aoVoltar,
+  date,
+  turno,
+  onProducao,
+  enviarProducao,
+}: {
+  aoVoltar: { current: (() => boolean) | null };
+  date: string;
+  turno: Turno;
+  onProducao: (machine: MachineId, numero: string, pares: number, date: string, turno: Turno) => void;
+  enviarProducao: boolean;
+}) {
   const [data, setData] = useState<Data>({ maquinas: [] });
   const [screen, setScreen] = useState<"home" | "maq" | "prog">("home");
   const [currentMaqId, setCurrentMaqId] = useState<string | null>(null);
@@ -125,6 +214,37 @@ export function AcompanhamentoHoras() {
   const [openNums, setOpenNums] = useState<Set<string>>(new Set());
   const [modalProg, setModalProg] = useState<{ editId: string | null } | null>(null);
   const [modalNum, setModalNum] = useState<{ editId: string | null } | null>(null);
+  const [numeroEscolhido, setNumeroEscolhido] = useState("");
+  const [pergunta, setPergunta] = useState<{ numId: string; idx: number; atual: Destino } | null>(null);
+
+  aoVoltar.current = () => {
+    if (pergunta) {
+      setPergunta(null);
+      return true;
+    }
+    if (modalNum) {
+      setModalNum(null);
+      return true;
+    }
+    if (modalProg) {
+      setModalProg(null);
+      return true;
+    }
+    if (screen === "prog") {
+      setScreen("maq");
+      return true;
+    }
+    if (screen === "maq") {
+      setScreen("home");
+      return true;
+    }
+    return false;
+  };
+  useEffect(() => {
+    return () => {
+      aoVoltar.current = null;
+    };
+  }, [aoVoltar]);
 
   useEffect(() => {
     try {
@@ -140,10 +260,36 @@ export function AcompanhamentoHoras() {
     }
   }, []);
 
+  const enviado = useRef(false);
   useEffect(() => {
-    if (data.maquinas.length) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    if (!data.maquinas.length || enviado.current) return;
+    enviado.current = true;
+    const maquinas = data.maquinas.map((maquina) => ({
+      ...maquina,
+      programas: (maquina.programas || []).map((programa) => ({
+        ...programa,
+        numeros: (programa.numeros || []).map((numero) => {
+          const caixas = caixasDe(numero).map((caixa) =>
+            caixa && (caixa.destino === "baixada" || caixa.destino === "saldo") && (!caixa.date || !caixa.turno)
+              ? { destino: caixa.destino, date, turno }
+              : caixa,
+          );
+          return { ...numero, caixas, marcadas: caixas.map((caixa) => Boolean(caixa?.destino)) };
+        }),
+      })),
+    }));
+    setData({ maquinas });
+    for (const maquina of maquinas) {
+      if (!enviarProducao) break;
+      for (const item of somasDe(maquina).values()) {
+        if (item.pares <= 0) continue;
+        onProducao(`SIE${maquina.id}` as MachineId, item.numero, Math.floor(item.pares), item.date, item.turno);
+      }
     }
+  }, [data, date, turno, onProducao, enviarProducao]);
+
+  useEffect(() => {
+    if (data.maquinas.length) localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }, [data]);
 
   const maq = data.maquinas.find((m) => m.id === currentMaqId);
@@ -156,35 +302,94 @@ export function AcompanhamentoHoras() {
     }));
   }
 
-  function toggleBox(numId: string, idx: number) {
+  function somasDe(m: Maquina) {
+    const mapa = new Map<string, { date: string; turno: Turno; numero: string; pares: number }>();
+    for (const programa of m.programas || []) {
+      for (const numero of programa.numeros || []) {
+        const limpo = numeroLimpo(numero.numero);
+        if (!limpo) continue;
+        const conta = calcNumber(numero);
+        const caixas = caixasDe(numero);
+        for (let i = 0; i < conta.totalCaixas; i++) {
+          const caixa = caixas[i];
+          if (caixa?.destino !== "baixada" || !caixa.date || !caixa.turno) continue;
+          const pares = i < conta.qtdCheias ? conta.paresCheia : conta.ultima;
+          const chave = `${caixa.date}|${caixa.turno}|${limpo}`;
+          const atual = mapa.get(chave) ?? { date: caixa.date, turno: caixa.turno, numero: limpo, pares: 0 };
+          atual.pares += pares;
+          mapa.set(chave, atual);
+        }
+      }
+    }
+    return mapa;
+  }
+
+  function publicarDiff(antes: Maquina, depois: Maquina) {
+    if (!enviarProducao) return;
+    const origem = somasDe(antes);
+    const final = somasDe(depois);
+    for (const chave of new Set([...origem.keys(), ...final.keys()])) {
+      const paresAntes = origem.get(chave)?.pares ?? 0;
+      const item = final.get(chave) ?? origem.get(chave);
+      const pares = final.get(chave)?.pares ?? 0;
+      if (!item || pares === paresAntes) continue;
+      onProducao(`SIE${depois.id}` as MachineId, item.numero, Math.floor(pares), item.date, item.turno);
+    }
+  }
+
+  function definirCaixa(numId: string, idx: number, destino: Destino | null) {
     if (!maq || !prog) return;
-    updateMaq(maq.id, (m) => ({
-      ...m,
-      programas: m.programas.map((p) =>
+    const depois: Maquina = {
+      ...maq,
+      programas: maq.programas.map((p) =>
         p.id === prog.id
           ? {
               ...p,
               numeros: p.numeros.map((n) => {
                 if (n.id !== numId) return n;
-                const marcadas = [...(n.marcadas || [])];
-                marcadas[idx] = !marcadas[idx];
-                return { ...n, marcadas };
+                const caixas = caixasDe(n);
+                const atual = caixas[idx];
+                if (destino === "baixada") {
+                  caixas[idx] =
+                    atual?.destino === "baixada" && atual.date && atual.turno
+                      ? atual
+                      : { destino: "baixada", date, turno };
+                } else if (destino === "saldo") {
+                  caixas[idx] = { destino: "saldo", date: atual?.date || date, turno: atual?.turno || turno };
+                } else {
+                  caixas[idx] = null;
+                }
+                return { ...n, caixas, marcadas: caixas.map((item) => Boolean(item?.destino)) };
               }),
             }
           : p
       ),
-    }));
+    };
+    updateMaq(maq.id, () => depois);
+    publicarDiff(maq, depois);
+  }
+
+  function clicarCaixa(num: Numero, idx: number) {
+    const atual = destinoCaixa(num, idx);
+    const modo: Destino = num.modoSaldo ? "saldo" : "baixada";
+    if (!atual) {
+      definirCaixa(num.id, idx, modo);
+      return;
+    }
+    if (atual === modo) {
+      definirCaixa(num.id, idx, null);
+      return;
+    }
+    setPergunta({ numId: num.id, idx, atual });
   }
 
   return (
-    <div className="min-h-dvh bg-bg text-fg">
+    <div className="text-fg">
       {screen === "home" && (
-        <div className="mx-auto max-w-5xl p-4">
-          <h1 className="font-display text-3xl font-bold tracking-tight">Acompanhamento de Horas</h1>
-          <p className="mt-1 text-muted">Máquinas 01 a 06</p>
-          <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-2 gap-2">
             {data.maquinas.map((m) => {
               const h = getHoldingMaquina(m);
+              const totais = totaisMaquina(m);
               return (
                 <button
                   key={m.id}
@@ -193,49 +398,60 @@ export function AcompanhamentoHoras() {
                     setCurrentMaqId(m.id);
                     setScreen("maq");
                   }}
-                  className="flex flex-col rounded-2xl border border-line bg-surface p-4 text-left shadow-sm transition hover:border-accent"
+                  className="flex flex-col rounded-2xl border border-line bg-surface p-3 text-left"
                 >
-                  <div className="mb-2 flex items-center justify-between">
-                    <span className="font-semibold">{m.nome}</span>
-                    <span className="grid size-8 place-items-center rounded-xl bg-accent-soft text-accent">
-                      <Box className="size-4" />
+                  <div className="mb-1 flex items-center justify-between">
+                    <span className="font-display text-2xl leading-none">SIE{m.id}</span>
+                    <span className="grid size-7 place-items-center rounded-lg bg-accent-soft text-accent">
+                      <Box className="size-3.5" />
                     </span>
                   </div>
-                  <span className="text-xs text-muted">Horas baixadas</span>
-                  <span className="text-2xl font-bold tabular-nums text-accent">{formatHours(calcMaquina(m))}</span>
-                  <span className="mt-3 text-xs text-muted">Atrasado</span>
-                  <span className={`mt-1 inline-flex max-w-full items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${h ? "bg-amber-100 text-amber-800" : "bg-surface-2 text-muted"}`}>
-                    {h ? <AlertTriangle className="size-3.5" /> : null}
-                    <span className="truncate">{h ? `Nº ${h.numero} (${formatHours(h.restante)})` : "—"}</span>
+                  <span className="text-sm text-muted">Horas baixadas</span>
+                  <span className="font-display text-2xl leading-none tabular-nums text-accent">{formatHours(totais.hb)}</span>
+                  {totais.atrasado ? (
+                    <span className="mt-1 text-sm font-semibold leading-snug text-muted">
+                      nº {totais.atrasado.numero}
+                      <span className="whitespace-nowrap"> · {formatHours(totais.atrasado.restante)}</span>
+                    </span>
+                  ) : null}
+                  <span className={`mt-2 rounded-xl px-2 py-1.5 text-sm font-semibold leading-tight ${h ? "bg-amber-100 text-amber-800" : "bg-surface-2 text-muted"}`}>
+                    {h ? `Saldo ${h.numero} · ${formatHours(h.restante)}` : "Sem saldo"}
                   </span>
                 </button>
               );
             })}
-          </div>
         </div>
       )}
 
       {screen === "maq" && maq && (
-        <div className="mx-auto max-w-5xl p-4">
-          <button type="button" onClick={() => setScreen("home")} className="mb-3 inline-flex items-center gap-1 text-accent">
-            <ChevronLeft className="size-4" /> Máquinas
-          </button>
-          <h2 className="font-display text-2xl font-bold">{maq.nome}</h2>
-          <div className="mt-4 flex flex-wrap items-end gap-3">
-            <div className="min-w-0 flex-1">
-              <label className="mb-1 block text-xs text-muted">Horas anteriores / saldo desta máquina</label>
-              <input
-                className="w-full rounded-xl border border-line bg-surface-2 px-3 py-2.5"
-                placeholder="Ex: 02:00"
-                defaultValue={maq.saldo > 0 ? formatHours(maq.saldo) : ""}
-                onBlur={(e) => {
-                  const h = parseHours(e.target.value);
-                  if (!isNaN(h) && h >= 0) updateMaq(maq.id, (m) => ({ ...m, saldo: h }));
-                }}
-              />
-            </div>
+        <div>
+          <div className="flex items-start justify-between gap-2">
+            <h2 className="font-display text-4xl leading-none">SIE{maq.id}</h2>
+            <button
+              type="button"
+              aria-label="Novo programa"
+              onClick={() => setModalProg({ editId: null })}
+              className="grid size-11 shrink-0 place-items-center rounded-2xl bg-accent text-accent-ink"
+            >
+              <Plus className="size-5" />
+            </button>
           </div>
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          {(() => {
+            const t = totaisMaquina(maq);
+            return (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <div className="min-w-[7.5rem] flex-1 rounded-2xl bg-emerald-50 p-3">
+                  <p className="text-sm font-semibold text-emerald-800">HB</p>
+                  <p className="font-display text-2xl leading-none tabular-nums text-emerald-800">{formatHours(t.hb)}</p>
+                </div>
+                <div className="min-w-[7.5rem] flex-1 rounded-2xl bg-amber-50 p-3">
+                  <p className="text-sm font-semibold text-amber-800">SD</p>
+                  <p className="font-display text-2xl leading-none tabular-nums text-amber-800">{formatHours(t.sd)}</p>
+                </div>
+              </div>
+            );
+          })()}
+          <div className="mt-4 grid gap-2">
             {(maq.programas || []).map((p) => {
               const c = calcProgram(p);
               return (
@@ -263,46 +479,66 @@ export function AcompanhamentoHoras() {
               );
             })}
           </div>
-          <button
-            type="button"
-            onClick={() => setModalProg({ editId: null })}
-            className="mt-4 inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 font-semibold text-accent-ink"
-          >
-            <Plus className="size-4" /> Novo programa
-          </button>
         </div>
       )}
 
       {screen === "prog" && prog && maq && (
-        <div className="mx-auto max-w-5xl p-4">
-          <button type="button" onClick={() => setScreen("maq")} className="mb-3 inline-flex items-center gap-1 text-accent">
-            <ChevronLeft className="size-4" /> Programas
-          </button>
-          <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-start justify-between gap-3">
             <div>
-              <h2 className="font-display text-2xl font-bold">{prog.nome}</h2>
+              <h2 className="font-display text-4xl leading-none">{prog.nome}</h2>
               <p className="text-sm text-muted">Documento: {prog.documento || "—"}</p>
             </div>
-            <button type="button" onClick={() => setModalProg({ editId: prog.id })} className="inline-flex items-center gap-1 rounded-xl border border-line px-3 py-2 text-sm">
-              <Pencil className="size-3.5" /> Editar
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                aria-label="Adicionar número"
+                onClick={() => { setNumeroEscolhido(""); setModalNum({ editId: null }); }}
+                className="grid size-11 place-items-center rounded-2xl bg-accent text-accent-ink"
+              >
+                <Plus className="size-5" />
+              </button>
+              <button
+                type="button"
+                aria-label="Editar programa"
+                onClick={() => setModalProg({ editId: prog.id })}
+                className="grid size-11 place-items-center rounded-2xl border border-line bg-surface text-accent"
+              >
+                <Pencil className="size-5" />
+              </button>
+              <button
+                type="button"
+                aria-label="Apagar programa"
+                onClick={() => {
+                  if (confirm("Apagar este programa?")) {
+                    updateMaq(maq.id, (m) => ({ ...m, programas: m.programas.filter((p) => p.id !== prog.id) }));
+                    setScreen("maq");
+                  }
+                }}
+                className="grid size-11 place-items-center rounded-2xl border border-red-200 bg-surface text-red-600"
+              >
+                <Trash2 className="size-5" />
+              </button>
+            </div>
           </div>
           {(() => {
             const c = calcProgram(prog);
-            return c.segurando ? (
-              <div className="mb-4 flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
-                <AlertTriangle className="size-6" />
-                <div>
-                  <div className="text-xs font-semibold">Segurando a hora</div>
-                  <div className="text-lg font-bold tabular-nums">Nº {c.segurando.numero} — {formatHours(c.segurando.restante)}</div>
+            return (
+              <div className="mt-4 mb-4 flex flex-wrap gap-2">
+                <div className="min-w-[7.5rem] flex-1 rounded-2xl bg-emerald-50 p-3">
+                  <p className="text-sm font-semibold text-emerald-800">HB</p>
+                  <p className="font-display text-2xl leading-none tabular-nums text-emerald-800">{formatHours(c.produzidas)}</p>
                 </div>
-              </div>
-            ) : (
-              <div className="mb-4 flex items-center gap-3 rounded-2xl border border-line bg-surface-2 p-4 text-muted">
-                <Check className="size-6" />
-                <div>
-                  <div className="text-xs font-semibold">Nenhum número pendente</div>
-                  <div className="text-lg font-bold">—</div>
+                {c.saldo > 0 ? (
+                  <div className="min-w-[7.5rem] flex-1 rounded-2xl bg-amber-50 p-3">
+                    <p className="text-sm font-semibold text-amber-800">SD</p>
+                    <p className="font-display text-2xl leading-none tabular-nums text-amber-800">{formatHours(c.saldo)}</p>
+                  </div>
+                ) : null}
+                <div className="min-w-[7.5rem] flex-1 rounded-2xl bg-surface-2 p-3">
+                  <p className="text-sm font-semibold text-muted">Nº atrasado</p>
+                  <p className="break-words font-display text-2xl leading-none tabular-nums">{c.atrasado ? c.atrasado.numero : "—"}</p>
+                  <p className="mt-1 whitespace-nowrap text-sm tabular-nums text-muted">{c.atrasado ? formatHours(c.atrasado.restante) : ""}</p>
                 </div>
               </div>
             );
@@ -328,24 +564,52 @@ export function AcompanhamentoHoras() {
                         Padrão {n.padrao} · {cn.qtdCheias} cheias{cn.ultima > 0 ? ` + ${Math.round(cn.ultima)}p` : ""} · {n.totalPares}p
                       </span>
                     </span>
+                    <span className="flex shrink-0 flex-col items-center gap-1">
+                      <span className={`text-[10px] font-semibold ${n.modoSaldo ? "text-amber-700" : "text-muted"}`}>{n.modoSaldo ? "Saldo" : "Hora"}</span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={Boolean(n.modoSaldo)}
+                        aria-label={n.modoSaldo ? "Próximas caixas vão para o saldo" : "Próximas caixas vão para horas baixadas"}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setPergunta(null);
+                          updateMaq(maq.id, (m) => ({
+                            ...m,
+                            programas: m.programas.map((p) =>
+                              p.id === prog.id
+                                ? {
+                                    ...p,
+                                    numeros: p.numeros.map((item) => (item.id === n.id ? { ...item, modoSaldo: !item.modoSaldo } : item)),
+                                  }
+                                : p
+                            ),
+                          }));
+                        }}
+                        className={`relative h-7 w-12 shrink-0 rounded-full ${n.modoSaldo ? "bg-amber-500" : "bg-line"}`}
+                      >
+                        <span className={`absolute top-1 size-5 rounded-full bg-white ${n.modoSaldo ? "left-6" : "left-1"}`} />
+                      </button>
+                    </span>
                     <span className="font-bold tabular-nums text-accent">{formatHours(cn.restante)}</span>
                     <ChevronDown className={`size-4 text-muted transition ${open ? "rotate-180" : ""}`} />
                   </button>
-                  <div className="mx-4 h-1 overflow-hidden rounded-full bg-surface-2">
-                    <div className="h-full bg-emerald-500 transition-all" style={{ width: `${cn.totalHoras > 0 ? Math.min(100, (cn.horasProduzidas / cn.totalHoras) * 100) : 0}%` }} />
+                  <div className="mx-4 flex h-1 overflow-hidden rounded-full bg-surface-2">
+                    <div className="h-full bg-emerald-500" style={{ width: `${cn.totalHoras > 0 ? Math.min(100, (cn.horasBaixadas / cn.totalHoras) * 100) : 0}%` }} />
+                    <div className="h-full bg-amber-500" style={{ width: `${cn.totalHoras > 0 ? Math.min(100, (cn.horasSaldo / cn.totalHoras) * 100) : 0}%` }} />
                   </div>
                   {open && (
                     <div className="p-4">
                       <div className="grid grid-cols-[repeat(auto-fill,minmax(3.4rem,1fr))] gap-2">
                         {Array.from({ length: cn.totalCaixas }, (_, i) => {
                           const p = i < cn.qtdCheias ? cn.paresCheia : cn.ultima;
-                          const on = !!(n.marcadas || [])[i];
+                          const destino = destinoCaixa(n, i);
                           return (
                             <button
                               key={i}
                               type="button"
-                              onClick={() => toggleBox(n.id, i)}
-                              className={`flex flex-col items-center justify-center rounded-xl border-2 py-2 text-sm font-bold ${on ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-line bg-surface-2"}`}
+                              onClick={() => clicarCaixa(n, i)}
+                              className={`flex flex-col items-center justify-center rounded-xl border-2 py-2 text-sm font-bold ${destino === "saldo" ? "border-amber-500 bg-amber-50 text-amber-800" : destino === "baixada" ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-line bg-surface-2"}`}
                             >
                               {i + 1}
                               <span className="text-[10px] font-semibold opacity-70">{Math.round(p)}p</span>
@@ -353,8 +617,37 @@ export function AcompanhamentoHoras() {
                           );
                         })}
                       </div>
+                      {pergunta?.numId === n.id ? (
+                        <div className="mt-3 rounded-2xl border border-line bg-surface-2 p-3">
+                          <p className="text-sm font-semibold">
+                            {pergunta.atual === "saldo" ? "Esta caixa está no saldo." : "Esta caixa está nas horas baixadas."}
+                          </p>
+                          <div className="mt-2 grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                definirCaixa(n.id, pergunta.idx, null);
+                                setPergunta(null);
+                              }}
+                              className="rounded-xl border border-line bg-surface py-2 text-sm font-semibold"
+                            >
+                              Desmarcar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                definirCaixa(n.id, pergunta.idx, pergunta.atual === "saldo" ? "baixada" : "saldo");
+                                setPergunta(null);
+                              }}
+                              className="rounded-xl bg-accent py-2 text-sm font-semibold text-accent-ink"
+                            >
+                              {pergunta.atual === "saldo" ? "Tornar hora" : "Tornar saldo"}
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
                       <div className="mt-3 flex gap-2">
-                        <button type="button" onClick={() => setModalNum({ editId: n.id })} className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-sm">
+                        <button type="button" onClick={() => { setNumeroEscolhido(n.numero); setModalNum({ editId: n.id }); }} className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-sm">
                           <Pencil className="size-3.5" /> Editar
                         </button>
                         <button
@@ -379,23 +672,6 @@ export function AcompanhamentoHoras() {
                 </div>
               );
             })}
-          </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button type="button" onClick={() => setModalNum({ editId: null })} className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 font-semibold text-accent-ink">
-              <Plus className="size-4" /> Adicionar número
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (confirm("Apagar este programa?")) {
-                  updateMaq(maq.id, (m) => ({ ...m, programas: m.programas.filter((p) => p.id !== prog.id) }));
-                  setScreen("maq");
-                }
-              }}
-              className="inline-flex items-center gap-2 rounded-xl border border-red-200 px-4 py-2.5 font-semibold text-red-600"
-            >
-              <Trash2 className="size-4" /> Apagar programa
-            </button>
           </div>
         </div>
       )}
@@ -444,7 +720,7 @@ export function AcompanhamentoHoras() {
             onSubmit={(e) => {
               e.preventDefault();
               const fd = new FormData(e.currentTarget);
-              const numero = String(fd.get("numero") || "").trim();
+              const numero = numeroEscolhido;
               const padrao = String(fd.get("padrao") || "").trim();
               const totalPares = String(fd.get("totalPares") || "").trim();
               const paresCheia = String(fd.get("paresCheia") || "").trim();
@@ -469,7 +745,7 @@ export function AcompanhamentoHoras() {
                   ...m,
                   programas: m.programas.map((p) =>
                     p.id === prog.id
-                      ? { ...p, numeros: [...p.numeros, { id, numero, padrao, totalPares, paresCheia, marcadas: [] }] }
+                      ? { ...p, numeros: [...p.numeros, { id, numero, padrao, totalPares, paresCheia, marcadas: [], caixas: [], modoSaldo: false }] }
                       : p
                   ),
                 }));
@@ -479,12 +755,25 @@ export function AcompanhamentoHoras() {
             }}
           >
             <h3 className="mb-4 text-lg font-bold">{modalNum.editId ? "Editar número" : "Adicionar número"}</h3>
+            <label className="mb-3 block">
+              <span className="mb-1 block text-xs text-muted">Numeração</span>
+              <select
+                required
+                value={numeroEscolhido}
+                onChange={(event) => setNumeroEscolhido(event.target.value)}
+                className="w-full appearance-none rounded-xl border border-line bg-surface-2 px-3 py-2.5"
+              >
+                <option value="">—</option>
+                {NUMEROS_MATRIZ.map((item) => (
+                  <option key={item} value={item}>{item}</option>
+                ))}
+                {numeroEscolhido && !NUMEROS_MATRIZ.includes(numeroEscolhido as (typeof NUMEROS_MATRIZ)[number]) ? (
+                  <option value={numeroEscolhido}>{numeroEscolhido}</option>
+                ) : null}
+              </select>
+            </label>
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="mb-1 block text-xs text-muted">Número</label>
-                <input name="numero" required className="w-full rounded-xl border border-line bg-surface-2 px-3 py-2.5" placeholder="Ex: 33" defaultValue={modalNum.editId ? prog.numeros.find(n => n.id === modalNum.editId)?.numero : ""} />
-              </div>
-              <div>
+              <div className="col-span-2">
                 <label className="mb-1 block text-xs text-muted">Padrão</label>
                 <input name="padrao" required className="w-full rounded-xl border border-line bg-surface-2 px-3 py-2.5" placeholder="Ex: 15.09" defaultValue={modalNum.editId ? prog.numeros.find(n => n.id === modalNum.editId)?.padrao : ""} />
               </div>

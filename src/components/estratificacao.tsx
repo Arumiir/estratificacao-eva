@@ -731,8 +731,22 @@ export function EstratificacaoApp() {
   const pendenteRef = useRef<(() => void) | null>(null);
   const desfazerRef = useRef<(() => void) | null>(null);
   const voltarTelaRef = useRef<() => void>(() => {});
+  const horasDentro = useRef<(() => boolean) | null>(null);
+  const [pelasHoras, setPelasHoras] = useState(true);
   const screen = stack[stack.length - 1] ?? { kind: "turnos" as const };
   const key = screenKey(screen);
+
+  useEffect(() => {
+    setPelasHoras(localStorage.getItem("producao_pelas_horas") !== "0");
+  }, []);
+
+  function alternarProducaoHoras() {
+    setPelasHoras((atual) => {
+      const proximo = !atual;
+      localStorage.setItem("producao_pelas_horas", proximo ? "1" : "0");
+      return proximo;
+    });
+  }
 
   useEffect(() => {
     const el = scroller.current;
@@ -912,6 +926,7 @@ export function EstratificacaoApp() {
       tecladoAberto()?.();
       return;
     }
+    if (stackRef.current.at(-1)?.kind === "horas" && horasDentro.current?.()) return;
     if (stackRef.current.length <= 1) {
       if (stackRef.current[0]?.kind !== "papel") leavePapel();
       return;
@@ -1667,7 +1682,7 @@ export function EstratificacaoApp() {
             telaFixa ? "flex h-full items-center justify-center px-6" : telaProblemas ? "flex h-full min-h-0 flex-col px-4 py-3" : "px-4 py-4",
             !telaFixa &&
               !telaProblemas &&
-              (screen.kind === "producao" || screen.kind === "matrices" || screen.kind === "outros"
+              (screen.kind === "producao" || screen.kind === "matrices" || screen.kind === "outros" || screen.kind === "horas"
                 ? "pb-4"
                 : "pb-28"),
             screen.kind === "sheet" ? "max-w-6xl lg:max-w-none lg:px-5 lg:py-3" : "max-w-6xl lg:px-8",
@@ -1705,6 +1720,24 @@ export function EstratificacaoApp() {
                 <span className="block font-display text-4xl leading-none text-fg">Horas</span>
                 <span className="mt-1 block text-sm font-semibold text-muted">Programas e horas das máquinas</span>
               </button>
+              <div className="flex items-center justify-between gap-3 rounded-tile border border-line bg-surface px-5 py-4">
+                <div>
+                  <p className="font-display text-2xl leading-none">Produção pelas horas</p>
+                  <p className="mt-1 text-sm font-semibold text-muted">
+                    {pelasHoras ? "A caixa verde vira a produção." : "A produção continua digitada."}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={pelasHoras}
+                  aria-label="Alternar a forma de apontar a produção"
+                  onClick={alternarProducaoHoras}
+                  className={cx("relative h-8 w-14 shrink-0 rounded-full", pelasHoras ? "bg-accent" : "bg-line")}
+                >
+                  <span className={cx("absolute top-1 size-6 rounded-full bg-white", pelasHoras ? "left-7" : "left-1")} />
+                </button>
+              </div>
             </div>
           ) : null}
 
@@ -1712,7 +1745,15 @@ export function EstratificacaoApp() {
             <FechamentoTurno state={state} onCommit={commit} onNotice={(text) => flash(text)} />
           ) : null}
 
-          {screen.kind === "horas" ? <AcompanhamentoHoras /> : null}
+          {screen.kind === "horas" ? (
+            <AcompanhamentoHoras
+              aoVoltar={horasDentro}
+              date={state.date}
+              turno={state.turno}
+              onProducao={(machine, numero, pares, date, turno) => corrigirProducao(date, machine, turno, { [numero]: pares })}
+              enviarProducao={pelasHoras}
+            />
+          ) : null}
 
           {screen.kind === "lados" ? (
             <div className="mx-auto w-full max-w-md">
@@ -1767,6 +1808,7 @@ export function EstratificacaoApp() {
               machine={screen.machine}
               turno={sessao?.turno ?? state.turno}
               onSave={(valores) => salvarProducao(screen.machine, sessao?.turno ?? state.turno, valores)}
+              pelasHoras={pelasHoras}
             />
           ) : null}
 
@@ -2194,11 +2236,13 @@ function ProducaoScreen({
   machine,
   turno,
   onSave,
+  pelasHoras,
 }: {
   state: State;
   machine: MachineId;
   turno: Turno;
   onSave: (valores: Record<string, number>) => void;
+  pelasHoras: boolean;
 }) {
   const numeros = numerosProducao(state, machine, state.date, turno);
   const assinatura = numeros.map((item) => item.id).join("|");
@@ -2227,12 +2271,13 @@ function ProducaoScreen({
     state.entries.filter((entry) => entry.date === state.date && entry.turno === turno && entry.machine === machine),
   );
   const toque = useToque();
+  const livre = editando && !pelasHoras;
   const [foco, setFoco] = useState<string | null>(null);
   const [campo, setCampo] = useState<Campo>(campoInicial(0));
   const sessao = useRef<{ id: string; valor: string } | null>(null);
 
   function abrirProducao(id: string) {
-    if (!editando || foco === id) return;
+    if (!livre || foco === id) return;
     if (foco && foco !== id) {
       const gravado = teclaConta(campo, "ok");
       setSujo(true);
@@ -2252,7 +2297,7 @@ function ProducaoScreen({
     sessao.current = null;
     setFoco(null);
   }
-  useFecharTeclado(Boolean(toque && foco && editando), fecharProducao, foco);
+  useFecharTeclado(Boolean(toque && foco && livre), fecharProducao, foco);
 
   return (
     <div className="mx-auto flex min-h-[calc(100dvh-10.5rem)] w-full max-w-md flex-col">
@@ -2292,7 +2337,7 @@ function ProducaoScreen({
               )}
             >
               <span className="font-display text-4xl leading-none">{item.numero}</span>
-              {toque && editando ? (
+              {toque && livre ? (
                 <button
                   type="button"
                   data-campo-teclado=""
@@ -2311,16 +2356,16 @@ function ProducaoScreen({
                   value={valores[item.id] ?? ""}
                   aria-label={`Pares de ${item.numero}`}
                   placeholder="0"
-                  readOnly={!editando}
+                  readOnly={!livre}
                   onChange={(event) => {
-                    if (!editando) return;
+                    if (!livre) return;
                     const limpo = event.target.value.replace(/\D/g, "").slice(0, 6);
                     setSujo(true);
                     setValores((atual) => ({ ...atual, [item.id]: limpo }));
                   }}
                   className={cx(
                     "mt-4 w-full rounded-2xl border border-line px-3 py-3 text-center font-display text-3xl leading-none tabular-nums outline-none",
-                    editando ? "bg-[#f7f9fd] focus:border-[#4682B4]" : "bg-[#f3f4f6] text-muted",
+                    livre ? "bg-[#f7f9fd] focus:border-[#4682B4]" : "bg-[#f3f4f6] text-muted",
                   )}
                 />
               )}
@@ -2329,7 +2374,7 @@ function ProducaoScreen({
         </div>
       )}
       <div className="sticky bottom-0 mt-auto bg-bg/95 py-3 backdrop-blur">
-        {toque && foco && editando ? (
+        {toque && foco && livre ? (
           <Teclado
             modo="conta"
             conta={campo.modo}
@@ -2338,7 +2383,7 @@ function ProducaoScreen({
               setCampo((atual) => teclaConta(atual, tecla));
             }}
           />
-        ) : editando ? (
+        ) : editando && !pelasHoras ? (
           <button
             type="button"
             disabled={numeros.length === 0}
@@ -2353,6 +2398,10 @@ function ProducaoScreen({
           >
             Salvar
           </button>
+        ) : pelasHoras ? (
+          <p className="rounded-2xl bg-emerald-50 px-4 py-3 text-center text-sm font-semibold text-emerald-800">
+            A produção deste turno vem das caixas verdes das horas.
+          </p>
         ) : (
           <button
             type="button"

@@ -1,5 +1,6 @@
 import { startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, Eraser, ImageDown, X } from "lucide-react";
+import { formatHours, lerHorasTurno } from "@/components/AcompanhamentoHoras";
 import {
   MACHINES,
   maquinaBase,
@@ -3421,6 +3422,11 @@ function AcompanhamentoDiario({
       .filter((item) => diaDoApontamento(item) === state.date && item.turno === state.turno)
       .map((item) => item.machine),
   ]);
+  const horasTurno = lerHorasTurno(state.date, state.turno);
+  const cardDaHora = (base: string) => {
+    if ((visiveis as string[]).includes(base)) return base;
+    return visiveis.find((item) => maquinaBase(item) === base) ?? null;
+  };
   const aberta = painel ? visiveis.find((machine) => machine === painel.machine) ?? null : null;
   const linhas = aberta ? fichaLines(state, aberta) : [];
   const estacoes = aberta ? estacoesDoDia(state, aberta, linhas).filter((item) => item.pares > 0) : [];
@@ -3543,6 +3549,24 @@ function AcompanhamentoDiario({
                     </p>
                   </div>
                 </div>
+                {(() => {
+                  const base = maquinaBase(machine);
+                  if (cardDaHora(base) !== machine) return null;
+                  const info = horasTurno[base];
+                  if (!info) return null;
+                  return (
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <div className="rounded-2xl bg-emerald-50 px-2 py-2 text-center">
+                        <p className="text-[11px] font-semibold text-emerald-800">Hora baixada</p>
+                        <p className="font-display text-2xl leading-none tabular-nums text-emerald-800">{formatHours(info.hb)}</p>
+                      </div>
+                      <div className="rounded-2xl bg-amber-50 px-2 py-2 text-center">
+                        <p className="text-[11px] font-semibold text-amber-800">Saldo</p>
+                        <p className="font-display text-2xl leading-none tabular-nums text-amber-800">{formatHours(info.sd)}</p>
+                      </div>
+                    </div>
+                  );
+                })()}
                 {piores.length > 0 ? (
                   <ol className="mt-3 grid gap-1.5">
                     {piores.map((item, index) => (

@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { perdasPorProblema } from "@/components/painel-calculo";
 import { paresDasEntradas, percentualPerda, textoPercentual } from "@/components/comum";
+import { formatHours, lerHorasTurno } from "@/components/AcompanhamentoHoras";
 import {
   diaDoApontamento,
   diaOperacional,
   formatDateBR,
+  maquinaBase,
   maquinasDoFiltro,
   mergeFechamentos,
   TURNO_LABEL,
@@ -60,10 +62,26 @@ export function FechamentoTurno({
   const maquinas = maquinasDoFiltro(view.modelos);
   const [escolhidas, setEscolhidas] = useState<MachineId[]>([]);
   const [campos, setCampos] = useState<Record<string, Campos>>(() => {
+    const horas = lerHorasTurno(data, TURNO);
+    const lista = maquinasDoFiltro(view.modelos);
+    const dono = (base: string) => {
+      if ((lista as string[]).includes(base)) return base;
+      return lista.find((item) => maquinaBase(item) === base) ?? null;
+    };
     const inicial: Record<string, Campos> = {};
     for (const item of state.fechamentos ?? []) {
       if (item.date !== data || item.turno !== TURNO) continue;
       inicial[item.machine] = { horas: item.horasBaixadas, saldo: item.saldo, setup: item.setup };
+    }
+    for (const [base, info] of Object.entries(horas)) {
+      const machine = dono(base);
+      if (!machine) continue;
+      const atual = inicial[machine] ?? { horas: "", saldo: "", setup: "" };
+      inicial[machine] = {
+        horas: atual.horas || (info.hb > 0 ? formatHours(info.hb) : ""),
+        saldo: atual.saldo || (info.sd > 0 ? formatHours(info.sd) : ""),
+        setup: atual.setup,
+      };
     }
     return inicial;
   });
