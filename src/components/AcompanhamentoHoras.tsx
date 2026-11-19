@@ -108,16 +108,17 @@ function calcProgram(prog: Programa, conta?: (caixa: Caixa | null) => boolean) {
       atrasado = { numero: item.numero.numero, restante: item.conta.restante };
     }
   }
-  let saldoNumero: { numero: string; aberto: number } | null = null;
+  let saldoNumero: { numero: string; horas: number; restante: number } | null = null;
   for (const item of contas) {
-    if (!item.numero.modoSaldo && item.conta.horasSaldo <= 0) continue;
-    if (!saldoNumero || item.conta.restanteHora > saldoNumero.aberto) {
-      saldoNumero = { numero: item.numero.numero, aberto: item.conta.restanteHora };
+    if (item.conta.horasSaldo <= 0) continue;
+    if (!saldoNumero || item.conta.horasSaldo > saldoNumero.horas) {
+      saldoNumero = { numero: item.numero.numero, horas: item.conta.horasSaldo, restante: item.conta.restante };
     }
   }
-  const saldo = saldoNumero
-    ? Math.max(0, saldoNumero.aberto - (atrasado && atrasado.numero !== saldoNumero.numero ? atrasado.restante : 0))
+  const desconto = saldoNumero && atrasado && atrasado.numero !== saldoNumero.numero
+    ? Math.max(0, atrasado.restante - saldoNumero.restante)
     : 0;
+  const saldo = saldoNumero ? Math.max(0, saldoNumero.horas - desconto) : 0;
   return {
     produzidas: Math.max(0, maxTotal - maxRestanteHora),
     saldo,
