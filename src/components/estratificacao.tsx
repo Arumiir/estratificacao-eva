@@ -1803,6 +1803,7 @@ export function EstratificacaoApp() {
               enviarProducao={pelasHoras}
               remoto={horasDia}
               onGravar={gravarHoras}
+              modelos={state.modelos}
             />
           ) : null}
 

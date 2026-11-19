@@ -10,18 +10,43 @@ import {
   maquinasDoFiltro,
   mergeFechamentos,
   TURNO_LABEL,
+  turnoPeloRelogio,
   type Fechamento,
   type MachineId,
   type State,
   type Turno,
 } from "@/lib/perdas";
 
-const TURNO: Turno = "1";
-
 type Campos = { horas: string; saldo: string; setup: string };
 
 function vazio(): Campos {
   return { horas: "", saldo: "", setup: "" };
+}
+
+function lerCampos(state: State, turno: Turno): Record<string, Campos> {
+  const data = diaOperacional(turno);
+  const horas = lerHorasTurno(data, turno);
+  const lista = maquinasDoFiltro(state.modelos);
+  const dono = (base: string) => {
+    if ((lista as string[]).includes(base)) return base;
+    return lista.find((item) => maquinaBase(item) === base) ?? null;
+  };
+  const inicial: Record<string, Campos> = {};
+  for (const item of state.fechamentos ?? []) {
+    if (item.date !== data || item.turno !== turno) continue;
+    inicial[item.machine] = { horas: item.horasBaixadas, saldo: item.saldo, setup: item.setup };
+  }
+  for (const [base, info] of Object.entries(horas)) {
+    const machine = dono(base);
+    if (!machine) continue;
+    const atual = inicial[machine] ?? vazio();
+    inicial[machine] = {
+      horas: atual.horas || (info.hb > 0 ? formatHours(info.hb) : ""),
+      saldo: atual.saldo || (info.sd > 0 ? formatHours(info.sd) : ""),
+      setup: atual.setup,
+    };
+  }
+  return inicial;
 }
 
 function ponto(texto: string) {
@@ -57,34 +82,17 @@ export function FechamentoTurno({
   onCommit: (recipe: (current: State) => State) => void;
   onNotice: (text: string) => void;
 }) {
-  const data = diaOperacional(TURNO);
-  const view: State = { ...state, date: data, turno: TURNO };
+  const [turno, setTurno] = useState<Turno>(() => turnoPeloRelogio());
+  const data = diaOperacional(turno);
+  const view: State = { ...state, date: data, turno };
   const maquinas = maquinasDoFiltro(view.modelos);
   const [escolhidas, setEscolhidas] = useState<MachineId[]>([]);
-  const [campos, setCampos] = useState<Record<string, Campos>>(() => {
-    const horas = lerHorasTurno(data, TURNO);
-    const lista = maquinasDoFiltro(view.modelos);
-    const dono = (base: string) => {
-      if ((lista as string[]).includes(base)) return base;
-      return lista.find((item) => maquinaBase(item) === base) ?? null;
-    };
-    const inicial: Record<string, Campos> = {};
-    for (const item of state.fechamentos ?? []) {
-      if (item.date !== data || item.turno !== TURNO) continue;
-      inicial[item.machine] = { horas: item.horasBaixadas, saldo: item.saldo, setup: item.setup };
-    }
-    for (const [base, info] of Object.entries(horas)) {
-      const machine = dono(base);
-      if (!machine) continue;
-      const atual = inicial[machine] ?? { horas: "", saldo: "", setup: "" };
-      inicial[machine] = {
-        horas: atual.horas || (info.hb > 0 ? formatHours(info.hb) : ""),
-        saldo: atual.saldo || (info.sd > 0 ? formatHours(info.sd) : ""),
-        setup: atual.setup,
-      };
-    }
-    return inicial;
-  });
+  const [porTurno, setPorTurno] = useState<Record<Turno, Record<string, Campos>>>(() => ({
+    "1": lerCampos(state, "1"),
+    "2": lerCampos(state, "2"),
+    "3": lerCampos(state, "3"),
+  }));
+  const campos = porTurno[turno];
   const [gerando, setGerando] = useState(false);
 
   function camposDe(machine: MachineId) {
@@ -93,11 +101,11 @@ export function FechamentoTurno({
 
   function calcular(machine: MachineId) {
     const entradas = view.entries.filter(
-      (entry) => entry.date === view.date && entry.turno === TURNO && entry.machine === machine,
+      (entry) => entry.date === view.date && entry.turno === turno && entry.machine === machine,
     );
     const perdas = paresDasEntradas(entradas);
     const producao = (view.producao ?? [])
-      .filter((item) => diaDoApontamento(item) === view.date && item.turno === TURNO && item.machine === machine)
+      .filter((item) => diaDoApontamento(item) === view.date && item.turno === turno && item.machine === machine)
       .reduce((soma, item) => soma + item.pares, 0);
     const percentual = percentualPerda(perdas, producao);
     const problemas = perdasPorProblema(entradas).slice(0, 3).map((item) => nomeCurto(item.name));
@@ -114,7 +122,10 @@ export function FechamentoTurno({
   }
 
   function editar(machine: MachineId, chave: keyof Campos, valor: string) {
-    setCampos((atual) => ({ ...atual, [machine]: { ...camposDe(machine), [chave]: valor } }));
+    setPorTurno((atual) => ({
+      ...atual,
+      [turno]: { ...atual[turno], [machine]: { ...(atual[turno][machine] ?? vazio()), [chave]: valor } },
+    }));
   }
 
   function textoDa(machine: MachineId) {
@@ -148,9 +159,9 @@ export function FechamentoTurno({
       for (const machine of lista) {
         const digitado = camposDe(machine);
         salvos.push({
-          id: `${view.date}|${TURNO}|${machine}`,
+          id: `${view.date}|${turno}|${machine}`,
           date: view.date,
-          turno: TURNO,
+          turno,
           machine,
           horasBaixadas: digitado.horas.trim(),
           producao: calcular(machine).producao,
@@ -175,8 +186,20 @@ export function FechamentoTurno({
   return (
     <div className="mx-auto w-full max-w-md">
       <p className="font-display text-4xl leading-none text-accent">Fechamento</p>
-      <p className="mt-1 text-sm font-semibold text-muted">
-        {TURNO_LABEL[TURNO]} · {formatDateBR(view.date)}
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        {(["1", "2", "3"] as Turno[]).map((item) => (
+          <button
+            key={item}
+            type="button"
+            onClick={() => setTurno(item)}
+            className={`rounded-2xl py-3 font-display text-3xl leading-none ${item === turno ? "bg-accent text-accent-ink" : "border border-line bg-surface text-fg"}`}
+          >
+            {item}º
+          </button>
+        ))}
+      </div>
+      <p className="mt-2 text-sm font-semibold text-muted">
+        {TURNO_LABEL[turno]} · {formatDateBR(view.date)}
       </p>
       <div className="mt-4 grid gap-2">
         {maquinas.map((machine) => {

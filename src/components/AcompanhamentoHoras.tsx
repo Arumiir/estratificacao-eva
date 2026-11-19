@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Plus, Pencil, Trash2, ChevronDown, Clock, Check, Box } from "lucide-react";
-import { NUMEROS_MATRIZ, TURNO_LABEL, diaDeHoje, diaOperacional, formatDateBR, numeroLimpo, turnoPeloRelogio, type MachineId, type Turno } from "@/lib/perdas";
-import { horasVazias, juntarHoras, lerHorasLocal, salvarHorasLocal, type HorasDia } from "@/lib/horas-sync";
+import { NUMEROS_MATRIZ, TURNO_LABEL, diaDeHoje, diaOperacional, formatDateBR, maquinasDoFiltro, numeroLimpo, turnoPeloRelogio, type MachineId, type MaquinaPiso, type Turno } from "@/lib/perdas";
+import { horasVazias, idHoras, juntarHoras, lerHorasLocal, salvarHorasLocal, type HorasDia } from "@/lib/horas-sync";
 
 type Destino = "saldo" | "baixada";
 type Caixa = { destino: Destino | null; date?: string; turno?: Turno; em?: number };
@@ -69,7 +69,7 @@ function caixasDe(num: Numero): (Caixa | null)[] {
   return lista;
 }
 
-function calcNumber(num: Numero) {
+function calcNumber(num: Numero, conta?: (caixa: Caixa | null) => boolean) {
   const totalPares = parseNum(num.totalPares);
   const paresCheia = parseNum(num.paresCheia);
   const padrao = parseNum(num.padrao);
@@ -80,10 +80,11 @@ function calcNumber(num: Numero) {
   let paresSaldo = 0;
   let paresBaixada = 0;
   for (let i = 0; i < totalCaixas; i++) {
+    const caixa = lerCaixa(num.caixas?.[i], !num.caixas && Boolean(num.marcadas?.[i]));
+    if (conta && !conta(caixa)) continue;
     const pares = i < qtdCheias ? paresCheia : ultima;
-    const destino = destinoCaixa(num, i);
-    if (destino === "saldo") paresSaldo += pares;
-    if (destino === "baixada") paresBaixada += pares;
+    if (caixa?.destino === "saldo") paresSaldo += pares;
+    if (caixa?.destino === "baixada") paresBaixada += pares;
   }
   const horasSaldo = padrao > 0 ? paresSaldo / padrao : 0;
   const horasBaixadas = padrao > 0 ? paresBaixada / padrao : 0;
@@ -92,32 +93,34 @@ function calcNumber(num: Numero) {
   return { totalHoras, horasProduzidas, horasSaldo, horasBaixadas, restante, totalCaixas, paresCheia, ultima, qtdCheias, totalPares };
 }
 
-function calcProgram(prog: Programa) {
-  let produzidas = 0;
-  let saldo = 0;
-  let maxSaldo = 0;
-  let maxRest = 0;
-  let segurando: { numero: string; restante: number } | null = null;
+function calcProgram(prog: Programa, conta?: (caixa: Caixa | null) => boolean) {
+  const numeros = prog.numeros || [];
+  const contas = numeros.map((numero) => ({ numero, conta: calcNumber(numero, conta) }));
+  let maxTotal = 0;
+  let maxRestante = 0;
   let atrasado: { numero: string; restante: number } | null = null;
-  for (const n of prog.numeros || []) {
-    const c = calcNumber(n);
-    produzidas += c.horasBaixadas;
-    saldo += c.horasSaldo;
-    if (c.horasSaldo > maxSaldo) {
-      maxSaldo = c.horasSaldo;
-      segurando = { numero: n.numero, restante: c.horasSaldo };
-    }
-    if (c.restante > maxRest) {
-      maxRest = c.restante;
-      atrasado = { numero: n.numero, restante: c.restante };
+  for (const item of contas) {
+    if (item.conta.totalHoras > maxTotal) maxTotal = item.conta.totalHoras;
+    if (item.conta.restante > maxRestante) {
+      maxRestante = item.conta.restante;
+      atrasado = { numero: item.numero.numero, restante: item.conta.restante };
     }
   }
+  let saldoNumero: { numero: string; horas: number; restante: number } | null = null;
+  for (const item of contas) {
+    if (item.conta.horasSaldo <= 0) continue;
+    if (!saldoNumero || item.conta.horasSaldo > saldoNumero.horas) {
+      saldoNumero = { numero: item.numero.numero, horas: item.conta.horasSaldo, restante: item.conta.restante };
+    }
+  }
+  const desconto = saldoNumero ? Math.max(0, maxRestante - saldoNumero.restante) : 0;
+  const saldo = saldoNumero ? Math.max(0, saldoNumero.horas - desconto) : 0;
   return {
-    produzidas,
+    produzidas: Math.max(0, maxTotal - maxRestante),
     saldo,
-    segurando,
+    segurando: saldoNumero ? { numero: saldoNumero.numero, restante: saldo } : null,
     atrasado,
-    concluido: (prog.numeros || []).length > 0 && (prog.numeros || []).every((n) => calcNumber(n).restante <= 0.01),
+    concluido: numeros.length > 0 && numeros.every((numero) => calcNumber(numero).restante <= 0.01),
   };
 }
 
@@ -146,53 +149,51 @@ export function lerHorasTurno(date: string, turno: Turno): Record<string, { hb: 
     let hb = 0;
     let sd = 0;
     for (const programa of maquina.programas) {
-      for (const numero of programa.numeros) {
-        const totalPares = parseNum(numero.totalPares);
-        const paresCheia = parseNum(numero.paresCheia);
-        const padrao = parseNum(numero.padrao);
-        if (padrao <= 0) continue;
-        const qtdCheias = paresCheia > 0 ? Math.floor(totalPares / paresCheia) : 0;
-        const ultima = paresCheia > 0 ? totalPares % paresCheia : 0;
-        const totalCaixas = qtdCheias + (ultima > 0 ? 1 : 0);
-        for (let i = 0; i < totalCaixas; i += 1) {
-          const caixa = numero.caixas[i];
-          if (!caixa?.destino || caixa.date !== date || caixa.turno !== turno) continue;
-          const horas = (i < qtdCheias ? paresCheia : ultima) / padrao;
-          if (caixa.destino === "baixada") hb += horas;
-          if (caixa.destino === "saldo") sd += horas;
-        }
-      }
+      const conta = calcProgram(
+        {
+          ...programa,
+          numeros: programa.numeros.map((numero) => ({
+            ...numero,
+            marcadas: numero.caixas.map((caixa) => Boolean(caixa?.destino)),
+          })),
+        },
+        (caixa) => Boolean(caixa?.destino && caixa.date === date && caixa.turno === turno),
+      );
+      hb += conta.produzidas;
+      sd += conta.saldo;
     }
-    if (hb > 0 || sd > 0) mapa[`SIE${maquina.id}`] = { hb, sd };
+    if (hb > 0 || sd > 0) {
+      const nome = idHoras(maquina.id);
+      if (nome) mapa[nome] = { hb, sd };
+    }
   }
   return mapa;
 }
 
 function getHoldingMaquina(m: Maquina) {
-  let max = 0;
   let seg: { numero: string; restante: number } | null = null;
-  for (const p of m.programas || []) {
-    for (const n of p.numeros || []) {
-      const c = calcNumber(n);
-      if (c.horasSaldo > max) {
-        max = c.horasSaldo;
-        seg = { numero: n.numero, restante: c.horasSaldo };
-      }
-    }
+  for (const programa of m.programas || []) {
+    const conta = calcProgram(programa);
+    if (!conta.segurando || conta.saldo <= 0) continue;
+    if (!seg || conta.saldo > seg.restante) seg = { numero: conta.segurando.numero, restante: conta.saldo };
   }
   return seg;
 }
 
 function initMaquinas(data: Data): Data {
-  if (!data.maquinas || data.maquinas.length !== 6) {
-    const maquinas: Maquina[] = [];
-    for (let i = 1; i <= 6; i++) {
-      const id = String(i).padStart(2, "0");
-      maquinas.push({ id, nome: `Máq. ${id}`, saldo: 0, programas: [] });
-    }
-    return { maquinas };
+  const mapa = new Map<string, Maquina>();
+  for (const maquina of data.maquinas ?? []) {
+    const id = idHoras(maquina.id);
+    if (!id) continue;
+    const anterior = mapa.get(id);
+    mapa.set(id, {
+      ...maquina,
+      id,
+      nome: id,
+      programas: [...(anterior?.programas ?? []), ...(maquina.programas ?? [])],
+    });
   }
-  return data;
+  return { ...data, maquinas: [...mapa.values()] };
 }
 
 function dadosDe(dia: HorasDia): Data {
@@ -200,8 +201,8 @@ function dadosDe(dia: HorasDia): Data {
     date: dia.date,
     apagados: dia.apagados,
     maquinas: dia.maquinas.map((maquina) => ({
-      id: maquina.id,
-      nome: `Máq. ${maquina.id}`,
+      id: idHoras(maquina.id) ?? maquina.id,
+      nome: idHoras(maquina.id) ?? maquina.id,
       saldo: 0,
       programas: maquina.programas.map((programa) => ({
         id: programa.id,
@@ -226,11 +227,16 @@ function dadosDe(dia: HorasDia): Data {
 
 function paraDia(origem: Data): HorasDia {
   const base = horasVazias(origem.date || diaDeHoje());
+  const ids = new Set<string>(base.maquinas.map((maquina) => maquina.id));
+  for (const maquina of origem.maquinas) {
+    const id = idHoras(maquina.id);
+    if (id) ids.add(id);
+  }
   let em = 0;
-  const maquinas = base.maquinas.map((maquina) => {
-    const local = origem.maquinas.find((item) => item.id === maquina.id);
+  const maquinas = [...ids].map((id) => {
+    const local = origem.maquinas.find((item) => idHoras(item.id) === id);
     return {
-      id: maquina.id,
+      id,
       programas: (local?.programas ?? []).map((programa) => {
         em = Math.max(em, programa.em ?? 0);
         return {
@@ -308,12 +314,14 @@ export function AcompanhamentoHoras({
   enviarProducao,
   remoto,
   onGravar,
+  modelos,
 }: {
   aoVoltar: { current: (() => boolean) | null };
   onProducao: (machine: MachineId, numero: string, pares: number, date: string, turno: Turno) => void;
   enviarProducao: boolean;
   remoto: HorasDia | null;
   onGravar: (dia: HorasDia) => void;
+  modelos: readonly MaquinaPiso[];
 }) {
   const [turnoAtivo, setTurnoAtivo] = useState<Turno>(() => turnoPeloRelogio());
   const dia = diaOperacional(turnoAtivo);
@@ -326,10 +334,15 @@ export function AcompanhamentoHoras({
   const [modalNum, setModalNum] = useState<{ editId: string | null } | null>(null);
   const [numeroEscolhido, setNumeroEscolhido] = useState("");
   const [pergunta, setPergunta] = useState<{ numId: string; idx: number; atual: Destino } | null>(null);
+  const [apagar, setApagar] = useState<{ tipo: "programa" } | { tipo: "numero"; id: string } | null>(null);
 
   aoVoltar.current = () => {
     if (pergunta) {
       setPergunta(null);
+      return true;
+    }
+    if (apagar) {
+      setApagar(null);
       return true;
     }
     if (modalNum) {
@@ -401,10 +414,11 @@ export function AcompanhamentoHoras({
     setData((atual) => ({ ...atual, maquinas }));
     onGravar(paraDia({ ...data, date: diaDeHoje(), maquinas }));
     for (const maquina of maquinas) {
-      if (!enviarProducao) break;
+      const nome = idHoras(maquina.id);
+      if (!nome || !enviarProducao) continue;
       for (const item of somasDe(maquina).values()) {
         if (item.pares <= 0) continue;
-        onProducao(`SIE${maquina.id}` as MachineId, item.numero, Math.floor(item.pares), item.date, item.turno);
+        onProducao(nome, item.numero, Math.floor(item.pares), item.date, item.turno);
       }
     }
   }, [data, dia, turnoAtivo, onProducao, enviarProducao]);
@@ -419,9 +433,11 @@ export function AcompanhamentoHoras({
 
   function updateMaq(id: string, updater: (m: Maquina) => Maquina) {
     setData((d) => {
+      const existe = d.maquinas.some((m) => m.id === id);
+      const base = existe ? d.maquinas : [...d.maquinas, { id, nome: id, saldo: 0, programas: [] }];
       const next = carimbar(d, {
         ...d,
-        maquinas: d.maquinas.map((m) => (m.id === id ? updater(m) : m)),
+        maquinas: base.map((m) => (m.id === id ? updater(m) : m)),
       });
       onGravar(paraDia(next));
       return next;
@@ -459,7 +475,8 @@ export function AcompanhamentoHoras({
       const item = final.get(chave) ?? origem.get(chave);
       const pares = final.get(chave)?.pares ?? 0;
       if (!item || pares === paresAntes) continue;
-      onProducao(`SIE${depois.id}` as MachineId, item.numero, Math.floor(pares), item.date, item.turno);
+      const nome = idHoras(depois.id);
+      if (nome) onProducao(nome, item.numero, Math.floor(pares), item.date, item.turno);
     }
   }
 
@@ -530,7 +547,8 @@ export function AcompanhamentoHoras({
       </div>
       {screen === "home" && (
         <div className="grid grid-cols-2 gap-2">
-            {data.maquinas.map((m) => {
+            {maquinasDoFiltro(modelos).map((id) => {
+              const m = data.maquinas.find((item) => item.id === id) ?? { id, nome: id, saldo: 0, programas: [] };
               const h = getHoldingMaquina(m);
               const totais = totaisMaquina(m);
               return (
@@ -540,11 +558,16 @@ export function AcompanhamentoHoras({
                   onClick={() => {
                     setCurrentMaqId(m.id);
                     setScreen("maq");
+                    setData((atual) =>
+                      atual.maquinas.some((item) => item.id === m.id)
+                        ? atual
+                        : { ...atual, maquinas: [...atual.maquinas, { id: m.id, nome: m.id, saldo: 0, programas: [] }] },
+                    );
                   }}
                   className="flex flex-col rounded-2xl border border-line bg-surface p-3 text-left"
                 >
                   <div className="mb-1 flex items-center justify-between">
-                    <span className="font-display text-2xl leading-none">SIE{m.id}</span>
+                    <span className="font-display text-2xl leading-none">{m.id}</span>
                     <span className="grid size-7 place-items-center rounded-lg bg-accent-soft text-accent">
                       <Box className="size-3.5" />
                     </span>
@@ -569,7 +592,7 @@ export function AcompanhamentoHoras({
       {screen === "maq" && maq && (
         <div>
           <div className="flex items-start justify-between gap-2">
-            <h2 className="font-display text-4xl leading-none">SIE{maq.id}</h2>
+            <h2 className="font-display text-4xl leading-none">{maq.id}</h2>
             <button
               type="button"
               aria-label="Novo programa"
@@ -652,18 +675,34 @@ export function AcompanhamentoHoras({
               <button
                 type="button"
                 aria-label="Apagar programa"
-                onClick={() => {
-                  if (confirm("Apagar este programa?")) {
-                    updateMaq(maq.id, (m) => ({ ...m, programas: m.programas.filter((p) => p.id !== prog.id) }));
-                    setScreen("maq");
-                  }
-                }}
+                onClick={() => setApagar({ tipo: "programa" })}
                 className="grid size-11 place-items-center rounded-2xl border border-red-200 bg-surface text-red-600"
               >
                 <Trash2 className="size-5" />
               </button>
             </div>
           </div>
+          {apagar?.tipo === "programa" ? (
+            <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3">
+              <p className="text-sm font-semibold text-red-700">Apagar este programa?</p>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setApagar(null)} className="rounded-xl border border-line bg-surface py-2 text-sm font-semibold">
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    updateMaq(maq.id, (m) => ({ ...m, programas: m.programas.filter((p) => p.id !== prog.id) }));
+                    setApagar(null);
+                    setScreen("maq");
+                  }}
+                  className="rounded-xl bg-red-600 py-2 text-sm font-semibold text-white"
+                >
+                  Apagar
+                </button>
+              </div>
+            </div>
+          ) : null}
           {(() => {
             const c = calcProgram(prog);
             return (
@@ -795,21 +834,37 @@ export function AcompanhamentoHoras({
                         </button>
                         <button
                           type="button"
-                          onClick={() => {
-                            if (confirm("Remover este número?")) {
-                              updateMaq(maq.id, (m) => ({
-                                ...m,
-                                programas: m.programas.map((p) =>
-                                  p.id === prog.id ? { ...p, numeros: p.numeros.filter((x) => x.id !== n.id) } : p
-                                ),
-                              }));
-                            }
-                          }}
+                          onClick={() => setApagar({ tipo: "numero", id: n.id })}
                           className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-600"
                         >
                           <Trash2 className="size-3.5" /> Remover
                         </button>
                       </div>
+                      {apagar?.tipo === "numero" && apagar.id === n.id ? (
+                        <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3">
+                          <p className="text-sm font-semibold text-red-700">Remover este número?</p>
+                          <div className="mt-2 grid grid-cols-2 gap-2">
+                            <button type="button" onClick={() => setApagar(null)} className="rounded-xl border border-line bg-surface py-2 text-sm font-semibold">
+                              Cancelar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                updateMaq(maq.id, (m) => ({
+                                  ...m,
+                                  programas: m.programas.map((p) =>
+                                    p.id === prog.id ? { ...p, numeros: p.numeros.filter((x) => x.id !== n.id) } : p,
+                                  ),
+                                }));
+                                setApagar(null);
+                              }}
+                              className="rounded-xl bg-red-600 py-2 text-sm font-semibold text-white"
+                            >
+                              Remover
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   )}
                 </div>

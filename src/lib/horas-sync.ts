@@ -1,4 +1,4 @@
-import { diaDeHoje, type Turno } from "@/lib/perdas";
+import { diaDeHoje, MACHINES, type MachineId, type Turno } from "@/lib/perdas";
 
 export type CaixaSync = {
   destino: "saldo" | "baixada" | null;
@@ -33,7 +33,13 @@ export type HorasDia = {
   apagados: { id: string; em: number }[];
 };
 
-const CHAVE = "horas_maquinas_v3";
+export function idHoras(id: string): MachineId | null {
+  const direto = id.trim().toUpperCase();
+  if ((MACHINES as readonly string[]).includes(direto)) return direto as MachineId;
+  if (!/^\d{1,2}$/.test(direto)) return null;
+  const nome = `SIE${direto.padStart(2, "0")}`;
+  return (MACHINES as readonly string[]).includes(nome) ? (nome as MachineId) : null;
+}
 
 function texto(value: unknown) {
   return typeof value === "string" ? value : "";
@@ -107,7 +113,7 @@ export function lerHoras(value: unknown): HorasDia | null {
     em: emDe(item.em),
     maquinas: item.maquinas.flatMap((maquina) => {
       if (!maquina || typeof maquina !== "object") return [];
-      const id = texto((maquina as { id?: unknown }).id);
+      const id = idHoras(texto((maquina as { id?: unknown }).id)) ?? "";
       if (!id) return [];
       const programas = Array.isArray((maquina as { programas?: unknown }).programas)
         ? (maquina as { programas: unknown[] }).programas.flatMap((programa) => {
@@ -163,7 +169,14 @@ export function juntarHoras(esquerda: HorasDia | null, direita: HorasDia | null)
   if (esquerda.date !== direita.date) return esquerda.em >= direita.em ? esquerda : direita;
   const apagados = juntarApagados(esquerda.apagados, direita.apagados);
   const tumulo = new Map(apagados.map((item) => [item.id, item.em]));
-  const ids = ["01", "02", "03", "04", "05", "06"];
+  const ids = [
+    ...new Set(
+      [...esquerda.maquinas, ...direita.maquinas].flatMap((maquina) => {
+        const id = idHoras(maquina.id);
+        return id ? [id] : [];
+      }),
+    ),
+  ];
   const maquinas = ids.map((id) => {
     const a = new Map((esquerda.maquinas.find((item) => item.id === id)?.programas ?? []).map((item) => [item.id, item]));
     const b = new Map((direita.maquinas.find((item) => item.id === id)?.programas ?? []).map((item) => [item.id, item]));
@@ -191,10 +204,12 @@ export function horasVazias(date = diaDeHoje()): HorasDia {
   return {
     date,
     em: 0,
-    maquinas: ["01", "02", "03", "04", "05", "06"].map((id) => ({ id, programas: [] })),
+    maquinas: ["SIE01", "SIE02", "SIE03", "SIE04", "SIE05", "SIE06"].map((id) => ({ id, programas: [] })),
     apagados: [],
   };
 }
+
+const CHAVE = "horas_maquinas_v3";
 
 export function salvarHorasLocal(dia: HorasDia | null) {
   if (!dia || typeof localStorage === "undefined") return;
