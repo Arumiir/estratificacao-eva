@@ -38,6 +38,7 @@ import {
   shiftEntries,
   stationKey,
   todayISO,
+  diaDasHoras,
   diaDeHoje,
   turnoPeloRelogio,
   diaOperacional,
@@ -752,10 +753,38 @@ export function EstratificacaoApp() {
     if (screen.kind !== "horas") return;
     let vivo = true;
     const puxar = () => {
-      void pullHoras({ data: { date: diaDeHoje() } })
-        .then((remote) => {
-          if (!vivo || !remote.horas) return;
-          const junto = juntarHoras(horasRef.current, remote.horas);
+      const hoje = diaDasHoras();
+      void pullHoras({ data: { date: hoje } })
+        .then(async (remote) => {
+          if (!vivo) return;
+          let vindo = remote.horas;
+          const vazio = !vindo || vindo.maquinas.every((maquina) => maquina.programas.length === 0);
+          if (vazio && hoje === "2026-11-19") {
+            const antigo = await pullHoras({ data: { date: "2026-11-18" } });
+            if (antigo.horas && antigo.horas.maquinas.some((maquina) => maquina.programas.length > 0)) {
+              vindo = { ...antigo.horas, date: hoje, em: Date.now() };
+              horasRef.current = vindo;
+              salvarHorasLocal(vindo);
+              setHorasDia(vindo);
+              void pushApontamentos({
+                data: {
+                  upserts: [],
+                  removed: [],
+                  revives: [],
+                  date: hoje,
+                  outros: [],
+                  cores: [],
+                  fechamentos: [],
+                  producao: [],
+                  horas: vindo,
+                  modelos: null,
+                },
+              });
+              return;
+            }
+          }
+          if (!vindo) return;
+          const junto = juntarHoras(horasRef.current, vindo);
           horasRef.current = junto;
           if (junto) salvarHorasLocal(junto);
           setHorasDia(junto);

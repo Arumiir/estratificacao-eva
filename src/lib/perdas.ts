@@ -280,6 +280,13 @@ export function diaDeHoje(now = Date.now()): string {
   return date;
 }
 
+/** A lista de horas do 1º turno começa às 06:31 e não pode sumir quando o dia vira às 07:00. */
+export function diaDasHoras(now = Date.now()): string {
+  const { date, minutes } = partesFortaleza(now);
+  if (minutes >= 6 * 60 + 31) return date;
+  return diaAnterior(date);
+}
+
 /** Matriz única deixa de pedir lado a partir do 1º turno deste dia, às 07:00. */
 export const MATRIZ_UNICA_DESDE = "2026-11-10";
 

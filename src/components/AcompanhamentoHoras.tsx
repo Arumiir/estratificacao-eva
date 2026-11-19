@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Plus, Pencil, Trash2, ChevronDown, Clock, Check, Box } from "lucide-react";
-import { NUMEROS_MATRIZ, TURNO_LABEL, diaDeHoje, diaOperacional, formatDateBR, maquinasDoFiltro, numeroLimpo, turnoPeloRelogio, type MachineId, type MaquinaPiso, type Turno } from "@/lib/perdas";
+import { NUMEROS_MATRIZ, TURNO_LABEL, diaDasHoras, diaOperacional, formatDateBR, maquinasDoFiltro, numeroLimpo, turnoPeloRelogio, type MachineId, type MaquinaPiso, type Turno } from "@/lib/perdas";
 import { horasVazias, idHoras, juntarHoras, lerHorasLocal, salvarHorasLocal, type HorasDia } from "@/lib/horas-sync";
 
 type Destino = "saldo" | "baixada";
@@ -226,7 +226,7 @@ function dadosDe(dia: HorasDia): Data {
 }
 
 function paraDia(origem: Data): HorasDia {
-  const base = horasVazias(origem.date || diaDeHoje());
+  const base = horasVazias(origem.date || diaDasHoras());
   const ids = new Set<string>(base.maquinas.map((maquina) => maquina.id));
   for (const maquina of origem.maquinas) {
     const id = idHoras(maquina.id);
@@ -301,7 +301,7 @@ function carimbar(antes: Data, depois: Data): Data {
       }),
     };
   });
-  return { ...depois, date: diaDeHoje(), maquinas, apagados };
+  return { ...depois, date: diaDasHoras(), maquinas, apagados };
 }
 
 function assinatura(dia: HorasDia) {
@@ -370,13 +370,13 @@ export function AcompanhamentoHoras({
   }, [aoVoltar]);
 
   useEffect(() => {
-    const hoje = diaDeHoje();
+    const hoje = diaDasHoras();
     const local = lerHorasLocal();
     setData(dadosDe(local && local.date === hoje ? local : horasVazias(hoje)));
   }, []);
 
   useEffect(() => {
-    if (!remoto || remoto.date !== diaDeHoje()) return;
+    if (!remoto || remoto.date !== diaDasHoras()) return;
     setData((atual) => {
       if (!atual.maquinas.length) return atual;
       const junto = juntarHoras(paraDia(atual), remoto);
@@ -387,7 +387,7 @@ export function AcompanhamentoHoras({
 
   useEffect(() => {
     const id = window.setInterval(() => {
-      const hoje = diaDeHoje();
+      const hoje = diaDasHoras();
       setData((atual) => (atual.date === hoje ? atual : dadosDe(horasVazias(hoje))));
     }, 30000);
     return () => window.clearInterval(id);
@@ -412,7 +412,7 @@ export function AcompanhamentoHoras({
       })),
     }));
     setData((atual) => ({ ...atual, maquinas }));
-    onGravar(paraDia({ ...data, date: diaDeHoje(), maquinas }));
+    onGravar(paraDia({ ...data, date: diaDasHoras(), maquinas }));
     for (const maquina of maquinas) {
       const nome = idHoras(maquina.id);
       if (!nome || !enviarProducao) continue;
@@ -424,7 +424,7 @@ export function AcompanhamentoHoras({
   }, [data, dia, turnoAtivo, onProducao, enviarProducao]);
 
   useEffect(() => {
-    if (!data.maquinas.length || data.date !== diaDeHoje()) return;
+    if (!data.maquinas.length || data.date !== diaDasHoras()) return;
     salvarHorasLocal(paraDia(data));
   }, [data]);
 
