@@ -750,7 +750,7 @@ export function EstratificacaoApp() {
   }, []);
 
   useEffect(() => {
-    if (screen.kind !== "horas") return;
+    if (screen.kind !== "horas" && screen.kind !== "sheet") return;
     let vivo = true;
     const puxar = () => {
       const hoje = diaDasHoras();
@@ -759,7 +759,7 @@ export function EstratificacaoApp() {
           if (!vivo) return;
           let vindo = remote.horas;
           const vazio = !vindo || vindo.maquinas.every((maquina) => maquina.programas.length === 0);
-          if (vazio && hoje === "2026-11-19") {
+          if (vazio && hoje === "2026-11-19" && screen.kind === "horas") {
             const antigo = await pullHoras({ data: { date: "2026-11-18" } });
             if (antigo.horas && antigo.horas.maquinas.some((maquina) => maquina.programas.length > 0)) {
               vindo = { ...antigo.horas, date: hoje, em: Date.now() };
@@ -793,9 +793,14 @@ export function EstratificacaoApp() {
     };
     puxar();
     const id = window.setInterval(puxar, 15000);
+    const aoVoltar = () => {
+      if (document.visibilityState === "visible") puxar();
+    };
+    document.addEventListener("visibilitychange", aoVoltar);
     return () => {
       vivo = false;
       window.clearInterval(id);
+      document.removeEventListener("visibilitychange", aoVoltar);
     };
   }, [screen.kind]);
 
