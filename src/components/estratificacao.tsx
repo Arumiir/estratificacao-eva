@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState, type MutableRefObject } from "react";
 import { cx, paresDasEntradas, percentualPerda, textoPercentual } from "@/components/comum";
 import { InstallPrompt } from "@/components/install-prompt";
+import { TesteCarga } from "@/components/TesteCarga";
 import { UpdateNotice } from "@/components/update-notice";
 import { ChevronLeft, ChevronDown, House, ImageDown, Menu } from "lucide-react";
 import {
@@ -120,7 +121,8 @@ type Screen =
   | { kind: "fechamento" }
   | { kind: "horas" }
   | { kind: "lados" }
-  | { kind: "menu" };
+  | { kind: "menu" }
+  | { kind: "teste" };
 
 type Banner = {
   id: number;
@@ -703,6 +705,8 @@ function screenKey(screen: Screen): string {
       return "lados";
     case "menu":
       return "menu";
+    case "teste":
+      return "teste";
   }
 }
 
@@ -714,7 +718,8 @@ function machineFrom(screen: Screen): MachineId | null {
     screen.kind === "fechamento" ||
     screen.kind === "horas" ||
     screen.kind === "lados" ||
-    screen.kind === "menu"
+    screen.kind === "menu" ||
+    screen.kind === "teste"
   ) {
     return null;
   }
@@ -1775,8 +1780,10 @@ export function EstratificacaoApp() {
           )}
         >
           {screen.kind === "papel" ? (
-            <PortaScreen onPick={chooseSessao} />
+            <PortaScreen onPick={chooseSessao} onTeste={() => push({ kind: "teste" })} />
           ) : null}
+
+          {screen.kind === "teste" ? <TesteCarga /> : null}
 
           {screen.kind === "menu" ? (
             <div className="mx-auto flex w-full max-w-md flex-col gap-3">
@@ -2104,6 +2111,8 @@ function headerFor(screen: Screen): { context: string } {
       return { context: "A e B" };
     case "menu":
       return { context: "Menu" };
+    case "teste":
+      return { context: "Teste" };
     case "papel":
       return { context: "" };
   }
@@ -2144,14 +2153,39 @@ function Field({
   );
 }
 
-function PortaScreen({ onPick }: { onPick: (sessao: Sessao) => void }) {
+function PortaScreen({ onPick, onTeste }: { onPick: (sessao: Sessao) => void; onTeste: () => void }) {
+  const segurou = useRef(false);
+  const timer = useRef<number | null>(null);
+  function soltar() {
+    if (timer.current) window.clearTimeout(timer.current);
+    timer.current = null;
+  }
   return (
     <div className="mx-auto flex w-full max-w-md flex-col justify-center gap-3">
       {(["1", "2", "3"] as const).map((turno) => (
         <button
           key={turno}
           type="button"
-          onClick={() => onPick({ papel: "preparador", turno })}
+          onPointerDown={() => {
+            if (turno !== "1") return;
+            segurou.current = false;
+            soltar();
+            timer.current = window.setTimeout(() => {
+              segurou.current = true;
+              onTeste();
+            }, 600);
+          }}
+          onPointerUp={soltar}
+          onPointerLeave={soltar}
+          onPointerCancel={soltar}
+          onContextMenu={(event) => event.preventDefault()}
+          onClick={() => {
+            if (segurou.current) {
+              segurou.current = false;
+              return;
+            }
+            onPick({ papel: "preparador", turno });
+          }}
           className="rounded-tile bg-accent py-5 font-display text-4xl leading-none text-accent-ink"
         >
           {TURNO_LABEL[turno]}
