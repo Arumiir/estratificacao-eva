@@ -62,6 +62,11 @@ function destinoCaixa(num: Numero, index: number): Destino | null {
   return lerCaixa(num.caixas?.[index], !num.caixas && Boolean(num.marcadas?.[index]))?.destino ?? null;
 }
 
+function caixaDeOutroTurno(num: Numero, index: number, turno: Turno, date: string) {
+  const caixa = lerCaixa(num.caixas?.[index], !num.caixas && Boolean(num.marcadas?.[index]));
+  return caixa?.destino === "baixada" && Boolean(caixa.turno && caixa.date) && (caixa.turno !== turno || caixa.date !== date);
+}
+
 function caixasDe(num: Numero): (Caixa | null)[] {
   const total = calcNumber(num).totalCaixas;
   if (!num.caixas) {
@@ -867,6 +872,7 @@ export function AcompanhamentoHoras({
                     <div className="p-4">
                       <div className="grid grid-cols-[repeat(auto-fill,minmax(3.4rem,1fr))] gap-2">
                         {Array.from({ length: cn.totalCaixas }, (_, i) => {
+                          if (caixaDeOutroTurno(n, i, turnoAtivo, dia)) return null;
                           const p = i < cn.qtdCheias ? cn.paresCheia : cn.ultima;
                           const destino = destinoCaixa(n, i);
                           return (
