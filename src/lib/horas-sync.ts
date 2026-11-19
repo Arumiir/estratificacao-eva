@@ -22,6 +22,7 @@ export type ProgramaSync = {
   id: string;
   nome: string;
   documento: string;
+  cor: string;
   em: number;
   numeros: NumeroSync[];
 };
@@ -88,13 +89,14 @@ function lerNumero(value: unknown): NumeroSync | null {
 
 function lerPrograma(value: unknown): ProgramaSync | null {
   if (!value || typeof value !== "object") return null;
-  const item = value as { id?: unknown; nome?: unknown; documento?: unknown; em?: unknown; numeros?: unknown };
+  const item = value as { id?: unknown; nome?: unknown; documento?: unknown; cor?: unknown; em?: unknown; numeros?: unknown };
   const id = texto(item.id);
   if (!id) return null;
   return {
     id,
     nome: texto(item.nome),
     documento: texto(item.documento),
+    cor: texto(item.cor),
     em: emDe(item.em),
     numeros: Array.isArray(item.numeros) ? item.numeros.flatMap((numero) => {
       const lido = lerNumero(numero);

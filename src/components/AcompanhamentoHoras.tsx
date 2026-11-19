@@ -22,6 +22,7 @@ type Programa = {
   id: string;
   nome: string;
   documento: string;
+  cor: string;
   numeros: Numero[];
   em?: number;
 };
@@ -199,6 +200,7 @@ function dadosDe(dia: HorasDia): Data {
         id: programa.id,
         nome: programa.nome,
         documento: programa.documento,
+        cor: programa.cor,
         em: programa.em,
         numeros: programa.numeros.map((numero) => ({
           id: numero.id,
@@ -234,6 +236,7 @@ function paraDia(origem: Data): HorasDia {
           id: programa.id,
           nome: programa.nome,
           documento: programa.documento,
+          cor: programa.cor,
           em: programa.em ?? 0,
           numeros: (programa.numeros ?? []).map((numero) => {
             em = Math.max(em, numero.em ?? 0);
@@ -273,7 +276,7 @@ function carimbar(antes: Data, depois: Data): Data {
       programas: (maquina.programas ?? []).map((programa) => {
         const antiga = velha?.programas.find((item) => item.id === programa.id);
         const estrutura =
-          !antiga || antiga.nome !== programa.nome || antiga.documento !== programa.documento || antiga.numeros.length !== programa.numeros.length;
+          !antiga || antiga.nome !== programa.nome || antiga.documento !== programa.documento || antiga.cor !== programa.cor || antiga.numeros.length !== programa.numeros.length;
         return {
           ...programa,
           em: estrutura ? now : programa.em ?? antiga?.em ?? now,
@@ -326,6 +329,7 @@ export function AcompanhamentoHoras({
   const [numeroEscolhido, setNumeroEscolhido] = useState("");
   const [pergunta, setPergunta] = useState<{ numId: string; idx: number; atual: Destino } | null>(null);
   const [apagar, setApagar] = useState<{ tipo: "programa" } | { tipo: "numero"; id: string } | null>(null);
+  const [aviso, setAviso] = useState("");
 
   aoVoltar.current = () => {
     if (pergunta) {
@@ -586,7 +590,7 @@ export function AcompanhamentoHoras({
             <button
               type="button"
               aria-label="Novo programa"
-              onClick={() => setModalProg({ editId: null })}
+              onClick={() => { setAviso(""); setModalProg({ editId: null }); }}
               className="grid size-11 shrink-0 place-items-center rounded-2xl bg-accent text-accent-ink"
             >
               <Plus className="size-5" />
@@ -621,11 +625,14 @@ export function AcompanhamentoHoras({
                   className="rounded-2xl border border-line bg-surface p-4 text-left shadow-sm hover:border-accent"
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div>
+                    <div className="min-w-0">
                       <div className="font-semibold">{p.nome || "Programa"}</div>
-                      <div className="text-sm text-muted">Doc: {p.documento || "—"}</div>
+                      <div className="text-sm text-muted">Doc: {p.documento || "—"}{p.cor ? ` · ${p.cor}` : ""}</div>
                     </div>
-                    <div className="font-bold tabular-nums text-accent">{formatHours(c.produzidas)}</div>
+                    <div className="shrink-0 text-right">
+                      <div className="text-sm font-bold tabular-nums text-emerald-800">HB {formatHours(c.produzidas)}</div>
+                      <div className="text-sm font-bold tabular-nums text-amber-800">SD {formatHours(c.saldo)}</div>
+                    </div>
                   </div>
                   <span className={`mt-3 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${c.concluido ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
                     {c.concluido ? <Check className="size-3.5" /> : <Clock className="size-3.5" />}
@@ -643,13 +650,13 @@ export function AcompanhamentoHoras({
           <div className="flex items-start justify-between gap-3">
             <div>
               <h2 className="font-display text-4xl leading-none">{prog.nome}</h2>
-              <p className="text-sm text-muted">Documento: {prog.documento || "—"}</p>
+              <p className="text-sm text-muted">Documento: {prog.documento || "—"}{prog.cor ? ` · ${prog.cor}` : ""}</p>
             </div>
             <div className="flex gap-2">
               <button
                 type="button"
                 aria-label="Adicionar número"
-                onClick={() => { setNumeroEscolhido(""); setModalNum({ editId: null }); }}
+                onClick={() => { setAviso(""); setNumeroEscolhido(""); setModalNum({ editId: null }); }}
                 className="grid size-11 place-items-center rounded-2xl bg-accent text-accent-ink"
               >
                 <Plus className="size-5" />
@@ -657,7 +664,7 @@ export function AcompanhamentoHoras({
               <button
                 type="button"
                 aria-label="Editar programa"
-                onClick={() => setModalProg({ editId: prog.id })}
+                onClick={() => { setAviso(""); setModalProg({ editId: prog.id }); }}
                 className="grid size-11 place-items-center rounded-2xl border border-line bg-surface text-accent"
               >
                 <Pencil className="size-5" />
@@ -789,37 +796,8 @@ export function AcompanhamentoHoras({
                           );
                         })}
                       </div>
-                      {pergunta?.numId === n.id ? (
-                        <div className="mt-3 rounded-2xl border border-line bg-surface-2 p-3">
-                          <p className="text-sm font-semibold">
-                            {pergunta.atual === "saldo" ? "Esta caixa está no saldo." : "Esta caixa está nas horas baixadas."}
-                          </p>
-                          <div className="mt-2 grid grid-cols-2 gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                definirCaixa(n.id, pergunta.idx, null);
-                                setPergunta(null);
-                              }}
-                              className="rounded-xl border border-line bg-surface py-2 text-sm font-semibold"
-                            >
-                              Desmarcar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                definirCaixa(n.id, pergunta.idx, pergunta.atual === "saldo" ? "baixada" : "saldo");
-                                setPergunta(null);
-                              }}
-                              className="rounded-xl bg-accent py-2 text-sm font-semibold text-accent-ink"
-                            >
-                              {pergunta.atual === "saldo" ? "Tornar hora" : "Tornar saldo"}
-                            </button>
-                          </div>
-                        </div>
-                      ) : null}
                       <div className="mt-3 flex gap-2">
-                        <button type="button" onClick={() => { setNumeroEscolhido(n.numero); setModalNum({ editId: n.id }); }} className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-sm">
+                        <button type="button" onClick={() => { setAviso(""); setNumeroEscolhido(n.numero); setModalNum({ editId: n.id }); }} className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-sm">
                           <Pencil className="size-3.5" /> Editar
                         </button>
                         <button
@@ -864,6 +842,38 @@ export function AcompanhamentoHoras({
         </div>
       )}
 
+      {pergunta && (
+        <div className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center" onClick={(e) => e.target === e.currentTarget && setPergunta(null)}>
+          <div className="w-full max-w-md rounded-3xl bg-surface p-5 shadow-xl">
+            <p className="text-base font-semibold">
+              {pergunta.atual === "saldo" ? "Esta caixa está no saldo." : "Esta caixa está nas horas baixadas."}
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  definirCaixa(pergunta.numId, pergunta.idx, null);
+                  setPergunta(null);
+                }}
+                className="rounded-xl border border-line py-2.5 text-sm font-semibold"
+              >
+                Desmarcar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  definirCaixa(pergunta.numId, pergunta.idx, pergunta.atual === "saldo" ? "baixada" : "saldo");
+                  setPergunta(null);
+                }}
+                className="rounded-xl bg-accent py-2.5 text-sm font-semibold text-accent-ink"
+              >
+                {pergunta.atual === "saldo" ? "Tornar hora" : "Tornar saldo"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {modalProg && (
         <div className="fixed inset-0 z-50 grid place-items-end bg-black/40 p-3 sm:place-items-center" onClick={(e) => e.target === e.currentTarget && setModalProg(null)}>
           <form
@@ -873,26 +883,34 @@ export function AcompanhamentoHoras({
               const fd = new FormData(e.currentTarget);
               const nome = String(fd.get("nome") || "").trim();
               const documento = String(fd.get("documento") || "").trim();
-              if (!nome || !maq) return;
+              const cor = String(fd.get("cor") || "").trim();
+              if (!nome || !maq) {
+                setAviso("Coloque o código do programa.");
+                return;
+              }
               if (modalProg.editId) {
                 updateMaq(maq.id, (m) => ({
                   ...m,
-                  programas: m.programas.map((p) => (p.id === modalProg.editId ? { ...p, nome, documento } : p)),
+                  programas: m.programas.map((p) => (p.id === modalProg.editId ? { ...p, nome, documento, cor } : p)),
                 }));
               } else {
                 updateMaq(maq.id, (m) => ({
                   ...m,
-                  programas: [...m.programas, { id: Date.now().toString(), nome, documento, numeros: [] }],
+                  programas: [...m.programas, { id: Date.now().toString(), nome, documento, cor, numeros: [] }],
                 }));
               }
+              setAviso("");
               setModalProg(null);
             }}
           >
             <h3 className="mb-4 text-lg font-bold">{modalProg.editId ? "Editar programa" : "Novo programa"}</h3>
             <label className="mb-1 block text-xs text-muted">Código do programa</label>
-            <input name="nome" required className="mb-3 w-full rounded-xl border border-line bg-surface-2 px-3 py-2.5" placeholder="Ex: 336027" defaultValue={modalProg.editId ? prog?.nome : ""} />
+            <input name="nome" className="mb-3 w-full rounded-xl border border-line bg-surface-2 px-3 py-2.5" placeholder="Ex: 336027" defaultValue={modalProg.editId ? prog?.nome : ""} />
             <label className="mb-1 block text-xs text-muted">Documento</label>
-            <input name="documento" className="mb-4 w-full rounded-xl border border-line bg-surface-2 px-3 py-2.5" placeholder="Ex: 28" defaultValue={modalProg.editId ? prog?.documento : ""} />
+            <input name="documento" className="mb-3 w-full rounded-xl border border-line bg-surface-2 px-3 py-2.5" placeholder="Ex: 28" defaultValue={modalProg.editId ? prog?.documento : ""} />
+            <label className="mb-1 block text-xs text-muted">Cor</label>
+            <input name="cor" className="mb-4 w-full rounded-xl border border-line bg-surface-2 px-3 py-2.5" placeholder="Ex: Preto" defaultValue={modalProg.editId ? prog?.cor : ""} />
+            {aviso ? <p className="mb-3 text-sm font-semibold text-red-600">{aviso}</p> : null}
             <div className="flex gap-2">
               <button type="button" onClick={() => setModalProg(null)} className="flex-1 rounded-xl border border-line py-2.5 font-semibold">Cancelar</button>
               <button type="submit" className="flex-1 rounded-xl bg-accent py-2.5 font-semibold text-accent-ink">Salvar</button>
@@ -912,7 +930,10 @@ export function AcompanhamentoHoras({
               const padrao = String(fd.get("padrao") || "").trim();
               const totalPares = String(fd.get("totalPares") || "").trim();
               const paresCheia = String(fd.get("paresCheia") || "").trim();
-              if (!numero || !padrao || !totalPares || !paresCheia) return;
+              if (!numero || !padrao || !totalPares || !paresCheia) {
+                setAviso("Preencha a numeração, o padrão e os pares.");
+                return;
+              }
               if (modalNum.editId) {
                 updateMaq(maq.id, (m) => ({
                   ...m,
@@ -939,6 +960,7 @@ export function AcompanhamentoHoras({
                 }));
                 setOpenNums((s) => new Set(s).add(id));
               }
+              setAviso("");
               setModalNum(null);
             }}
           >
@@ -946,7 +968,6 @@ export function AcompanhamentoHoras({
             <label className="mb-3 block">
               <span className="mb-1 block text-xs text-muted">Numeração</span>
               <select
-                required
                 value={numeroEscolhido}
                 onChange={(event) => setNumeroEscolhido(event.target.value)}
                 className="w-full appearance-none rounded-xl border border-line bg-surface-2 px-3 py-2.5"
@@ -963,17 +984,18 @@ export function AcompanhamentoHoras({
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2">
                 <label className="mb-1 block text-xs text-muted">Padrão</label>
-                <input name="padrao" required className="w-full rounded-xl border border-line bg-surface-2 px-3 py-2.5" placeholder="Ex: 15.09" defaultValue={modalNum.editId ? prog.numeros.find(n => n.id === modalNum.editId)?.padrao : ""} />
+                <input name="padrao" className="w-full rounded-xl border border-line bg-surface-2 px-3 py-2.5" placeholder="Ex: 15.09" defaultValue={modalNum.editId ? prog.numeros.find(n => n.id === modalNum.editId)?.padrao : ""} />
               </div>
               <div>
                 <label className="mb-1 block text-xs text-muted">Pares da carga</label>
-                <input name="totalPares" required className="w-full rounded-xl border border-line bg-surface-2 px-3 py-2.5" placeholder="Ex: 160" defaultValue={modalNum.editId ? prog.numeros.find(n => n.id === modalNum.editId)?.totalPares : ""} />
+                <input name="totalPares" className="w-full rounded-xl border border-line bg-surface-2 px-3 py-2.5" placeholder="Ex: 160" defaultValue={modalNum.editId ? prog.numeros.find(n => n.id === modalNum.editId)?.totalPares : ""} />
               </div>
               <div>
                 <label className="mb-1 block text-xs text-muted">Pares por caixa</label>
-                <input name="paresCheia" required className="w-full rounded-xl border border-line bg-surface-2 px-3 py-2.5" placeholder="Ex: 20" defaultValue={modalNum.editId ? prog.numeros.find(n => n.id === modalNum.editId)?.paresCheia : ""} />
+                <input name="paresCheia" className="w-full rounded-xl border border-line bg-surface-2 px-3 py-2.5" placeholder="Ex: 20" defaultValue={modalNum.editId ? prog.numeros.find(n => n.id === modalNum.editId)?.paresCheia : ""} />
               </div>
             </div>
+            {aviso ? <p className="mt-3 text-sm font-semibold text-red-600">{aviso}</p> : null}
             <div className="mt-4 flex gap-2">
               <button type="button" onClick={() => setModalNum(null)} className="flex-1 rounded-xl border border-line py-2.5 font-semibold">Cancelar</button>
               <button type="submit" className="flex-1 rounded-xl bg-accent py-2.5 font-semibold text-accent-ink">Salvar</button>
