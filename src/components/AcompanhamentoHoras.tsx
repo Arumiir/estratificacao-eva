@@ -23,6 +23,7 @@ type Programa = {
   nome: string;
   documento: string;
   cor: string;
+  ordem: number;
   numeros: Numero[];
   em?: number;
 };
@@ -203,6 +204,7 @@ function dadosDe(dia: HorasDia): Data {
         nome: programa.nome,
         documento: programa.documento,
         cor: programa.cor,
+        ordem: programa.ordem,
         em: programa.em,
         numeros: programa.numeros.map((numero) => ({
           id: numero.id,
@@ -239,6 +241,7 @@ function paraDia(origem: Data): HorasDia {
           nome: programa.nome,
           documento: programa.documento,
           cor: programa.cor,
+          ordem: programa.ordem,
           em: programa.em ?? 0,
           numeros: (programa.numeros ?? []).map((numero) => {
             em = Math.max(em, numero.em ?? 0);
@@ -278,7 +281,7 @@ function carimbar(antes: Data, depois: Data): Data {
       programas: (maquina.programas ?? []).map((programa) => {
         const antiga = velha?.programas.find((item) => item.id === programa.id);
         const estrutura =
-          !antiga || antiga.nome !== programa.nome || antiga.documento !== programa.documento || antiga.cor !== programa.cor || antiga.numeros.length !== programa.numeros.length;
+          !antiga || antiga.nome !== programa.nome || antiga.documento !== programa.documento || antiga.cor !== programa.cor || antiga.ordem !== programa.ordem || antiga.numeros.length !== programa.numeros.length;
         return {
           ...programa,
           em: estrutura ? now : programa.em ?? antiga?.em ?? now,
@@ -298,6 +301,46 @@ function carimbar(antes: Data, depois: Data): Data {
     };
   });
   return { ...depois, date: diaDasHoras(), maquinas, apagados };
+}
+
+function nomeLimpo(nome: string) {
+  return nome.replace(/\s*\(\s*\d+\s*º\s*prog\.?\s*\)\s*$/i, "").trim();
+}
+
+function ordemPrograma(programa: Programa) {
+  if (programa.ordem > 0) return programa.ordem;
+  const achado = programa.nome.match(/(\d+)\s*º/);
+  return achado ? Number(achado[1]) : 99;
+}
+
+function tituloPrograma(programa: Programa) {
+  const base = nomeLimpo(programa.nome) || programa.nome || "Programa";
+  const ordem = ordemPrograma(programa);
+  return ordem < 99 ? `${base} (${ordem}º prog.)` : base;
+}
+
+function ordenarNumeros(numeros: Numero[]) {
+  return [...numeros].sort((a, b) => {
+    const ia = NUMEROS_MATRIZ.indexOf(a.numero as (typeof NUMEROS_MATRIZ)[number]);
+    const ib = NUMEROS_MATRIZ.indexOf(b.numero as (typeof NUMEROS_MATRIZ)[number]);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+  });
+}
+
+function progressoPrograma(programa: Programa) {
+  let total = 0;
+  let verde = 0;
+  let ambar = 0;
+  for (const numero of programa.numeros || []) {
+    const conta = calcNumber(numero);
+    total += conta.totalHoras;
+    verde += conta.horasBaixadas;
+    ambar += conta.horasSaldo;
+  }
+  return {
+    verde: total > 0 ? Math.min(100, (verde / total) * 100) : 0,
+    ambar: total > 0 ? Math.min(100, (ambar / total) * 100) : 0,
+  };
 }
 
 function assinatura(dia: HorasDia) {
@@ -614,8 +657,14 @@ export function AcompanhamentoHoras({
             );
           })()}
           <div className="mt-4 grid gap-2">
-            {(maq.programas || []).map((p) => {
+            {[...(maq.programas || [])]
+              .sort((a, b) => {
+                const fim = Number(calcProgram(b).concluido) - Number(calcProgram(a).concluido);
+                return fim !== 0 ? -fim : ordemPrograma(a) - ordemPrograma(b);
+              })
+              .map((p) => {
               const c = calcProgram(p);
+              const barra = progressoPrograma(p);
               return (
                 <button
                   key={p.id}
@@ -628,7 +677,7 @@ export function AcompanhamentoHoras({
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="font-semibold">{p.nome || "Programa"}</div>
+                      <div className="font-semibold">{tituloPrograma(p)}</div>
                       <div className="text-sm text-muted">Doc: {p.documento || "—"}{p.cor ? ` · ${p.cor}` : ""}</div>
                     </div>
                     <div className="shrink-0 text-right">
@@ -640,6 +689,10 @@ export function AcompanhamentoHoras({
                     {c.concluido ? <Check className="size-3.5" /> : <Clock className="size-3.5" />}
                     {c.concluido ? "Concluído" : "Em andamento"}
                   </span>
+                  <div className="mt-3 flex h-1 overflow-hidden rounded-full bg-surface-2">
+                    <div className="h-full bg-emerald-500" style={{ width: `${barra.verde}%` }} />
+                    <div className="h-full bg-amber-500" style={{ width: `${barra.ambar}%` }} />
+                  </div>
                 </button>
               );
             })}
@@ -651,7 +704,7 @@ export function AcompanhamentoHoras({
         <div>
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h2 className="font-display text-4xl leading-none">{prog.nome}</h2>
+              <h2 className="font-display text-4xl leading-none">{tituloPrograma(prog)}</h2>
               <p className="text-sm text-muted">Documento: {prog.documento || "—"}{prog.cor ? ` · ${prog.cor}` : ""}</p>
             </div>
             <div className="flex gap-2">
@@ -725,7 +778,7 @@ export function AcompanhamentoHoras({
             );
           })()}
           <div className="space-y-3">
-            {(prog.numeros || []).map((n) => {
+            {ordenarNumeros(prog.numeros || []).map((n) => {
               const cn = calcNumber(n);
               const open = openNums.has(n.id);
               return (
@@ -883,9 +936,10 @@ export function AcompanhamentoHoras({
             onSubmit={(e) => {
               e.preventDefault();
               const fd = new FormData(e.currentTarget);
-              const nome = String(fd.get("nome") || "").trim();
+              const nome = nomeLimpo(String(fd.get("nome") || "").trim());
               const documento = String(fd.get("documento") || "").trim();
               const cor = String(fd.get("cor") || "").trim();
+              const ordem = Number(fd.get("ordem")) || 0;
               if (!nome || !maq) {
                 setAviso("Coloque o código do programa.");
                 return;
@@ -893,12 +947,12 @@ export function AcompanhamentoHoras({
               if (modalProg.editId) {
                 updateMaq(maq.id, (m) => ({
                   ...m,
-                  programas: m.programas.map((p) => (p.id === modalProg.editId ? { ...p, nome, documento, cor } : p)),
+                  programas: m.programas.map((p) => (p.id === modalProg.editId ? { ...p, nome, documento, cor, ordem } : p)),
                 }));
               } else {
                 updateMaq(maq.id, (m) => ({
                   ...m,
-                  programas: [...m.programas, { id: Date.now().toString(), nome, documento, cor, numeros: [] }],
+                  programas: [...m.programas, { id: Date.now().toString(), nome, documento, cor, ordem, numeros: [] }],
                 }));
               }
               setAviso("");
@@ -906,8 +960,18 @@ export function AcompanhamentoHoras({
             }}
           >
             <h3 className="mb-4 text-lg font-bold">{modalProg.editId ? "Editar programa" : "Novo programa"}</h3>
+            <label className="mb-1 block text-xs text-muted">Ordem</label>
+            <select
+              name="ordem"
+              defaultValue={modalProg.editId && prog ? ordemPrograma(prog) : Math.min(12, (maq?.programas ?? []).reduce((max, item) => Math.max(max, ordemPrograma(item) < 99 ? ordemPrograma(item) : 0), 0) + 1)}
+              className="mb-3 w-full appearance-none rounded-xl border border-line bg-surface-2 px-3 py-2.5"
+            >
+              {Array.from({ length: 12 }, (_, i) => i + 1).map((item) => (
+                <option key={item} value={item}>{item}º programa</option>
+              ))}
+            </select>
             <label className="mb-1 block text-xs text-muted">Código do programa</label>
-            <input name="nome" className="mb-3 w-full rounded-xl border border-line bg-surface-2 px-3 py-2.5" placeholder="Ex: 336027" defaultValue={modalProg.editId ? prog?.nome : ""} />
+            <input name="nome" className="mb-3 w-full rounded-xl border border-line bg-surface-2 px-3 py-2.5" placeholder="Ex: 336027" defaultValue={modalProg.editId && prog ? nomeLimpo(prog.nome) : ""} />
             <label className="mb-1 block text-xs text-muted">Documento</label>
             <input name="documento" className="mb-3 w-full rounded-xl border border-line bg-surface-2 px-3 py-2.5" placeholder="Ex: 28" defaultValue={modalProg.editId ? prog?.documento : ""} />
             <label className="mb-1 block text-xs text-muted">Cor</label>
@@ -943,9 +1007,9 @@ export function AcompanhamentoHoras({
                     p.id === prog.id
                       ? {
                           ...p,
-                          numeros: p.numeros.map((n) =>
+                          numeros: ordenarNumeros(p.numeros.map((n) =>
                             n.id === modalNum.editId ? { ...n, numero, padrao, totalPares, paresCheia } : n
-                          ),
+                          )),
                         }
                       : p
                   ),
@@ -956,7 +1020,7 @@ export function AcompanhamentoHoras({
                   ...m,
                   programas: m.programas.map((p) =>
                     p.id === prog.id
-                      ? { ...p, numeros: [...p.numeros, { id, numero, padrao, totalPares, paresCheia, marcadas: [], caixas: [], modoSaldo: false }] }
+                      ? { ...p, numeros: ordenarNumeros([...p.numeros, { id, numero, padrao, totalPares, paresCheia, marcadas: [], caixas: [], modoSaldo: false }]) }
                       : p
                   ),
                 }));
