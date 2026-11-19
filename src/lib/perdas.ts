@@ -280,10 +280,10 @@ export function diaDeHoje(now = Date.now()): string {
   return date;
 }
 
-/** A lista de horas do 1º turno começa às 06:31 e não pode sumir quando o dia vira às 07:00. */
+/** A lista de horas abre o dia novo às 06:00, para o 1º turno já lançar ao chegar. O restante do app continua virando às 07:00. */
 export function diaDasHoras(now = Date.now()): string {
   const { date, minutes } = partesFortaleza(now);
-  if (minutes >= 6 * 60 + 31) return date;
+  if (minutes >= 6 * 60) return date;
   return diaAnterior(date);
 }
 

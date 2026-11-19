@@ -171,16 +171,6 @@ export function lerHorasTurno(date: string, turno: Turno): Record<string, { hb: 
   return mapa;
 }
 
-function getHoldingMaquina(m: Maquina) {
-  let seg: { numero: string; restante: number } | null = null;
-  for (const programa of m.programas || []) {
-    const conta = calcProgram(programa);
-    if (!conta.segurando || conta.saldo <= 0) continue;
-    if (!seg || conta.saldo > seg.restante) seg = { numero: conta.segurando.numero, restante: conta.saldo };
-  }
-  return seg;
-}
-
 function initMaquinas(data: Data): Data {
   const mapa = new Map<string, Maquina>();
   for (const maquina of data.maquinas ?? []) {
@@ -550,7 +540,6 @@ export function AcompanhamentoHoras({
         <div className="grid grid-cols-2 gap-2">
             {maquinasDoFiltro(modelos).map((id) => {
               const m = data.maquinas.find((item) => item.id === id) ?? { id, nome: id, saldo: 0, programas: [] };
-              const h = getHoldingMaquina(m);
               const totais = totaisMaquina(m);
               return (
                 <button
@@ -581,8 +570,8 @@ export function AcompanhamentoHoras({
                       <span className="whitespace-nowrap"> · {formatHours(totais.atrasado.restante)}</span>
                     </span>
                   ) : null}
-                  <span className={`mt-2 rounded-xl px-2 py-1.5 text-sm font-semibold leading-tight ${h ? "bg-amber-100 text-amber-800" : "bg-surface-2 text-muted"}`}>
-                    {h ? `Saldo ${h.numero} · ${formatHours(h.restante)}` : "Sem saldo"}
+                  <span className={`mt-2 rounded-xl px-2 py-1.5 text-sm font-semibold leading-tight ${totais.sd > 0 ? "bg-amber-100 text-amber-800" : "bg-surface-2 text-muted"}`}>
+                    {totais.sd > 0 ? `Saldo ${formatHours(totais.sd)}` : "Sem saldo"}
                   </span>
                 </button>
               );
