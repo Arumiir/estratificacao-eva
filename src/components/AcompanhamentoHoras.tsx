@@ -318,6 +318,7 @@ function ordemPrograma(programa: Programa) {
 
 function tituloPrograma(programa: Programa) {
   const base = nomeLimpo(programa.nome) || programa.nome || "Programa";
+  if (programa.saldoAntes) return base;
   const ordem = ordemPrograma(programa);
   return ordem < 99 ? `${base} (${ordem}º prog.)` : base;
 }
@@ -994,7 +995,7 @@ export function AcompanhamentoHoras({
             </select>
             <label className="mb-3 flex items-center gap-3 rounded-xl border border-line bg-surface-2 px-3 py-2.5">
               <input name="saldoAntes" type="checkbox" value="1" defaultChecked={Boolean(modalProg.editId && prog?.saldoAntes)} className="size-4 accent-amber-600" />
-              <span className="text-sm font-semibold">Já era saldo do turno anterior</span>
+              <span className="text-sm font-semibold">Saldo</span>
             </label>
             <label className="mb-1 block text-xs text-muted">Código do programa</label>
             <input name="nome" className="mb-3 w-full rounded-xl border border-line bg-surface-2 px-3 py-2.5" placeholder="Ex: 336027" defaultValue={modalProg.editId && prog ? nomeLimpo(prog.nome) : ""} />
