@@ -669,6 +669,7 @@ export function AcompanhamentoHoras({
               .map((p) => {
               const c = calcProgram(p);
               const barra = progressoPrograma(p);
+              const sequencia = barra.verde <= 0 && barra.ambar <= 0;
               return (
                 <button
                   key={p.id}
@@ -699,14 +700,16 @@ export function AcompanhamentoHoras({
                       )}
                     </div>
                   </div>
-                  <span className={`mt-3 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${c.concluido ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
-                    {c.concluido ? <Check className="size-3.5" /> : <Clock className="size-3.5" />}
-                    {c.concluido ? "Concluído" : "Em andamento"}
+                  <span className={`mt-3 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${c.concluido ? "bg-emerald-100 text-emerald-800" : sequencia ? "bg-surface-2 text-muted" : "bg-amber-100 text-amber-800"}`}>
+                    {c.concluido ? <Check className="size-3.5" /> : sequencia ? null : <Clock className="size-3.5" />}
+                    {c.concluido ? "Concluído" : sequencia ? "Sequência" : "Em andamento"}
                   </span>
+                  {sequencia ? null : (
                   <div className="mt-3 flex h-1 overflow-hidden rounded-full bg-surface-2">
                     <div className="h-full bg-emerald-500" style={{ width: `${barra.verde}%` }} />
                     <div className="h-full bg-amber-500" style={{ width: `${barra.ambar}%` }} />
                   </div>
+                  )}
                 </button>
               );
             })}
