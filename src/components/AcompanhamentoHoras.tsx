@@ -90,33 +90,34 @@ function calcNumber(num: Numero, conta?: (caixa: Caixa | null) => boolean) {
   const horasBaixadas = padrao > 0 ? paresBaixada / padrao : 0;
   const horasProduzidas = horasSaldo + horasBaixadas;
   const restante = Math.max(0, totalHoras - horasProduzidas);
-  return { totalHoras, horasProduzidas, horasSaldo, horasBaixadas, restante, totalCaixas, paresCheia, ultima, qtdCheias, totalPares };
+  const restanteHora = Math.max(0, totalHoras - horasBaixadas);
+  return { totalHoras, horasProduzidas, horasSaldo, horasBaixadas, restante, restanteHora, totalCaixas, paresCheia, ultima, qtdCheias, totalPares };
 }
 
 function calcProgram(prog: Programa, conta?: (caixa: Caixa | null) => boolean) {
   const numeros = prog.numeros || [];
   const contas = numeros.map((numero) => ({ numero, conta: calcNumber(numero, conta) }));
   let maxTotal = 0;
-  let maxRestante = 0;
+  let maxRestanteHora = 0;
   let atrasado: { numero: string; restante: number } | null = null;
   for (const item of contas) {
     if (item.conta.totalHoras > maxTotal) maxTotal = item.conta.totalHoras;
-    if (item.conta.restante > maxRestante) {
-      maxRestante = item.conta.restante;
-      atrasado = { numero: item.numero.numero, restante: item.conta.restante };
+    if (item.conta.restanteHora > maxRestanteHora) {
+      maxRestanteHora = item.conta.restanteHora;
+      atrasado = { numero: item.numero.numero, restante: item.conta.restanteHora };
     }
   }
   let saldoNumero: { numero: string; horas: number; restante: number } | null = null;
   for (const item of contas) {
     if (item.conta.horasSaldo <= 0) continue;
     if (!saldoNumero || item.conta.horasSaldo > saldoNumero.horas) {
-      saldoNumero = { numero: item.numero.numero, horas: item.conta.horasSaldo, restante: item.conta.restante };
+      saldoNumero = { numero: item.numero.numero, horas: item.conta.horasSaldo, restante: item.conta.restanteHora };
     }
   }
-  const desconto = saldoNumero ? Math.max(0, maxRestante - saldoNumero.restante) : 0;
+  const desconto = saldoNumero ? Math.max(0, maxRestanteHora - saldoNumero.restante) : 0;
   const saldo = saldoNumero ? Math.max(0, saldoNumero.horas - desconto) : 0;
   return {
-    produzidas: Math.max(0, maxTotal - maxRestante),
+    produzidas: Math.max(0, maxTotal - maxRestanteHora),
     saldo,
     segurando: saldoNumero ? { numero: saldoNumero.numero, restante: saldo } : null,
     atrasado,
