@@ -110,6 +110,10 @@ function calcProgram(prog: Programa, conta?: (caixa: Caixa | null) => boolean) {
       atrasado = { numero: item.numero.numero, restante: item.conta.restante };
     }
   }
+  const lider = atrasado;
+  if (lider && contas.every((item) => Math.round(item.conta.restante * 60) === Math.round(lider.restante * 60))) {
+    atrasado = null;
+  }
   let saldoNumero: { numero: string; horas: number; restante: number } | null = null;
   for (const item of contas) {
     if (item.conta.horasSaldo <= 0) continue;
@@ -794,11 +798,13 @@ export function AcompanhamentoHoras({
                     <p className="font-display text-2xl leading-none tabular-nums text-amber-800">{formatHours(c.saldo)}</p>
                   </div>
                 ) : null}
+                {c.atrasado ? (
                 <div className="min-w-[7.5rem] flex-1 rounded-2xl bg-surface-2 p-3">
                   <p className="text-sm font-semibold text-muted">Nº atrasado</p>
-                  <p className="break-words font-display text-2xl leading-none tabular-nums">{c.atrasado ? c.atrasado.numero : "—"}</p>
-                  <p className="mt-1 whitespace-nowrap text-sm tabular-nums text-muted">{c.atrasado ? formatHours(c.atrasado.restante) : ""}</p>
+                  <p className="break-words font-display text-2xl leading-none tabular-nums">{c.atrasado.numero}</p>
+                  <p className="mt-1 whitespace-nowrap text-sm tabular-nums text-muted">{formatHours(c.atrasado.restante)}</p>
                 </div>
+                ) : null}
               </div>
             );
           })()}
