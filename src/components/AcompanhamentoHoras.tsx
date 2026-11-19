@@ -24,6 +24,7 @@ type Programa = {
   documento: string;
   cor: string;
   ordem: number;
+  saldoAntes: boolean;
   numeros: Numero[];
   em?: number;
 };
@@ -205,6 +206,7 @@ function dadosDe(dia: HorasDia): Data {
         documento: programa.documento,
         cor: programa.cor,
         ordem: programa.ordem,
+        saldoAntes: programa.saldoAntes,
         em: programa.em,
         numeros: programa.numeros.map((numero) => ({
           id: numero.id,
@@ -242,6 +244,7 @@ function paraDia(origem: Data): HorasDia {
           documento: programa.documento,
           cor: programa.cor,
           ordem: programa.ordem,
+          saldoAntes: programa.saldoAntes,
           em: programa.em ?? 0,
           numeros: (programa.numeros ?? []).map((numero) => {
             em = Math.max(em, numero.em ?? 0);
@@ -281,7 +284,7 @@ function carimbar(antes: Data, depois: Data): Data {
       programas: (maquina.programas ?? []).map((programa) => {
         const antiga = velha?.programas.find((item) => item.id === programa.id);
         const estrutura =
-          !antiga || antiga.nome !== programa.nome || antiga.documento !== programa.documento || antiga.cor !== programa.cor || antiga.ordem !== programa.ordem || antiga.numeros.length !== programa.numeros.length;
+          !antiga || antiga.nome !== programa.nome || antiga.documento !== programa.documento || antiga.cor !== programa.cor || antiga.ordem !== programa.ordem || antiga.saldoAntes !== programa.saldoAntes || antiga.numeros.length !== programa.numeros.length;
         return {
           ...programa,
           em: estrutura ? now : programa.em ?? antiga?.em ?? now,
@@ -681,8 +684,18 @@ export function AcompanhamentoHoras({
                       <div className="text-sm text-muted">Doc: {p.documento || "—"}{p.cor ? ` · ${p.cor}` : ""}</div>
                     </div>
                     <div className="shrink-0 text-right">
-                      <div className="text-sm font-bold tabular-nums text-emerald-800">HB {formatHours(c.produzidas)}</div>
-                      <div className="text-sm font-bold tabular-nums text-amber-800">SD {formatHours(c.saldo)}</div>
+                      {p.saldoAntes ? (
+                        <>
+                          <div className="font-display text-2xl leading-none tabular-nums text-amber-800">{formatHours(c.saldo)}</div>
+                          <div className="text-xs font-semibold text-amber-800">Saldo anterior</div>
+                          {c.produzidas > 0 ? <div className="text-xs font-semibold tabular-nums text-emerald-800">HB {formatHours(c.produzidas)}</div> : null}
+                        </>
+                      ) : (
+                        <>
+                          <div className="text-sm font-bold tabular-nums text-emerald-800">HB {formatHours(c.produzidas)}</div>
+                          <div className="text-sm font-bold tabular-nums text-amber-800">SD {formatHours(c.saldo)}</div>
+                        </>
+                      )}
                     </div>
                   </div>
                   <span className={`mt-3 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${c.concluido ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
@@ -705,7 +718,7 @@ export function AcompanhamentoHoras({
           <div className="flex items-start justify-between gap-3">
             <div>
               <h2 className="font-display text-4xl leading-none">{tituloPrograma(prog)}</h2>
-              <p className="text-sm text-muted">Documento: {prog.documento || "—"}{prog.cor ? ` · ${prog.cor}` : ""}</p>
+              <p className="text-sm text-muted">Documento: {prog.documento || "—"}{prog.cor ? ` · ${prog.cor}` : ""}{prog.saldoAntes ? " · Saldo anterior" : ""}</p>
             </div>
             <div className="flex gap-2">
               <button
@@ -759,11 +772,19 @@ export function AcompanhamentoHoras({
             const c = calcProgram(prog);
             return (
               <div className="mt-4 mb-4 flex flex-wrap gap-2">
-                <div className="min-w-[7.5rem] flex-1 rounded-2xl bg-emerald-50 p-3">
-                  <p className="text-sm font-semibold text-emerald-800">HB</p>
-                  <p className="font-display text-2xl leading-none tabular-nums text-emerald-800">{formatHours(c.produzidas)}</p>
-                </div>
-                {c.saldo > 0 ? (
+                {prog.saldoAntes ? (
+                  <div className="min-w-[7.5rem] flex-[1.4] rounded-2xl bg-amber-50 p-3">
+                    <p className="text-sm font-semibold text-amber-800">Saldo</p>
+                    <p className="font-display text-2xl leading-none tabular-nums text-amber-800">{formatHours(c.saldo)}</p>
+                  </div>
+                ) : null}
+                {!prog.saldoAntes || c.produzidas > 0 ? (
+                  <div className="min-w-[7.5rem] flex-1 rounded-2xl bg-emerald-50 p-3">
+                    <p className="text-sm font-semibold text-emerald-800">HB</p>
+                    <p className="font-display text-2xl leading-none tabular-nums text-emerald-800">{formatHours(c.produzidas)}</p>
+                  </div>
+                ) : null}
+                {!prog.saldoAntes && c.saldo > 0 ? (
                   <div className="min-w-[7.5rem] flex-1 rounded-2xl bg-amber-50 p-3">
                     <p className="text-sm font-semibold text-amber-800">SD</p>
                     <p className="font-display text-2xl leading-none tabular-nums text-amber-800">{formatHours(c.saldo)}</p>
@@ -940,6 +961,7 @@ export function AcompanhamentoHoras({
               const documento = String(fd.get("documento") || "").trim();
               const cor = String(fd.get("cor") || "").trim();
               const ordem = Number(fd.get("ordem")) || 0;
+              const saldoAntes = fd.get("saldoAntes") === "1";
               if (!nome || !maq) {
                 setAviso("Coloque o código do programa.");
                 return;
@@ -947,12 +969,12 @@ export function AcompanhamentoHoras({
               if (modalProg.editId) {
                 updateMaq(maq.id, (m) => ({
                   ...m,
-                  programas: m.programas.map((p) => (p.id === modalProg.editId ? { ...p, nome, documento, cor, ordem } : p)),
+                  programas: m.programas.map((p) => (p.id === modalProg.editId ? { ...p, nome, documento, cor, ordem, saldoAntes } : p)),
                 }));
               } else {
                 updateMaq(maq.id, (m) => ({
                   ...m,
-                  programas: [...m.programas, { id: Date.now().toString(), nome, documento, cor, ordem, numeros: [] }],
+                  programas: [...m.programas, { id: Date.now().toString(), nome, documento, cor, ordem, saldoAntes, numeros: [] }],
                 }));
               }
               setAviso("");
@@ -970,6 +992,10 @@ export function AcompanhamentoHoras({
                 <option key={item} value={item}>{item}º programa</option>
               ))}
             </select>
+            <label className="mb-3 flex items-center gap-3 rounded-xl border border-line bg-surface-2 px-3 py-2.5">
+              <input name="saldoAntes" type="checkbox" value="1" defaultChecked={Boolean(modalProg.editId && prog?.saldoAntes)} className="size-4 accent-amber-600" />
+              <span className="text-sm font-semibold">Já era saldo do turno anterior</span>
+            </label>
             <label className="mb-1 block text-xs text-muted">Código do programa</label>
             <input name="nome" className="mb-3 w-full rounded-xl border border-line bg-surface-2 px-3 py-2.5" placeholder="Ex: 336027" defaultValue={modalProg.editId && prog ? nomeLimpo(prog.nome) : ""} />
             <label className="mb-1 block text-xs text-muted">Documento</label>
