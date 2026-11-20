@@ -280,11 +280,9 @@ export function diaDeHoje(now = Date.now()): string {
   return date;
 }
 
-/** A lista de horas abre o dia novo às 06:00, para o 1º turno já lançar ao chegar. O restante do app continua virando às 07:00. */
+/** O acompanhamento de horas vale o dia civil, de 00:00 a 23:59. */
 export function diaDasHoras(now = Date.now()): string {
-  const { date, minutes } = partesFortaleza(now);
-  if (minutes >= 6 * 60) return date;
-  return diaAnterior(date);
+  return partesFortaleza(now).date;
 }
 
 /** Matriz única deixa de pedir lado a partir do 1º turno deste dia, às 07:00. */

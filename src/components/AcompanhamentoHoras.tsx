@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Plus, Pencil, Trash2, ChevronDown, Clock, Check, Box } from "lucide-react";
-import { NUMEROS_MATRIZ, TURNO_LABEL, diaDasHoras, diaOperacional, formatDateBR, maquinasDoFiltro, numeroLimpo, turnoPeloRelogio, type MachineId, type MaquinaPiso, type Turno } from "@/lib/perdas";
+import { NUMEROS_MATRIZ, TURNO_LABEL, diaDasHoras, formatDateBR, maquinasDoFiltro, numeroLimpo, type MachineId, type MaquinaPiso, type Turno } from "@/lib/perdas";
 import { horasVazias, idHoras, juntarHoras, lerHorasLocal, salvarHorasLocal, type HorasDia } from "@/lib/horas-sync";
 
 type Destino = "saldo" | "baixada";
@@ -375,8 +375,8 @@ export function AcompanhamentoHoras({
   onGravar: (dia: HorasDia) => void;
   modelos: readonly MaquinaPiso[];
 }) {
-  const [turnoAtivo, setTurnoAtivo] = useState<Turno>(() => turnoPeloRelogio());
-  const dia = diaOperacional(turnoAtivo);
+  const turnoAtivo: Turno = "1";
+  const dia = diaDasHoras();
   const [data, setData] = useState<Data>({ maquinas: [] });
   const [screen, setScreen] = useState<"home" | "maq" | "prog">("home");
   const [currentMaqId, setCurrentMaqId] = useState<string | null>(null);
@@ -582,20 +582,8 @@ export function AcompanhamentoHoras({
   return (
     <div className="text-fg">
       <div className="mb-3">
-        <div className="grid grid-cols-3 gap-2">
-          {(["1", "2", "3"] as Turno[]).map((item) => (
-            <button
-              key={item}
-              type="button"
-              onClick={() => setTurnoAtivo(item)}
-              className={`rounded-2xl py-3 font-display text-3xl leading-none ${item === turnoAtivo ? "bg-accent text-accent-ink" : "border border-line bg-surface text-fg"}`}
-            >
-              {item}º
-            </button>
-          ))}
-        </div>
-        <p className="mt-2 text-center text-sm font-semibold text-muted">
-          Apontando no {TURNO_LABEL[turnoAtivo]} · {formatDateBR(dia)}
+        <p className="text-center text-sm font-semibold text-muted">
+          {TURNO_LABEL[turnoAtivo]} · {formatDateBR(dia)}
         </p>
       </div>
       {screen === "home" && (
