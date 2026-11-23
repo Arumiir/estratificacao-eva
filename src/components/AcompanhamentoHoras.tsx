@@ -34,6 +34,8 @@ type Maquina = {
   nome: string;
   saldo: number;
   programas: Programa[];
+  obs: string;
+  obsEm: number;
 };
 
 type Data = {
@@ -156,10 +158,10 @@ function totaisMaquina(m: Maquina) {
   return { hb, sd, atrasado };
 }
 
-export function lerHorasTurno(date: string, turno: Turno): Record<string, { hb: number; sd: number }> {
+export function lerHorasTurno(date: string, turno: Turno): Record<string, { hb: number; sd: number; obs: string }> {
   const guardado = lerHorasLocal();
   if (!guardado) return {};
-  const mapa: Record<string, { hb: number; sd: number }> = {};
+  const mapa: Record<string, { hb: number; sd: number; obs: string }> = {};
   for (const maquina of guardado.maquinas) {
     let hb = 0;
     let sd = 0;
@@ -177,9 +179,10 @@ export function lerHorasTurno(date: string, turno: Turno): Record<string, { hb: 
       hb += conta.produzidas;
       sd += conta.saldo;
     }
-    if (hb > 0 || sd > 0) {
-      const nome = idHoras(maquina.id);
-      if (nome) mapa[nome] = { hb, sd };
+    const nome = idHoras(maquina.id);
+    if (!nome) continue;
+    if (hb > 0 || sd > 0 || (guardado.date === date && maquina.obs.trim())) {
+      mapa[nome] = { hb, sd, obs: guardado.date === date ? maquina.obs : "" };
     }
   }
   return mapa;
@@ -195,6 +198,8 @@ function initMaquinas(data: Data): Data {
       ...maquina,
       id,
       nome: id,
+      obs: (maquina.obsEm ?? 0) >= (anterior?.obsEm ?? 0) ? maquina.obs ?? "" : anterior?.obs ?? "",
+      obsEm: Math.max(maquina.obsEm ?? 0, anterior?.obsEm ?? 0),
       programas: [...(anterior?.programas ?? []), ...(maquina.programas ?? [])],
     });
   }
@@ -209,6 +214,8 @@ function dadosDe(dia: HorasDia): Data {
       id: idHoras(maquina.id) ?? maquina.id,
       nome: idHoras(maquina.id) ?? maquina.id,
       saldo: 0,
+      obs: maquina.obs,
+      obsEm: maquina.obsEm,
       programas: maquina.programas.map((programa) => ({
         id: programa.id,
         nome: programa.nome,
@@ -245,6 +252,8 @@ function paraDia(origem: Data): HorasDia {
     const local = origem.maquinas.find((item) => idHoras(item.id) === id);
     return {
       id,
+      obs: local?.obs ?? "",
+      obsEm: local?.obsEm ?? 0,
       programas: (local?.programas ?? []).map((programa) => {
         em = Math.max(em, programa.em ?? 0);
         return {
@@ -290,6 +299,7 @@ function carimbar(antes: Data, depois: Data): Data {
     }
     return {
       ...maquina,
+      obsEm: (velha?.obs ?? "") !== (maquina.obs ?? "") ? now : maquina.obsEm ?? velha?.obsEm ?? 0,
       programas: (maquina.programas ?? []).map((programa) => {
         const antiga = velha?.programas.find((item) => item.id === programa.id);
         const estrutura =
@@ -487,7 +497,7 @@ export function AcompanhamentoHoras({
   function updateMaq(id: string, updater: (m: Maquina) => Maquina) {
     setData((d) => {
       const existe = d.maquinas.some((m) => m.id === id);
-      const base = existe ? d.maquinas : [...d.maquinas, { id, nome: id, saldo: 0, programas: [] }];
+      const base = existe ? d.maquinas : [...d.maquinas, { id, nome: id, saldo: 0, obs: "", obsEm: 0, programas: [] }];
       const next = carimbar(d, {
         ...d,
         maquinas: base.map((m) => (m.id === id ? updater(m) : m)),
@@ -589,7 +599,7 @@ export function AcompanhamentoHoras({
       {screen === "home" && (
         <div className="grid grid-cols-2 gap-2">
             {maquinasDoFiltro(modelos).map((id) => {
-              const m = data.maquinas.find((item) => item.id === id) ?? { id, nome: id, saldo: 0, programas: [] };
+              const m = data.maquinas.find((item) => item.id === id) ?? { id, nome: id, saldo: 0, obs: "", obsEm: 0, programas: [] };
               const totais = totaisMaquina(m);
               return (
                 <button
@@ -601,7 +611,7 @@ export function AcompanhamentoHoras({
                     setData((atual) =>
                       atual.maquinas.some((item) => item.id === m.id)
                         ? atual
-                        : { ...atual, maquinas: [...atual.maquinas, { id: m.id, nome: m.id, saldo: 0, programas: [] }] },
+                        : { ...atual, maquinas: [...atual.maquinas, { id: m.id, nome: m.id, saldo: 0, obs: "", obsEm: 0, programas: [] }] },
                     );
                   }}
                   className="flex flex-col rounded-2xl border border-line bg-surface p-3 text-left"
@@ -657,6 +667,16 @@ export function AcompanhamentoHoras({
               </div>
             );
           })()}
+          <label className="mt-3 block">
+            <span className="mb-1 block text-xs font-semibold text-muted">OBS</span>
+            <input
+              value={maq.obs ?? ""}
+              placeholder="Observação do dia"
+              autoComplete="off"
+              onChange={(event) => updateMaq(maq.id, (item) => ({ ...item, obs: event.target.value }))}
+              className="w-full rounded-xl border border-line bg-surface-2 px-3 py-2.5"
+            />
+          </label>
           <div className="mt-4 grid gap-2">
             {[...(maq.programas || [])]
               .sort((a, b) => {

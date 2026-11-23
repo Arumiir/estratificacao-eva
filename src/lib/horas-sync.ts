@@ -32,7 +32,7 @@ export type ProgramaSync = {
 export type HorasDia = {
   date: string;
   em: number;
-  maquinas: { id: string; programas: ProgramaSync[] }[];
+  maquinas: { id: string; programas: ProgramaSync[]; obs: string; obsEm: number }[];
   apagados: { id: string; em: number }[];
 };
 
@@ -124,13 +124,14 @@ export function lerHoras(value: unknown): HorasDia | null {
       if (!maquina || typeof maquina !== "object") return [];
       const id = idHoras(texto((maquina as { id?: unknown }).id)) ?? "";
       if (!id) return [];
-      const programas = Array.isArray((maquina as { programas?: unknown }).programas)
-        ? (maquina as { programas: unknown[] }).programas.flatMap((programa) => {
+      const bruto = maquina as { programas?: unknown; obs?: unknown; obsEm?: unknown };
+      const programas = Array.isArray(bruto.programas)
+        ? bruto.programas.flatMap((programa) => {
             const lido = lerPrograma(programa);
             return lido ? [lido] : [];
           })
         : [];
-      return [{ id, programas }];
+      return [{ id, programas, obs: texto(bruto.obs), obsEm: emDe(bruto.obsEm) }];
     }),
     apagados: Array.isArray(item.apagados)
       ? item.apagados.flatMap((apagado) => {
@@ -187,8 +188,10 @@ export function juntarHoras(esquerda: HorasDia | null, direita: HorasDia | null)
     ),
   ];
   const maquinas = ids.map((id) => {
-    const a = new Map((esquerda.maquinas.find((item) => item.id === id)?.programas ?? []).map((item) => [item.id, item]));
-    const b = new Map((direita.maquinas.find((item) => item.id === id)?.programas ?? []).map((item) => [item.id, item]));
+    const localA = esquerda.maquinas.find((item) => item.id === id);
+    const localB = direita.maquinas.find((item) => item.id === id);
+    const a = new Map((localA?.programas ?? []).map((item) => [item.id, item]));
+    const b = new Map((localB?.programas ?? []).map((item) => [item.id, item]));
     const programas: ProgramaSync[] = [];
     for (const programaId of new Set([...a.keys(), ...b.keys()])) {
       const pa = a.get(programaId);
@@ -204,7 +207,8 @@ export function juntarHoras(esquerda: HorasDia | null, direita: HorasDia | null)
         programas.push({ ...novo, numeros: juntarNumeros(novo.numeros, velho.numeros) });
       }
     }
-    return { id, programas };
+    const obs = (localA?.obsEm ?? 0) >= (localB?.obsEm ?? 0) ? localA?.obs ?? "" : localB?.obs ?? "";
+    return { id, programas, obs, obsEm: Math.max(localA?.obsEm ?? 0, localB?.obsEm ?? 0) };
   });
   return { date: esquerda.date, em: Math.max(esquerda.em, direita.em), maquinas, apagados };
 }
@@ -213,7 +217,7 @@ export function horasVazias(date = diaDeHoje()): HorasDia {
   return {
     date,
     em: 0,
-    maquinas: ["SIE01", "SIE02", "SIE03", "SIE04", "SIE05", "SIE06"].map((id) => ({ id, programas: [] })),
+    maquinas: ["SIE01", "SIE02", "SIE03", "SIE04", "SIE05", "SIE06"].map((id) => ({ id, programas: [], obs: "", obsEm: 0 })),
     apagados: [],
   };
 }

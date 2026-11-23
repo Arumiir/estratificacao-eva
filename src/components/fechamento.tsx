@@ -94,6 +94,12 @@ export function FechamentoTurno({
   }));
   const campos = porTurno[turno];
   const [gerando, setGerando] = useState(false);
+  const horasDoDia = lerHorasTurno(data, turno);
+
+  function horasInfo(machine: MachineId) {
+    const base = maquinaBase(machine);
+    return horasDoDia[machine]?.obs || horasDoDia[base]?.obs || "";
+  }
 
   function camposDe(machine: MachineId) {
     return campos[machine] ?? vazio();
@@ -141,6 +147,7 @@ export function FechamentoTurno({
       `• Saldo: ${preenchido(digitado.saldo)}`,
       `• Setup: ${setup ? ponto(setup) : "----"}`,
       `• Prob.: ${ponto(conta.problemas)}`,
+      `• OBS: ${preenchido(horasInfo(machine))}`,
     ];
   }
 
@@ -254,6 +261,7 @@ export function FechamentoTurno({
                     className="w-full rounded-tile border border-line bg-surface-2 px-3 py-3 text-base"
                   />
                   <p className="text-sm text-muted">Prob.: {conta.problemas}</p>
+                  <p className="text-sm text-muted">OBS: {preenchido(horasInfo(machine))}</p>
                 </div>
               ) : null}
             </div>
