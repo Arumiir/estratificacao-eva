@@ -17,10 +17,10 @@ import {
   type Turno,
 } from "@/lib/perdas";
 
-type Campos = { horas: string; saldo: string; setup: string };
+type Campos = { horas: string; saldo: string; setup: string; obs: string };
 
 function vazio(): Campos {
-  return { horas: "", saldo: "", setup: "" };
+  return { horas: "", saldo: "", setup: "", obs: "" };
 }
 
 function lerCampos(state: State, turno: Turno): Record<string, Campos> {
@@ -34,7 +34,7 @@ function lerCampos(state: State, turno: Turno): Record<string, Campos> {
   const inicial: Record<string, Campos> = {};
   for (const item of state.fechamentos ?? []) {
     if (item.date !== data || item.turno !== turno) continue;
-    inicial[item.machine] = { horas: item.horasBaixadas, saldo: item.saldo, setup: item.setup };
+    inicial[item.machine] = { horas: item.horasBaixadas, saldo: item.saldo, setup: item.setup, obs: item.obs };
   }
   for (const [base, info] of Object.entries(horas)) {
     const machine = dono(base);
@@ -44,6 +44,7 @@ function lerCampos(state: State, turno: Turno): Record<string, Campos> {
       horas: atual.horas || (info.hb > 0 ? formatHours(info.hb) : ""),
       saldo: atual.saldo || (info.sd > 0 ? formatHours(info.sd) : ""),
       setup: atual.setup,
+      obs: atual.obs || info.obs,
     };
   }
   return inicial;
@@ -54,18 +55,13 @@ function ponto(texto: string) {
   return /[.!?]$/.test(texto) ? texto : `${texto}.`;
 }
 
-function preenchido(texto: string) {
-  const limpo = texto.trim();
-  return limpo || "----";
-}
-
 function nomeCurto(nome: string) {
   return nome.split(" - ")[0]?.trim() || nome;
 }
 
 function juntar(nomes: string[]) {
   const lista = nomes.filter(Boolean);
-  if (lista.length === 0) return "----";
+  if (lista.length === 0) return "";
   const [primeiro, ...resto] = lista;
   const cauda = resto.map((nome) => nome.charAt(0).toLocaleLowerCase("pt-BR") + nome.slice(1));
   if (cauda.length === 0) return primeiro;
@@ -94,12 +90,6 @@ export function FechamentoTurno({
   }));
   const campos = porTurno[turno];
   const [gerando, setGerando] = useState(false);
-  const horasDoDia = lerHorasTurno(data, turno);
-
-  function horasInfo(machine: MachineId) {
-    const base = maquinaBase(machine);
-    return horasDoDia[machine]?.obs || horasDoDia[base]?.obs || "";
-  }
 
   function camposDe(machine: MachineId) {
     return campos[machine] ?? vazio();
@@ -118,7 +108,7 @@ export function FechamentoTurno({
     return {
       perdas,
       producao,
-      percentual: percentual === null ? "----" : `${textoPercentual(percentual)}%`,
+      percentual: percentual === null ? "" : `${textoPercentual(percentual)}%`,
       problemas: juntar(problemas),
     };
   }
@@ -137,18 +127,21 @@ export function FechamentoTurno({
   function textoDa(machine: MachineId) {
     const conta = calcular(machine);
     const digitado = camposDe(machine);
-    const setup = digitado.setup.trim();
-    return [
-      `${machine}:`,
-      `• Horas Baixadas: ${preenchido(digitado.horas)}`,
-      `• Produção: ${conta.producao}`,
-      `• Perdas: ${conta.perdas}`,
-      `• Percentual: ${conta.percentual}`,
-      `• Saldo: ${preenchido(digitado.saldo)}`,
-      `• Setup: ${setup ? ponto(setup) : "----"}`,
-      `• Prob.: ${ponto(conta.problemas)}`,
-      `• OBS: ${preenchido(horasInfo(machine))}`,
-    ];
+    const linhas = [`${machine}:`];
+    const por = (rotulo: string, valor: string) => {
+      const limpo = valor.trim();
+      if (!limpo || limpo === "----") return;
+      linhas.push(`• ${rotulo}: ${limpo}`);
+    };
+    por("Horas Baixadas", digitado.horas);
+    linhas.push(`• Produção: ${conta.producao}`);
+    linhas.push(`• Perdas: ${conta.perdas}`);
+    por("Percentual", conta.percentual);
+    por("Saldo", digitado.saldo);
+    por("Setup", digitado.setup.trim() ? ponto(digitado.setup.trim()) : "");
+    por("Prob.", conta.problemas ? ponto(conta.problemas) : "");
+    por("OBS", digitado.obs);
+    return linhas;
   }
 
   function enviarTexto(texto: string) {
@@ -174,6 +167,7 @@ export function FechamentoTurno({
           producao: calcular(machine).producao,
           saldo: digitado.saldo.trim(),
           setup: digitado.setup.trim(),
+          obs: digitado.obs.trim(),
           salvoEm: agora,
         });
       }
@@ -234,7 +228,7 @@ export function FechamentoTurno({
                 <span className="ml-auto text-right text-xs font-semibold text-muted">
                   {conta.producao} · {conta.perdas}
                   <br />
-                  {conta.percentual}
+                  {conta.percentual || "---"}
                 </span>
               </button>
               {ligada ? (
@@ -260,8 +254,14 @@ export function FechamentoTurno({
                     onChange={(event) => editar(machine, "setup", event.target.value)}
                     className="w-full rounded-tile border border-line bg-surface-2 px-3 py-3 text-base"
                   />
-                  <p className="text-sm text-muted">Prob.: {conta.problemas}</p>
-                  <p className="text-sm text-muted">OBS: {preenchido(horasInfo(machine))}</p>
+                  <input
+                    value={digitado.obs}
+                    placeholder="OBS"
+                    autoComplete="off"
+                    onChange={(event) => editar(machine, "obs", event.target.value)}
+                    className="w-full rounded-tile border border-line bg-surface-2 px-3 py-3 text-base"
+                  />
+                  {conta.problemas ? <p className="text-sm text-muted">Prob.: {conta.problemas}</p> : null}
                 </div>
               ) : null}
             </div>

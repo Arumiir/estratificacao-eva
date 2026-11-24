@@ -106,6 +106,7 @@ export type Fechamento = {
   producao: number;
   saldo: string;
   setup: string;
+  obs: string;
   salvoEm: number;
 };
 
@@ -784,6 +785,7 @@ export function readFechamentos(value: unknown): Fechamento[] {
     if (!machine || !turno || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return [];
     const producao = typeof item.producao === "number" && Number.isFinite(item.producao) ? Math.max(0, Math.round(item.producao)) : 0;
     const setup = typeof item.setup === "string" ? item.setup.trim().slice(0, 80) : "";
+    const obs = typeof item.obs === "string" ? item.obs.trim().slice(0, 200) : "";
     return [
       {
         id: `${date}|${turno}|${machine}`,
@@ -794,6 +796,7 @@ export function readFechamentos(value: unknown): Fechamento[] {
         producao,
         saldo: horaCurta(item.saldo),
         setup,
+        obs,
         salvoEm: typeof item.salvoEm === "number" && Number.isFinite(item.salvoEm) ? item.salvoEm : 0,
       },
     ];
