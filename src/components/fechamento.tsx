@@ -140,7 +140,9 @@ export function FechamentoTurno({
     por("Saldo", digitado.saldo);
     por("Setup", digitado.setup.trim() ? ponto(digitado.setup.trim()) : "");
     por("Prob.", conta.problemas ? ponto(conta.problemas) : "");
-    por("OBS", digitado.obs);
+    const obs = digitado.obs.trim();
+    if (obs.includes("\n")) linhas.push(`• OBS:\n${obs}`);
+    else por("OBS", obs);
     return linhas;
   }
 
@@ -254,12 +256,13 @@ export function FechamentoTurno({
                     onChange={(event) => editar(machine, "setup", event.target.value)}
                     className="w-full rounded-tile border border-line bg-surface-2 px-3 py-3 text-base"
                   />
-                  <input
+                  <textarea
                     value={digitado.obs}
-                    placeholder="OBS"
+                    placeholder="O que impactou a hora"
+                    rows={3}
                     autoComplete="off"
                     onChange={(event) => editar(machine, "obs", event.target.value)}
-                    className="w-full rounded-tile border border-line bg-surface-2 px-3 py-3 text-base"
+                    className="w-full resize-y rounded-tile border border-line bg-surface-2 px-3 py-3 text-base"
                   />
                   {conta.problemas ? <p className="text-sm text-muted">Prob.: {conta.problemas}</p> : null}
                 </div>

@@ -785,7 +785,7 @@ export function readFechamentos(value: unknown): Fechamento[] {
     if (!machine || !turno || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return [];
     const producao = typeof item.producao === "number" && Number.isFinite(item.producao) ? Math.max(0, Math.round(item.producao)) : 0;
     const setup = typeof item.setup === "string" ? item.setup.trim().slice(0, 80) : "";
-    const obs = typeof item.obs === "string" ? item.obs.trim().slice(0, 200) : "";
+    const obs = typeof item.obs === "string" ? item.obs.trim().slice(0, 800) : "";
     return [
       {
         id: `${date}|${turno}|${machine}`,
