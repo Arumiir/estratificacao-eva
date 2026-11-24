@@ -699,8 +699,9 @@ export const pullEvolucaoMolde = createServerFn({ method: "POST" })
     }
     return {
       dias: [...porDia.entries()].map(([date, grupos]) => {
-        let pares = 0;
-        for (const solas of grupos.values()) pares += solas <= 0 ? 0 : Math.ceil(solas / 2);
+        let solas = 0;
+        for (const qtd of grupos.values()) solas += qtd;
+        const pares = solas <= 0 ? 0 : Math.ceil(solas / 2);
         const motivos = [...(porMotivo.get(date) ?? new Map<string, number>()).entries()]
           .map(([id, solas]) => ({ nome: problemName(id), pares: solas }))
           .filter((item) => item.pares > 0)

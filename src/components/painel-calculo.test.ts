@@ -150,23 +150,28 @@ describe("painel em uma passagem", () => {
     );
   });
 
-  it("fecha ímpar em par e não soma lados ou trocas diferentes", () => {
+  it("fecha a sobra uma vez só, na caixa inteira", () => {
     const um = [entrada({ id: "1", date: "2026-11-05", turno: "1", machine: "SIE01", problem: "contaminacao" })];
     assert.equal(paresDasEntradas(um), 1);
-    const tres = [0, 1, 2].map((i) =>
-      entrada({ id: String(i), date: "2026-11-05", turno: "1", machine: "SIE01", problem: "contaminacao", station: 2, side: "dir" }),
-    );
-    assert.equal(paresDasEntradas(tres), 2);
-    const trocas = tres.map((item, index) => ({ ...item, id: `t-${index}`, outroId: index === 2 ? "outra" : "" }));
-    assert.equal(paresDasEntradas(trocas), 2);
-    const misturados = [
-      entrada({ id: "x", date: "2026-11-05", turno: "1", machine: "SIE01", problem: "gas-sola", station: 1, side: "esq" }),
-      entrada({ id: "y", date: "2026-11-05", turno: "1", machine: "SIE01", problem: "pezinho", station: 1, side: "esq" }),
-      ...[0, 1, 2, 3, 4, 5].map((i) =>
-        entrada({ id: `z-${i}`, date: "2026-11-05", turno: "1", machine: "SIE01", problem: "excesso-carga", station: 1, side: "esq" }),
+    const caixa = [
+      ...[0, 1].map((i) =>
+        entrada({ id: `a-${i}`, date: "2026-11-05", turno: "1", machine: "SIE03", problem: "gas-sola", station: 1, side: "esq" }),
       ),
+      entrada({ id: "sobra", date: "2026-11-05", turno: "1", machine: "SIE03", problem: "pezinho", station: 4, side: "dir" }),
     ];
-    assert.equal(paresDasEntradas(misturados), 4);
+    assert.equal(paresDasEntradas(caixa), 2);
+    const quarentaECinco = Array.from({ length: 45 }, (_, i) =>
+      entrada({
+        id: `s-${i}`,
+        date: "2026-11-05",
+        turno: "1",
+        machine: "SIE03",
+        problem: i % 2 === 0 ? "gas-sola" : "pezinho",
+        station: (i % 8) + 1,
+        side: i % 3 === 0 ? "dir" : "esq",
+      }),
+    );
+    assert.equal(paresDasEntradas(quarentaECinco), 23);
   });
 
   it("soma a produção com o mesmo recorte de máquina", () => {
@@ -189,14 +194,7 @@ describe("painel em uma passagem", () => {
 
   it("CEIL do mesmo conjunto bate; sola local ou exclusão fora do banco não batem", () => {
     function paresComoSql(linhas: Entry[]) {
-      const grupos = new Map<string, number>();
-      for (const entry of linhas) {
-        const chave = `${entry.date}|${entry.turno}|${entry.machine}|${entry.station}|${entry.side}|${entry.outroId}`;
-        grupos.set(chave, (grupos.get(chave) ?? 0) + 1);
-      }
-      let total = 0;
-      for (const solas of grupos.values()) total += Math.ceil(solas / 2);
-      return total;
+      return linhas.length <= 0 ? 0 : Math.ceil(linhas.length / 2);
     }
     const tres = [0, 1, 2].map((i) =>
       entrada({ id: `sql-${i}`, date: "2026-11-05", turno: "2", machine: "SIE03", problem: "pezinho", station: 5, side: "esq" }),
@@ -213,9 +211,11 @@ describe("painel em uma passagem", () => {
       machine: "SIE01",
       problem: "contaminacao",
     });
-    assert.notEqual(paresComoSql(noBanco), paresDasEntradas([...noBanco, aindaLocal]));
+    const comLocal = [...noBanco, aindaLocal];
+    assert.equal(paresDasEntradas(comLocal), Math.ceil(comLocal.length / 2));
+    assert.equal(paresDasEntradas(noBanco) === paresDasEntradas(comLocal), noBanco.length % 2 === 1);
     const semOPrimeiro = noBanco.slice(1);
     assert.equal(paresComoSql(semOPrimeiro), paresDasEntradas(semOPrimeiro));
-    assert.notEqual(paresComoSql(noBanco), paresDasEntradas(semOPrimeiro));
+    assert.equal(paresDasEntradas(noBanco) === paresDasEntradas(semOPrimeiro), noBanco.length % 2 === 0);
   });
 });

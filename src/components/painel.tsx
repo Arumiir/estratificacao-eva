@@ -1352,8 +1352,8 @@ function paresNoRecorte(entries: Entry[]): number {
     grupos.set(chave, (grupos.get(chave) ?? 0) + 1);
   }
   let total = 0;
-  for (const solas of grupos.values()) total += pares(solas);
-  return total;
+  for (const solas of grupos.values()) total += solas;
+  return pares(total);
 }
 
 function fraseMotivos(nomes: string[]): string {
@@ -3975,7 +3975,7 @@ function FichaSheet({
           </div>
           <MatrizesDaMaquina state={state} machine={machine} />
           <p className="px-3 pt-3 text-sm text-muted">
-            As solas do mesmo lado fecham juntas. A que sobra, sem outra para formar par, vira 1 par. Esquerda e direita não se somam.
+            As solas do turno fecham juntas. A que sobra, sem outra para formar par, vira 1 par.
             {mine.length > editable.length ? " Turno fechado não sai." : ""}
           </p>
           <ApontamentosLista lines={lines} />
