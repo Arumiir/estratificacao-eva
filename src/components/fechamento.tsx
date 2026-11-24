@@ -258,7 +258,7 @@ export function FechamentoTurno({
                   />
                   <textarea
                     value={digitado.obs}
-                    placeholder="O que impactou a hora"
+                    placeholder="Observações"
                     rows={3}
                     autoComplete="off"
                     onChange={(event) => editar(machine, "obs", event.target.value)}
