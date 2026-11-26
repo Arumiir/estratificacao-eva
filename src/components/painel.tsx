@@ -516,7 +516,7 @@ function GrupoFiltro({ titulo, children }: { titulo: string; children: ReactNode
 }
 
 const FILTROS_KEY = "injecao-filtros-dash-v1";
-const RECORTE_KEY = "injecao-painel-recorte-v2";
+const RECORTE_KEY = "injecao-painel-recorte-v3";
 
 const RECORTE_PADRAO: {
   resumo: RecorteBloco;
