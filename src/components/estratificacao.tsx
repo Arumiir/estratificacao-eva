@@ -1895,7 +1895,6 @@ export function EstratificacaoApp() {
 
           {papel === "preparador" && screen.kind === "modelo" ? (
             <ModeloScreen
-              machine={screen.machine}
               opcoes={ladosAtivos(state.modelos, screen.machine)}
               onPick={(escolhida) => push({ kind: "hub", machine: escolhida })}
             />
@@ -2575,29 +2574,19 @@ function MachinesScreen({
   );
 }
 
-function ModeloScreen({
-  machine,
-  opcoes,
-  onPick,
-}: {
-  machine: MaquinaPiso;
-  opcoes: MachineId[];
-  onPick: (machine: MachineId) => void;
-}) {
+function ModeloScreen({ opcoes, onPick }: { opcoes: MachineId[]; onPick: (machine: MachineId) => void }) {
   return (
     <div className="w-full max-w-sm">
       <h2 className="text-center font-display text-4xl leading-tight">Selecione a máquina</h2>
-      <p className="mt-2 text-center text-sm font-semibold text-muted">{machine}</p>
       <div className="mt-8 grid gap-3">
         {opcoes.map((id) => (
           <button
             key={id}
             type="button"
             onClick={() => onPick(id)}
-            className="rounded-3xl border border-line bg-white py-7 text-center shadow-[0_10px_30px_rgba(47,84,150,0.08)]"
+            className="rounded-3xl border border-line bg-white py-7 text-center font-display text-5xl leading-none shadow-[0_10px_30px_rgba(47,84,150,0.08)]"
           >
-            <span className="block font-display text-5xl leading-none">{id === machine ? "Normal" : id.endsWith("A") ? "A" : "B"}</span>
-            <span className="mt-1 block text-sm font-semibold text-muted">{id}</span>
+            {id}
           </button>
         ))}
       </div>
