@@ -6,6 +6,9 @@ import { UpdateNotice } from "@/components/update-notice";
 import { ChevronLeft, ChevronDown, House, ImageDown, Menu } from "lucide-react";
 import {
   MAQUINAS_PISO,
+  ladosAtivos,
+  maquinaBase,
+  normalizarAtivos,
   variantesDe,
   PROBLEMS,
   SIDE_LABEL,
@@ -56,6 +59,7 @@ import {
   type ProducaoPares,
   type MachineId,
   type MaquinaPiso,
+  type ModeloSalvo,
   type OutroMatriz,
   type Side,
   type State,
@@ -394,7 +398,7 @@ function usePerdas() {
     const sentGrades = Object.keys(grades);
     const gen = gradesGen.current;
     const sentRevives = reviveIds;
-    const modeloEnviado = modelosMudou ? { machines: state.modelos, salvoEm: state.modelosEm } : null;
+    const modeloEnviado = modelosMudou ? { v: 2 as const, ativos: state.modelos, salvoEm: state.modelosEm } : null;
     const pacote = {
       upserts: booted.current ? upserts : [],
       removed,
@@ -431,7 +435,7 @@ function usePerdas() {
 
   function takeRemote(
     current: State,
-    remote: { entries: Entry[]; removed: string[]; grades?: Record<string, StationConfig>; outros?: OutroMatriz[]; cores?: Cor[]; fechamentos?: Fechamento[]; producao?: ProducaoPares[]; modelos?: { machines: MaquinaPiso[]; salvoEm: number } | null },
+    remote: { entries: Entry[]; removed: string[]; grades?: Record<string, StationConfig>; outros?: OutroMatriz[]; cores?: Cor[]; fechamentos?: Fechamento[]; producao?: ProducaoPares[]; modelos?: ModeloSalvo | null },
   ) {
     for (const id of remote.removed) {
       held.current.delete(id);
@@ -486,7 +490,7 @@ function usePerdas() {
       cores,
       fechamentos,
       producao,
-      ...(modelosNovos ? { modelos: modelosNovos.machines, modelosEm: modelosNovos.salvoEm } : {}),
+      ...(modelosNovos ? { modelos: modelosNovos.ativos, modelosV: 2 as const, modelosEm: modelosNovos.salvoEm } : {}),
     };
   }
 
@@ -547,7 +551,7 @@ function usePerdas() {
       const producaoMudou = JSON.stringify(producao) !== lastProducao.current;
       const modelosMudou = current.modelosEm > lastModelosEm.current;
       if (upserts.length === 0 && removed.length === 0 && reviveIds.length === 0 && !outrosMudou && !coresMudou && !fechamentosMudou && !producaoMudou && !modelosMudou) return;
-      const modeloEnviado = modelosMudou ? { machines: current.modelos, salvoEm: current.modelosEm } : null;
+      const modeloEnviado = modelosMudou ? { v: 2 as const, ativos: current.modelos, salvoEm: current.modelosEm } : null;
       void pushApontamentos({
         data: {
           upserts,
@@ -1161,12 +1165,21 @@ export function EstratificacaoApp() {
     commit((current) => ({ ...current, turno }));
   }
 
-  function alternarModelo(machine: MaquinaPiso) {
+  function alternarLado(id: MachineId) {
+    const atual = read();
+    if (!atual) return;
+    const base = maquinaBase(id);
+    const grupo = [base, ...variantesDe(base)];
+    const ligadosAgora = grupo.filter((item) => atual.modelos.includes(item));
+    if (atual.modelos.includes(id) && ligadosAgora.length <= 1) {
+      flash("Deixe pelo menos uma ligada.");
+      return;
+    }
     commit((current) => {
       const ligados = new Set(current.modelos);
-      if (ligados.has(machine)) ligados.delete(machine);
-      else ligados.add(machine);
-      return { ...current, modelos: MAQUINAS_PISO.filter((item) => ligados.has(item)), modelosEm: Date.now() };
+      if (ligados.has(id)) ligados.delete(id);
+      else ligados.add(id);
+      return { ...current, modelos: normalizarAtivos(ligados), modelosV: 2, modelosEm: Date.now() };
     });
   }
 
@@ -1277,9 +1290,14 @@ export function EstratificacaoApp() {
   function openMachine(machine: MachineId) {
     const current = read();
     if (!current) return;
-    if ((MAQUINAS_PISO as readonly string[]).includes(machine) && current.modelos.includes(machine as MaquinaPiso)) {
-      push({ kind: "modelo", machine: machine as MaquinaPiso });
-      return;
+    if ((MAQUINAS_PISO as readonly string[]).includes(machine)) {
+      const base = machine as MaquinaPiso;
+      const opcoes = ladosAtivos(current.modelos, base);
+      if (opcoes.length > 1) {
+        push({ kind: "modelo", machine: base });
+        return;
+      }
+      machine = opcoes[0] ?? base;
     }
     if (sessao?.papel === "preparador") {
       push({ kind: "hub", machine });
@@ -1794,7 +1812,7 @@ export function EstratificacaoApp() {
                 className="rounded-tile bg-accent py-5 text-left px-5"
               >
                 <span className="block font-display text-4xl leading-none text-accent-ink">Lados</span>
-                <span className="mt-1 block text-sm font-semibold text-accent-ink/80">Ativar A e B nas máquinas</span>
+                <span className="mt-1 block text-sm font-semibold text-accent-ink/80">Escolher máquina, A e B</span>
               </button>
               <button
                 type="button"
@@ -1850,26 +1868,38 @@ export function EstratificacaoApp() {
 
           {screen.kind === "lados" ? (
             <div className="mx-auto w-full max-w-md">
-              <p className="font-display text-4xl leading-none text-accent">A e B</p>
+              <p className="font-display text-4xl leading-none text-accent">Lados</p>
               <p className="mt-2 text-sm font-semibold text-muted">
-                Ligado, a máquina pede A ou B. Desligado, entra direto.
+                Ligue a máquina, o A e o B. O último fica ligado.
               </p>
               <div className="mt-4 grid gap-2">
                 {MAQUINAS_PISO.map((machine) => {
-                  const ligado = state.modelos.includes(machine);
+                  const [ladoA, ladoB] = variantesDe(machine);
+                  const opcoes = [machine, ladoA, ladoB] as const;
                   return (
                     <div key={machine} className="flex items-center justify-between gap-3 rounded-tile border border-line bg-surface px-4 py-3">
                       <span className="font-display text-3xl leading-none">{machine}</span>
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={ligado}
-                        aria-label={`${ligado ? "Desativar" : "Ativar"} A e B na ${machine}`}
-                        onClick={() => alternarModelo(machine)}
-                        className={cx("relative h-8 w-14 shrink-0 rounded-full", ligado ? "bg-accent" : "bg-line")}
-                      >
-                        <span className={cx("absolute top-1 size-6 rounded-full bg-white", ligado ? "left-7" : "left-1")} />
-                      </button>
+                      <div className="flex gap-1">
+                        {opcoes.map((id) => {
+                          const ligado = state.modelos.includes(id);
+                          const nome = id === machine ? "Máq" : id.endsWith("A") ? "A" : "B";
+                          return (
+                            <button
+                              key={id}
+                              type="button"
+                              aria-pressed={ligado}
+                              aria-label={`${ligado ? "Desligar" : "Ligar"} ${id}`}
+                              onClick={() => alternarLado(id)}
+                              className={cx(
+                                "min-w-11 rounded-xl px-3 py-2 text-sm font-semibold",
+                                ligado ? "bg-accent text-accent-ink" : "bg-surface-2 text-muted",
+                              )}
+                            >
+                              {nome}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   );
                 })}
@@ -1882,7 +1912,11 @@ export function EstratificacaoApp() {
           ) : null}
 
           {papel === "preparador" && screen.kind === "modelo" ? (
-            <ModeloScreen machine={screen.machine} onPick={(escolhida) => push({ kind: "hub", machine: escolhida })} />
+            <ModeloScreen
+              machine={screen.machine}
+              opcoes={ladosAtivos(state.modelos, screen.machine)}
+              onPick={(escolhida) => push({ kind: "hub", machine: escolhida })}
+            />
           ) : null}
 
           {papel === "preparador" && screen.kind === "hub" ? (
@@ -2108,7 +2142,7 @@ function headerFor(screen: Screen): { context: string } {
     case "horas":
       return { context: "Acompanhamento de horas" };
     case "lados":
-      return { context: "A e B" };
+      return { context: "Lados" };
     case "menu":
       return { context: "Menu" };
     case "teste":
@@ -2585,24 +2619,28 @@ function MachinesScreen({
   );
 }
 
-function ModeloScreen({ machine, onPick }: { machine: MaquinaPiso; onPick: (machine: MachineId) => void }) {
-  const lados = [
-    ["A", variantesDe(machine)[0]],
-    ["B", variantesDe(machine)[1]],
-  ] as const;
+function ModeloScreen({
+  machine,
+  opcoes,
+  onPick,
+}: {
+  machine: MaquinaPiso;
+  opcoes: MachineId[];
+  onPick: (machine: MachineId) => void;
+}) {
   return (
     <div className="w-full max-w-sm">
       <p className="text-center text-xs font-semibold tracking-[0.22em] text-muted">MÁQUINA</p>
       <h2 className="mt-2 text-center font-display text-5xl leading-none">{machine}</h2>
       <div className="mt-8 grid gap-3">
-        {lados.map(([letra, id]) => (
+        {opcoes.map((id) => (
           <button
             key={id}
             type="button"
             onClick={() => onPick(id)}
             className="rounded-3xl border border-line bg-white py-7 text-center shadow-[0_10px_30px_rgba(47,84,150,0.08)]"
           >
-            <span className="block font-display text-5xl leading-none">{letra}</span>
+            <span className="block font-display text-5xl leading-none">{id === machine ? "Máquina" : id.endsWith("A") ? "A" : "B"}</span>
             <span className="mt-1 block text-sm font-semibold text-muted">{id}</span>
           </button>
         ))}

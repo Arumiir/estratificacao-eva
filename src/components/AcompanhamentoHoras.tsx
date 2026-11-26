@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Plus, Pencil, Trash2, ChevronDown, Clock, Check, Box } from "lucide-react";
-import { NUMEROS_MATRIZ, TURNO_LABEL, diaDasHoras, formatDateBR, maquinasDoFiltro, numeroLimpo, type MachineId, type MaquinaPiso, type Turno } from "@/lib/perdas";
+import { NUMEROS_MATRIZ, TURNO_LABEL, diaDasHoras, formatDateBR, maquinasDoFiltro, numeroLimpo, type MachineId, type Turno } from "@/lib/perdas";
 import { horasVazias, idHoras, juntarHoras, lerHorasLocal, salvarHorasLocal, type HorasDia } from "@/lib/horas-sync";
 
 type Destino = "saldo" | "baixada";
@@ -383,7 +383,7 @@ export function AcompanhamentoHoras({
   enviarProducao: boolean;
   remoto: HorasDia | null;
   onGravar: (dia: HorasDia) => void;
-  modelos: readonly MaquinaPiso[];
+  modelos: readonly MachineId[];
 }) {
   const turnoAtivo: Turno = "1";
   const dia = diaDasHoras();

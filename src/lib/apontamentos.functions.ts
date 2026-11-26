@@ -2,9 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { pullDay, pushDays } from "@/lib/apontamentos-blob";
 import { dbSource, getSql } from "@/lib/db";
 import { juntarHoras, lerHoras, type HorasDia } from "@/lib/horas-sync";
-import { apontamentoBloqueado, coerceEntry, diaOperacional, diasAte, mergeCores, mergeFechamentos, mergeOutros, mergeProducao, NOITE_DOMINGO, numeroLimpo, parseMachine, podeAlterarApontamento, problemName, readCores, readFechamentos, readGrades, readModelos, readOutros, readProducao, referenciaLimpa, SABADO_DA_NOITE, turnoPeloRelogio, type Cor, type Entry, type Fechamento, type MaquinaPiso, type OutroMatriz, type ProducaoPares, type StationConfig } from "@/lib/perdas";
-
-type ModeloSalvo = { machines: MaquinaPiso[]; salvoEm: number };
+import { apontamentoBloqueado, coerceEntry, diaOperacional, diasAte, mergeCores, mergeFechamentos, mergeOutros, mergeProducao, NOITE_DOMINGO, numeroLimpo, parseMachine, podeAlterarApontamento, problemName, readCores, readFechamentos, readGrades, readModelos, readOutros, readProducao, referenciaLimpa, SABADO_DA_NOITE, turnoPeloRelogio, type Cor, type Entry, type Fechamento, type ModeloSalvo, type OutroMatriz, type ProducaoPares, type StationConfig } from "@/lib/perdas";
 
 type SyncResult = {
   entries: Entry[];

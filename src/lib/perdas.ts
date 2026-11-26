@@ -129,7 +129,8 @@ export type State = {
   entries: Entry[];
   date: string;
   turno: Turno;
-  modelos: MaquinaPiso[];
+  modelos: MachineId[];
+  modelosV: 2;
   modelosEm: number;
 };
 
@@ -156,7 +157,6 @@ export const MACHINES = [
   "SIE06B",
 ] as const;
 export type MachineId = (typeof MACHINES)[number];
-export const MODELOS_PADRAO: MaquinaPiso[] = ["SIE06"];
 export const STATIONS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 export const SIDES = ["esq", "dir"] as const;
 
@@ -414,24 +414,61 @@ export function variantesDe(base: MaquinaPiso): [MachineId, MachineId] {
   return [`${base}A`, `${base}B`];
 }
 
-export function readModelos(value: unknown): { machines: MaquinaPiso[]; salvoEm: number } | null {
-  if (!isRecord(value)) return null;
-  const salvoEm = typeof value.salvoEm === "number" && Number.isFinite(value.salvoEm) ? value.salvoEm : 0;
-  if (!Array.isArray(value.machines) || salvoEm <= 0) return null;
-  const machines = [...new Set(value.machines.flatMap((item) => ((MAQUINAS_PISO as readonly string[]).includes(String(item)) ? [item as MaquinaPiso] : [])))];
-  return { machines, salvoEm };
+const DIVIDIDAS_PADRAO: readonly MaquinaPiso[] = ["SIE06"];
+
+export type ModeloSalvo = { v: 2; ativos: MachineId[]; salvoEm: number };
+
+function ehMaquina(value: string): value is MachineId {
+  return (MACHINES as readonly string[]).includes(value);
 }
 
-export function maquinasDoFiltro(modelos: readonly MaquinaPiso[], comDado: Iterable<MachineId> = []): MachineId[] {
-  const ligados = new Set(modelos);
+export function normalizarAtivos(ids: Iterable<string>): MachineId[] {
+  const set = new Set(ids);
+  const lista: MachineId[] = [];
+  for (const base of MAQUINAS_PISO) {
+    const [a, b] = variantesDe(base);
+    const grupo = [base, a, b].filter((id) => set.has(id));
+    lista.push(...(grupo.length > 0 ? grupo : [base]));
+  }
+  return lista;
+}
+
+function ativosDoLegado(split: readonly string[]): MachineId[] {
+  const ligados = new Set(split);
   const lista: MachineId[] = [];
   for (const base of MAQUINAS_PISO) {
     if (ligados.has(base)) lista.push(...variantesDe(base));
     else lista.push(base);
   }
+  return lista;
+}
+
+export function modelosPadrao(): MachineId[] {
+  return ativosDoLegado(DIVIDIDAS_PADRAO);
+}
+
+export function ladosAtivos(ativos: readonly MachineId[], base: MaquinaPiso): MachineId[] {
+  const [a, b] = variantesDe(base);
+  const grupo = [base, a, b].filter((id) => ativos.includes(id));
+  return grupo.length > 0 ? grupo : [base];
+}
+
+export function readModelos(value: unknown): ModeloSalvo | null {
+  if (!isRecord(value)) return null;
+  const salvoEm = typeof value.salvoEm === "number" && Number.isFinite(value.salvoEm) ? value.salvoEm : 0;
+  if (value.v === 2 && Array.isArray(value.ativos)) {
+    return { v: 2, ativos: normalizarAtivos(value.ativos.map((item) => String(item))), salvoEm };
+  }
+  if (!Array.isArray(value.machines) || salvoEm <= 0) return null;
+  const machines = value.machines.flatMap((item) => ((MAQUINAS_PISO as readonly string[]).includes(String(item)) ? [String(item)] : []));
+  return { v: 2, ativos: ativosDoLegado(machines), salvoEm };
+}
+
+export function maquinasDoFiltro(ativos: readonly MachineId[], comDado: Iterable<MachineId> = []): MachineId[] {
+  const lista = normalizarAtivos(ativos);
   const ja = new Set(lista);
   for (const machine of comDado) {
-    if (ja.has(machine) || !(MACHINES as readonly string[]).includes(machine)) continue;
+    if (ja.has(machine) || !ehMaquina(machine)) continue;
     lista.push(machine);
     ja.add(machine);
   }
@@ -584,7 +621,8 @@ export function emptyState(now = new Date()): State {
     entries: [],
     date: todayISO(now),
     turno: "1",
-    modelos: [...MODELOS_PADRAO],
+    modelos: modelosPadrao(),
+    modelosV: 2,
     modelosEm: 0,
   };
 }
@@ -938,7 +976,10 @@ export function loadState(): State {
           return entry ? [entry] : [];
         })
       : [];
-    const modelos = readModelos({ machines: data.modelos, salvoEm: data.modelosEm });
+    const modelos =
+      data.modelosV === 2
+        ? readModelos({ v: 2, ativos: data.modelos, salvoEm: data.modelosEm })
+        : readModelos({ machines: data.modelos, salvoEm: data.modelosEm });
     return {
       stations,
       outros: readOutros(data.outros),
@@ -948,7 +989,8 @@ export function loadState(): State {
       entries,
       date: base.date,
       turno: parseTurno(data.turno) ?? base.turno,
-      modelos: modelos?.machines ?? base.modelos,
+      modelos: modelos?.ativos ?? base.modelos,
+      modelosV: 2,
       modelosEm: modelos?.salvoEm ?? 0,
     };
   } catch {
