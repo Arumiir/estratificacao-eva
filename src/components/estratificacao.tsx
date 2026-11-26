@@ -2576,20 +2576,20 @@ function MachinesScreen({
 
 function ModeloScreen({ opcoes, onPick }: { opcoes: MachineId[]; onPick: (machine: MachineId) => void }) {
   return (
-    <div className="mx-auto w-full max-w-sm">
-      <h2 className="font-display text-4xl leading-none text-accent">Selecione a máquina</h2>
-      <div className="mt-5 grid gap-3">
-        {opcoes.map((id) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => onPick(id)}
-            className="rounded-tile border border-line bg-surface py-7 text-center font-display text-5xl leading-none"
-          >
-            {id}
-          </button>
-        ))}
+    <div className="mx-auto flex w-full max-w-sm flex-col gap-3">
+      <div className="rounded-tile bg-accent px-5 py-6">
+        <h2 className="font-display text-5xl leading-none tracking-wide text-accent-ink">Selecione a máquina</h2>
       </div>
+      {opcoes.map((id) => (
+        <button
+          key={id}
+          type="button"
+          onClick={() => onPick(id)}
+          className="rounded-tile border border-line bg-surface py-7 text-center font-display text-5xl leading-none tracking-wide"
+        >
+          {id}
+        </button>
+      ))}
     </div>
   );
 }
