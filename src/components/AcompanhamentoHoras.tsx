@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Plus, Pencil, Trash2, ChevronDown, Clock, Check, Box } from "lucide-react";
-import { MAQUINAS_PISO, NUMEROS_MATRIZ, TURNO_LABEL, diaDasHoras, formatDateBR, ladosAtivos, maquinaBase, numeroLimpo, type MachineId, type MaquinaPiso, type Turno } from "@/lib/perdas";
+import { NUMEROS_MATRIZ, TURNO_LABEL, diaDasHoras, formatDateBR, maquinasDoFiltro, numeroLimpo, type MachineId, type Turno } from "@/lib/perdas";
 import { horasVazias, idHoras, juntarHoras, lerHorasLocal, salvarHorasLocal, type HorasDia } from "@/lib/horas-sync";
 
 type Destino = "saldo" | "baixada";
@@ -388,8 +388,7 @@ export function AcompanhamentoHoras({
   const turnoAtivo: Turno = "1";
   const dia = diaDasHoras();
   const [data, setData] = useState<Data>({ maquinas: [] });
-  const [screen, setScreen] = useState<"home" | "lado" | "maq" | "prog">("home");
-  const [ladoBase, setLadoBase] = useState<MaquinaPiso | null>(null);
+  const [screen, setScreen] = useState<"home" | "maq" | "prog">("home");
   const [currentMaqId, setCurrentMaqId] = useState<string | null>(null);
   const [currentProgId, setCurrentProgId] = useState<string | null>(null);
   const [openNums, setOpenNums] = useState<Set<string>>(new Set());
@@ -422,16 +421,6 @@ export function AcompanhamentoHoras({
       return true;
     }
     if (screen === "maq") {
-      const base = currentMaqId && (MAQUINAS_PISO as readonly string[]).includes(currentMaqId.slice(0, 5)) ? maquinaBase(currentMaqId as MachineId) : null;
-      if (base && ladosAtivos(modelos, base).length > 1) {
-        setLadoBase(base);
-        setScreen("lado");
-      } else {
-        setScreen("home");
-      }
-      return true;
-    }
-    if (screen === "lado") {
       setScreen("home");
       return true;
     }
@@ -596,16 +585,6 @@ export function AcompanhamentoHoras({
     );
   }
 
-  function abrirPiso(base: MaquinaPiso) {
-    const opcoes = ladosAtivos(modelos, base);
-    if (opcoes.length > 1) {
-      setLadoBase(base);
-      setScreen("lado");
-      return;
-    }
-    entrarMaquina(opcoes[0] ?? base);
-  }
-
   function clicarCaixa(num: Numero, idx: number) {
     const atual = destinoCaixa(num, idx);
     const modo: Destino = num.modoSaldo ? "saldo" : "baixada";
@@ -629,34 +608,30 @@ export function AcompanhamentoHoras({
       </div>
       {screen === "home" && (
         <div className="grid grid-cols-2 gap-2">
-            {MAQUINAS_PISO.map((base) => {
-              const opcoes = ladosAtivos(modelos, base);
-              const partes = opcoes.map(
-                (id) => data.maquinas.find((item) => item.id === id) ?? { id, nome: id, saldo: 0, obs: "", obsEm: 0, programas: [] },
-              );
-              const totais = partes.reduce(
-                (soma, item) => {
-                  const conta = totaisMaquina(item);
-                  return { hb: soma.hb + conta.hb, sd: soma.sd + conta.sd };
-                },
-                { hb: 0, sd: 0 },
-              );
+            {maquinasDoFiltro(modelos).map((id) => {
+              const m = data.maquinas.find((item) => item.id === id) ?? { id, nome: id, saldo: 0, obs: "", obsEm: 0, programas: [] };
+              const totais = totaisMaquina(m);
               return (
                 <button
-                  key={base}
+                  key={id}
                   type="button"
-                  onClick={() => abrirPiso(base)}
+                  onClick={() => entrarMaquina(id)}
                   className="flex flex-col rounded-2xl border border-line bg-surface p-3 text-left"
                 >
                   <div className="mb-1 flex items-center justify-between">
-                    <span className="font-display text-2xl leading-none">{base}</span>
+                    <span className="font-display text-2xl leading-none">{id}</span>
                     <span className="grid size-7 place-items-center rounded-lg bg-accent-soft text-accent">
                       <Box className="size-3.5" />
                     </span>
                   </div>
-                  {opcoes.length > 1 ? <span className="mb-1 text-sm font-semibold text-accent">{opcoes.join(" · ")}</span> : null}
                   <span className="text-sm text-muted">Horas baixadas</span>
                   <span className="font-display text-2xl leading-none tabular-nums text-accent">{formatHours(totais.hb)}</span>
+                  {totais.atrasado ? (
+                    <span className="mt-1 text-sm font-semibold leading-snug text-muted">
+                      nº {totais.atrasado.numero}
+                      <span className="whitespace-nowrap"> · {formatHours(totais.atrasado.restante)}</span>
+                    </span>
+                  ) : null}
                   <span className={`mt-2 rounded-xl px-2 py-1.5 text-sm font-semibold leading-tight ${totais.sd > 0 ? "bg-amber-100 text-amber-800" : "bg-surface-2 text-muted"}`}>
                     {totais.sd > 0 ? `Saldo ${formatHours(totais.sd)}` : "Sem saldo"}
                   </span>
@@ -665,21 +640,6 @@ export function AcompanhamentoHoras({
             })}
         </div>
       )}
-
-      {screen === "lado" && ladoBase ? (
-        <div className="mx-auto grid w-full max-w-sm gap-3">
-          {ladosAtivos(modelos, ladoBase).map((id) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => entrarMaquina(id)}
-              className="rounded-2xl bg-accent py-6 text-center font-display text-5xl leading-none tracking-wide text-accent-ink"
-            >
-              {id}
-            </button>
-          ))}
-        </div>
-      ) : null}
 
       {screen === "maq" && maq && (
         <div>
