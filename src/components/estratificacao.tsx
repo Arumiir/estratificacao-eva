@@ -1,7 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState, type MutableRefObject } from "react";
 import { cx, paresDasEntradas, percentualPerda, textoPercentual } from "@/components/comum";
 import { InstallPrompt } from "@/components/install-prompt";
-import { TesteCarga } from "@/components/TesteCarga";
 import { UpdateNotice } from "@/components/update-notice";
 import { ChevronLeft, ChevronDown, House, ImageDown, Menu } from "lucide-react";
 import {
@@ -125,8 +124,7 @@ type Screen =
   | { kind: "fechamento" }
   | { kind: "horas" }
   | { kind: "lados" }
-  | { kind: "menu" }
-  | { kind: "teste" };
+  | { kind: "menu" };
 
 type Banner = {
   id: number;
@@ -709,8 +707,6 @@ function screenKey(screen: Screen): string {
       return "lados";
     case "menu":
       return "menu";
-    case "teste":
-      return "teste";
   }
 }
 
@@ -722,8 +718,7 @@ function machineFrom(screen: Screen): MachineId | null {
     screen.kind === "fechamento" ||
     screen.kind === "horas" ||
     screen.kind === "lados" ||
-    screen.kind === "menu" ||
-    screen.kind === "teste"
+    screen.kind === "menu"
   ) {
     return null;
   }
@@ -1798,10 +1793,8 @@ export function EstratificacaoApp() {
           )}
         >
           {screen.kind === "papel" ? (
-            <PortaScreen onPick={chooseSessao} onTeste={() => push({ kind: "teste" })} />
+            <PortaScreen onPick={chooseSessao} />
           ) : null}
-
-          {screen.kind === "teste" ? <TesteCarga /> : null}
 
           {screen.kind === "menu" ? (
             <div className="mx-auto flex w-full max-w-md flex-col gap-3">
@@ -1812,7 +1805,6 @@ export function EstratificacaoApp() {
                 className="rounded-tile bg-accent py-5 text-left px-5"
               >
                 <span className="block font-display text-4xl leading-none text-accent-ink">Lados</span>
-                <span className="mt-1 block text-sm font-semibold text-accent-ink/80">Escolher máquina, A e B</span>
               </button>
               <button
                 type="button"
@@ -1820,7 +1812,6 @@ export function EstratificacaoApp() {
                 className="rounded-tile border border-line bg-surface py-5 text-left px-5"
               >
                 <span className="block font-display text-4xl leading-none text-fg">Fechamento</span>
-                <span className="mt-1 block text-sm font-semibold text-muted">Texto do turno para a gestão</span>
               </button>
               <button
                 type="button"
@@ -1828,15 +1819,9 @@ export function EstratificacaoApp() {
                 className="rounded-tile border border-line bg-surface py-5 text-left px-5"
               >
                 <span className="block font-display text-4xl leading-none text-fg">Horas</span>
-                <span className="mt-1 block text-sm font-semibold text-muted">Programas e horas das máquinas</span>
               </button>
               <div className="flex items-center justify-between gap-3 rounded-tile border border-line bg-surface px-5 py-4">
-                <div>
-                  <p className="font-display text-2xl leading-none">Produção pelas horas</p>
-                  <p className="mt-1 text-sm font-semibold text-muted">
-                    {pelasHoras ? "A caixa verde vira a produção." : "A produção continua digitada."}
-                  </p>
-                </div>
+                <p className="font-display text-2xl leading-none">Produção pelas horas</p>
                 <button
                   type="button"
                   role="switch"
@@ -1869,9 +1854,6 @@ export function EstratificacaoApp() {
           {screen.kind === "lados" ? (
             <div className="mx-auto w-full max-w-md">
               <p className="font-display text-4xl leading-none text-accent">Lados</p>
-              <p className="mt-2 text-sm font-semibold text-muted">
-                Ligue a máquina, o A e o B. O último fica ligado.
-              </p>
               <div className="mt-4 grid gap-2">
                 {MAQUINAS_PISO.map((machine) => {
                   const [ladoA, ladoB] = variantesDe(machine);
@@ -1882,7 +1864,7 @@ export function EstratificacaoApp() {
                       <div className="flex gap-1">
                         {opcoes.map((id) => {
                           const ligado = state.modelos.includes(id);
-                          const nome = id === machine ? "Máq" : id.endsWith("A") ? "A" : "B";
+                          const nome = id === machine ? "Normal" : id.endsWith("A") ? "A" : "B";
                           return (
                             <button
                               key={id}
@@ -1891,7 +1873,7 @@ export function EstratificacaoApp() {
                               aria-label={`${ligado ? "Desligar" : "Ligar"} ${id}`}
                               onClick={() => alternarLado(id)}
                               className={cx(
-                                "min-w-11 rounded-xl px-3 py-2 text-sm font-semibold",
+                                "min-w-11 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-semibold",
                                 ligado ? "bg-accent text-accent-ink" : "bg-surface-2 text-muted",
                               )}
                             >
@@ -2145,8 +2127,6 @@ function headerFor(screen: Screen): { context: string } {
       return { context: "Lados" };
     case "menu":
       return { context: "Menu" };
-    case "teste":
-      return { context: "Teste" };
     case "papel":
       return { context: "" };
   }
@@ -2187,39 +2167,15 @@ function Field({
   );
 }
 
-function PortaScreen({ onPick, onTeste }: { onPick: (sessao: Sessao) => void; onTeste: () => void }) {
-  const segurou = useRef(false);
-  const timer = useRef<number | null>(null);
-  function soltar() {
-    if (timer.current) window.clearTimeout(timer.current);
-    timer.current = null;
-  }
+function PortaScreen({ onPick }: { onPick: (sessao: Sessao) => void }) {
   return (
     <div className="mx-auto flex w-full max-w-md flex-col justify-center gap-3">
       {(["1", "2", "3"] as const).map((turno) => (
         <button
           key={turno}
           type="button"
-          onPointerDown={() => {
-            if (turno !== "1") return;
-            segurou.current = false;
-            soltar();
-            timer.current = window.setTimeout(() => {
-              segurou.current = true;
-              onTeste();
-            }, 600);
-          }}
-          onPointerUp={soltar}
-          onPointerLeave={soltar}
-          onPointerCancel={soltar}
           onContextMenu={(event) => event.preventDefault()}
-          onClick={() => {
-            if (segurou.current) {
-              segurou.current = false;
-              return;
-            }
-            onPick({ papel: "preparador", turno });
-          }}
+          onClick={() => onPick({ papel: "preparador", turno })}
           className="rounded-tile bg-accent py-5 font-display text-4xl leading-none text-accent-ink"
         >
           {TURNO_LABEL[turno]}
@@ -2630,8 +2586,8 @@ function ModeloScreen({
 }) {
   return (
     <div className="w-full max-w-sm">
-      <p className="text-center text-xs font-semibold tracking-[0.22em] text-muted">MÁQUINA</p>
-      <h2 className="mt-2 text-center font-display text-5xl leading-none">{machine}</h2>
+      <h2 className="text-center font-display text-4xl leading-tight">Selecione a máquina</h2>
+      <p className="mt-2 text-center text-sm font-semibold text-muted">{machine}</p>
       <div className="mt-8 grid gap-3">
         {opcoes.map((id) => (
           <button
@@ -2640,7 +2596,7 @@ function ModeloScreen({
             onClick={() => onPick(id)}
             className="rounded-3xl border border-line bg-white py-7 text-center shadow-[0_10px_30px_rgba(47,84,150,0.08)]"
           >
-            <span className="block font-display text-5xl leading-none">{id === machine ? "Máquina" : id.endsWith("A") ? "A" : "B"}</span>
+            <span className="block font-display text-5xl leading-none">{id === machine ? "Normal" : id.endsWith("A") ? "A" : "B"}</span>
             <span className="mt-1 block text-sm font-semibold text-muted">{id}</span>
           </button>
         ))}
