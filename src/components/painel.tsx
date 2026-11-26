@@ -3429,10 +3429,6 @@ function AcompanhamentoDiario({
       .map((item) => item.machine),
   ]);
   const horasTurno = lerHorasTurno(state.date, state.turno);
-  const cardDaHora = (base: string) => {
-    if ((visiveis as string[]).includes(base)) return base;
-    return visiveis.find((item) => maquinaBase(item) === base) ?? null;
-  };
   const aberta = painel ? visiveis.find((machine) => machine === painel.machine) ?? null : null;
   const linhas = aberta ? fichaLines(state, aberta) : [];
   const estacoes = aberta ? estacoesDoDia(state, aberta, linhas).filter((item) => item.pares > 0) : [];
@@ -3556,9 +3552,7 @@ function AcompanhamentoDiario({
                   </div>
                 </div>
                 {(() => {
-                  const base = maquinaBase(machine);
-                  if (cardDaHora(base) !== machine) return null;
-                  const info = horasTurno[base];
+                  const info = horasTurno[machine];
                   if (!info) return null;
                   return (
                     <div className="mt-3 grid grid-cols-2 gap-2">
