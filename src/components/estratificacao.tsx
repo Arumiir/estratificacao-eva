@@ -66,12 +66,12 @@ import {
 } from "@/lib/perdas";
 import { enviarPlanilha, pullApontamentos, pullHoras, pushApontamentos } from "@/lib/apontamentos.functions";
 import { AvisoSair, Teclado, campoInicial, teclaConta, tecladoAberto, useFecharTeclado, useToque, type Campo } from "@/components/teclado";
-import { FechamentoTurno } from "@/components/fechamento";
-import { AcompanhamentoHoras } from "@/components/AcompanhamentoHoras";
 import { juntarHoras, salvarHorasLocal, type HorasDia } from "@/lib/horas-sync";
 
 type Papel = "preparador" | "lider";
 const SheetScreen = lazy(() => import("@/components/painel").then((mod) => ({ default: mod.SheetScreen })));
+const FechamentoTurno = lazy(() => import("@/components/fechamento").then((mod) => ({ default: mod.FechamentoTurno })));
+const AcompanhamentoHoras = lazy(() => import("@/components/AcompanhamentoHoras").then((mod) => ({ default: mod.AcompanhamentoHoras })));
 
 type Sessao = { papel: Papel; turno: Turno | null };
 
@@ -789,6 +789,7 @@ export function EstratificacaoApp() {
           }
           if (!vindo) return;
           const junto = juntarHoras(horasRef.current, vindo);
+          if (junto === horasRef.current) return;
           horasRef.current = junto;
           if (junto) salvarHorasLocal(junto);
           setHorasDia(junto);
@@ -851,13 +852,6 @@ export function EstratificacaoApp() {
     window.addEventListener("popstate", onPop);
     window.history.pushState(stampDepth(depthRef.current), "");
     return () => window.removeEventListener("popstate", onPop);
-  }, []);
-
-  useEffect(() => {
-    const id = window.setTimeout(() => {
-      void import("@/components/painel");
-    }, 250);
-    return () => window.clearTimeout(id);
   }, []);
 
   useEffect(() => {
@@ -1837,10 +1831,13 @@ export function EstratificacaoApp() {
           ) : null}
 
           {screen.kind === "fechamento" ? (
-            <FechamentoTurno state={state} onCommit={commit} onNotice={(text) => flash(text)} />
+            <Suspense fallback={<p className="py-8 text-center text-sm text-muted">Abrindo o fechamento…</p>}>
+              <FechamentoTurno state={state} onCommit={commit} onNotice={(text) => flash(text)} />
+            </Suspense>
           ) : null}
 
           {screen.kind === "horas" ? (
+            <Suspense fallback={<p className="py-8 text-center text-sm text-muted">Abrindo as horas…</p>}>
             <AcompanhamentoHoras
               aoVoltar={horasDentro}
               onProducao={(machine, numero, pares, date, turno) => corrigirProducao(date, machine, turno, { [numero]: pares })}
@@ -1849,6 +1846,7 @@ export function EstratificacaoApp() {
               onGravar={gravarHoras}
               modelos={state.modelos}
             />
+            </Suspense>
           ) : null}
 
           {screen.kind === "lados" ? (
