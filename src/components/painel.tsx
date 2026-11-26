@@ -516,7 +516,7 @@ function GrupoFiltro({ titulo, children }: { titulo: string; children: ReactNode
 }
 
 const FILTROS_KEY = "injecao-filtros-dash-v1";
-const RECORTE_KEY = "injecao-painel-recorte-v1";
+const RECORTE_KEY = "injecao-painel-recorte-v2";
 
 const RECORTE_PADRAO: {
   resumo: RecorteBloco;
@@ -524,10 +524,10 @@ const RECORTE_PADRAO: {
   ranking: RecorteBloco;
   grafico: RecorteBloco;
 } = {
-  resumo: { periodo: "mes", turno: null },
-  producao: { periodo: "mes", turno: null },
+  resumo: { periodo: "dia", turno: null },
+  producao: { periodo: "dia", turno: null },
   ranking: { periodo: "dia", turno: null },
-  grafico: { periodo: "mes", turno: null },
+  grafico: { periodo: "dia", turno: null },
 };
 
 type FiltrosDash = {
@@ -691,13 +691,19 @@ function PainelHistorico({
   const [rankingRecorte, setRankingRecorte] = useState<RecorteBloco>(recortes.ranking);
   const [graficoRecorte, setGraficoRecorte] = useState<RecorteBloco>(recortes.grafico);
   const diasMes = diasDoMes(state.date);
-  const querAno =
-    resumoRecorte.periodo === "ano" ||
-    producaoRecorte.periodo === "ano" ||
-    rankingRecorte.periodo === "ano" ||
-    graficoRecorte.periodo === "ano";
-  const desdeHistorico = querAno ? `${state.date.slice(0, 4)}-01-01` : (diasMes[0] ?? state.date);
-  const cobertura = useMemo(() => new Set(querAno ? diasDoAno(state.date) : diasDoMes(state.date)), [querAno, state.date]);
+  const diasSemana = diasDaSemana(state.date);
+  const alcance = [resumoRecorte, producaoRecorte, rankingRecorte, graficoRecorte].some((item) => item.periodo === "ano")
+    ? "ano"
+    : [resumoRecorte, producaoRecorte, rankingRecorte, graficoRecorte].some((item) => item.periodo === "mes")
+      ? "mes"
+      : [resumoRecorte, producaoRecorte, rankingRecorte, graficoRecorte].some((item) => item.periodo === "semana")
+        ? "semana"
+        : "dia";
+  const desdeHistorico = alcance === "ano" ? `${state.date.slice(0, 4)}-01-01` : alcance === "mes" ? (diasMes[0] ?? state.date) : alcance === "semana" ? (diasSemana[0] ?? state.date) : state.date;
+  const cobertura = useMemo(
+    () => new Set(alcance === "ano" ? diasDoAno(state.date) : alcance === "mes" ? diasDoMes(state.date) : alcance === "semana" ? diasDaSemana(state.date) : [state.date]),
+    [alcance, state.date],
+  );
 
   useEffect(() => {
     let ativo = true;
