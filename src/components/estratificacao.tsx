@@ -1683,7 +1683,7 @@ export function EstratificacaoApp() {
   }
 
   const header = headerFor(screen);
-  const telaFixa = screen.kind === "hub" || screen.kind === "modelo" || screen.kind === "papel";
+  const telaFixa = screen.kind === "hub" || screen.kind === "papel";
   const telaProblemas = screen.kind === "problems";
 
   return (
@@ -2087,7 +2087,7 @@ function headerFor(screen: Screen): { context: string } {
     case "machines":
       return { context: "" };
     case "modelo":
-      return { context: `Máquina ${screen.machine}` };
+      return { context: "" };
     case "ask":
       return { context: `Máquina ${screen.machine}` };
     case "cor":
@@ -2576,15 +2576,15 @@ function MachinesScreen({
 
 function ModeloScreen({ opcoes, onPick }: { opcoes: MachineId[]; onPick: (machine: MachineId) => void }) {
   return (
-    <div className="w-full max-w-sm">
-      <h2 className="text-center font-display text-4xl leading-tight">Selecione a máquina</h2>
-      <div className="mt-8 grid gap-3">
+    <div className="mx-auto w-full max-w-sm">
+      <h2 className="font-display text-4xl leading-none text-accent">Selecione a máquina</h2>
+      <div className="mt-5 grid gap-3">
         {opcoes.map((id) => (
           <button
             key={id}
             type="button"
             onClick={() => onPick(id)}
-            className="rounded-3xl border border-line bg-white py-7 text-center font-display text-5xl leading-none shadow-[0_10px_30px_rgba(47,84,150,0.08)]"
+            className="rounded-tile border border-line bg-surface py-7 text-center font-display text-5xl leading-none"
           >
             {id}
           </button>
