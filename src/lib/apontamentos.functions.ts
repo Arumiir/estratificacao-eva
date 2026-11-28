@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createServerFn } from "@tanstack/react-start";
 import { pullDay, pushDays } from "@/lib/apontamentos-blob";
 import { dbSource, getSql } from "@/lib/db";
@@ -19,12 +20,16 @@ type SyncResult = {
   igual?: boolean;
 };
 
+function remoto() {
+  return dbSource === "neon" || dbSource === "turso";
+}
+
 function usesBlob() {
-  return dbSource !== "neon" && Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim());
+  return !remoto() && Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim());
 }
 
 function cloudOn() {
-  return dbSource === "neon" || Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim());
+  return remoto() || Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim());
 }
 
 let acertoPronto: Promise<void> | null = null;
@@ -48,7 +53,7 @@ async function gravarGrade(sql: Awaited<ReturnType<typeof getSql>>, date: string
 }
 
 async function acertarDomingoDoTerceiro() {
-  if (usesBlob() || dbSource !== "neon") return;
+  if (usesBlob() || !remoto()) return;
   const sql = await getSql();
   const marca = "__acerto_domingo_3__";
   const feito = await sql<{ key: string }>`
@@ -101,7 +106,7 @@ async function moverGrade<T extends { date: string; turno: string }>(
 }
 
 async function acertarTerceiroTurno() {
-  if (usesBlob() || dbSource !== "neon") return;
+  if (usesBlob() || !remoto()) return;
   const sql = await getSql();
   const marca = "2026-11-03";
   const feito = await sql<{ key: string }>`
@@ -202,6 +207,49 @@ function linhaTravada(row: { date: string; turno: string; at: number }) {
   return apontamentoBloqueado(entry) || !podeAlterarApontamento(entry);
 }
 
+function marcas(qtd: number) {
+  return Array.from({ length: qtd }, () => "?").join(", ");
+}
+
+async function emLotes<T>(ids: string[], buscar: (lote: string[]) => Promise<T[]>): Promise<T[]> {
+  const saida: T[] = [];
+  for (let i = 0; i < ids.length; i += 400) {
+    saida.push(...(await buscar(ids.slice(i, i + 400))));
+  }
+  return saida;
+}
+
+async function linhasPorId<T>(
+  sql: Awaited<ReturnType<typeof getSql>>,
+  colunas: string,
+  tabela: "apontamentos" | "apontamentos_removidos",
+  ids: string[],
+): Promise<T[]> {
+  if (ids.length === 0) return [];
+  if (dbSource === "turso") {
+    return emLotes(ids, (lote) =>
+      sql.query<T>(`select ${colunas} from ${tabela} where id in (${marcas(lote.length)})`, lote),
+    );
+  }
+  return sql.query<T>(`select ${colunas} from ${tabela} where id = any($1::text[])`, [ids]);
+}
+
+async function apagarPorId(
+  sql: Awaited<ReturnType<typeof getSql>>,
+  tabela: "apontamentos" | "apontamentos_removidos",
+  ids: string[],
+) {
+  if (ids.length === 0) return;
+  if (dbSource === "turso") {
+    await emLotes(ids, async (lote) => {
+      await sql.query(`delete from ${tabela} where id in (${marcas(lote.length)})`, lote);
+      return [];
+    });
+    return;
+  }
+  await sql.query(`delete from ${tabela} where id = any($1::text[])`, [ids]);
+}
+
 async function gravarLote(
   sql: Awaited<ReturnType<typeof getSql>>,
   removed: Entry[],
@@ -210,25 +258,37 @@ async function gravarLote(
 ) {
   if (removed.length > 0) {
     const ids = removed.map((item) => item.id);
-    const rows = await sql.query<{ id: string; date: string; turno: string; at: number }>(
-      "select id, date::text as date, turno, at from apontamentos where id = any($1::text[])",
-      [ids],
+    const rows = await linhasPorId<{ id: string; date: string; turno: string; at: number }>(
+      sql,
+      "id, date, turno, at",
+      "apontamentos",
+      ids,
     );
     const bloqueados = new Set(rows.filter(linhaTravada).map((row) => row.id));
     const apagar = removed.filter((item) => !bloqueados.has(item.id));
     if (apagar.length > 0) {
       const apagarIds = apagar.map((item) => item.id);
-      await sql.query("delete from apontamentos where id = any($1::text[])", [apagarIds]);
-      await sql.query(
-        `insert into apontamentos_removidos (id, date)
+      await apagarPorId(sql, "apontamentos", apagarIds);
+      if (dbSource === "turso") {
+        for (const item of apagar) {
+          await sql`
+            insert into apontamentos_removidos (id, date)
+            values (${item.id}, ${item.date})
+            on conflict (id) do update set date = excluded.date
+          `;
+        }
+      } else {
+        await sql.query(
+          `insert into apontamentos_removidos (id, date)
          select * from unnest($1::text[], $2::text[])
          on conflict (id) do update set date = excluded.date`,
-        [apagarIds, apagar.map((item) => item.date)],
-      );
+          [apagarIds, apagar.map((item) => item.date)],
+        );
+      }
     }
   }
   if (revives.length > 0) {
-    await sql.query("delete from apontamentos_removidos where id = any($1::text[])", [revives]);
+    await apagarPorId(sql, "apontamentos_removidos", revives);
   }
   const removedIds = new Set(removed.map((item) => item.id));
   const reviveIds = new Set(revives);
@@ -236,11 +296,8 @@ async function gravarLote(
   if (candidatos.length === 0) return;
   const ids = candidatos.map((entry) => entry.id);
   const [tombs, existentes] = await Promise.all([
-    sql.query<{ id: string }>("select id from apontamentos_removidos where id = any($1::text[])", [ids]),
-    sql.query<{ id: string; date: string; turno: string; at: number }>(
-      "select id, date::text as date, turno, at from apontamentos where id = any($1::text[])",
-      [ids],
-    ),
+    linhasPorId<{ id: string }>(sql, "id", "apontamentos_removidos", ids),
+    linhasPorId<{ id: string; date: string; turno: string; at: number }>(sql, "id, date, turno, at", "apontamentos", ids),
   ]);
   const tombados = new Set(tombs.map((row) => row.id));
   const porId = new Map(existentes.map((row) => [row.id, row]));
@@ -255,7 +312,33 @@ async function gravarLote(
     return [salvo];
   });
   if (gravar.length === 0) return;
-  await sql.query("delete from apontamentos_removidos where id = any($1::text[])", [gravar.map((entry) => entry.id)]);
+  await apagarPorId(sql, "apontamentos_removidos", gravar.map((entry) => entry.id));
+  if (dbSource === "turso") {
+    for (const entry of gravar) {
+      await sql`
+        insert into apontamentos (id, date, turno, machine, station, side, problem, at, numero, referencia, autor, outro, cor, cor_nome)
+        values (
+          ${entry.id}, ${entry.date}, ${entry.turno}, ${entry.machine}, ${entry.station}, ${entry.side}, ${entry.problem},
+          ${entry.at}, ${entry.matrizNumero}, ${entry.matrizRel}, ${entry.autor}, ${entry.outroId}, ${entry.corId}, ${entry.corNome}
+        )
+        on conflict (id) do update set
+          date = excluded.date,
+          turno = excluded.turno,
+          machine = excluded.machine,
+          station = excluded.station,
+          side = excluded.side,
+          problem = excluded.problem,
+          at = excluded.at,
+          numero = excluded.numero,
+          referencia = excluded.referencia,
+          autor = excluded.autor,
+          outro = excluded.outro,
+          cor = excluded.cor,
+          cor_nome = excluded.cor_nome
+      `;
+    }
+    return;
+  }
   await sql.query(
     `insert into apontamentos (id, date, turno, machine, station, side, problem, at, numero, referencia, autor, outro, cor, cor_nome)
      select * from unnest(
@@ -414,7 +497,50 @@ export const pushApontamentos = createServerFn({ method: "POST" })
     return { ok: true as const, cloud: cloudOn() };
   });
 
+function resumo(texto: string) {
+  return createHash("md5").update(texto).digest("hex");
+}
+
+async function seloTurso(sql: Awaited<ReturnType<typeof getSql>>, date: string) {
+  const linhas = await sql<{
+    id: string;
+    problem: string;
+    numero: string;
+    referencia: string;
+    outro: string;
+    cor: string;
+    cor_nome: string;
+    autor: string;
+    at: number;
+  }>`
+    select id, problem, numero, referencia, coalesce(outro, '') as outro, coalesce(cor, '') as cor,
+      coalesce(cor_nome, '') as cor_nome, coalesce(autor, '') as autor, at
+    from apontamentos
+    where date = ${date}
+  `;
+  const hashes = linhas
+    .map((row) =>
+      resumo(
+        `${row.id}|${row.problem}|${row.numero}|${row.referencia}|${row.outro}|${row.cor}|${row.cor_nome}|${row.autor}`,
+      ),
+    )
+    .sort();
+  const ultimo = linhas.reduce((maior, row) => Math.max(maior, Number(row.at) || 0), 0);
+  const fora = await sql<{ id: string }>`select id from apontamentos_removidos where date = ${date}`;
+  const grades = await sql<{ date: string; key: string; config: unknown }>`
+    select date, key, config from grades
+    where date = ${date} or (date = ${"modelos"} and key = ${"__modelos__"})
+  `;
+  const corpoGrades = grades
+    .map((row) => `${row.date}${row.key}${typeof row.config === "string" ? row.config : JSON.stringify(row.config)}`)
+    .sort()
+    .join("");
+  const idsFora = fora.map((row) => row.id).sort();
+  return `${linhas.length}.${ultimo}.${resumo(hashes.join(""))}.${idsFora.length}.${resumo(idsFora.join(""))}.${resumo(corpoGrades)}`;
+}
+
 async function seloDoDia(sql: Awaited<ReturnType<typeof getSql>>, date: string) {
+  if (dbSource === "turso") return seloTurso(sql, date);
   const corpo = await sql<{ n: number; ultimo: string | number; corpo: string }>`
     select count(*)::int as n,
       coalesce(max(at), 0) as ultimo,
@@ -556,7 +682,7 @@ export const pullHoras = createServerFn({ method: "POST" })
     date: typeof data?.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(data.date) ? data.date : "",
   }))
   .handler(async ({ data }) => {
-    if (!data.date || usesBlob() || dbSource !== "neon") return { horas: null as HorasDia | null };
+    if (!data.date || usesBlob() || !remoto()) return { horas: null as HorasDia | null };
     const sql = await getSql();
     const row = await sql<{ config: unknown }>`
       select config from grades where date = ${data.date} and key = ${"__horas__"} limit 1
@@ -658,7 +784,7 @@ export const pullEvolucaoMolde = createServerFn({ method: "POST" })
   })
   .handler(async ({ data }): Promise<{ dias: { date: string; pares: number; motivos: { nome: string; pares: number }[] }[] }> => {
     if (!data.machine || !data.numero || !data.desde || !data.ate || data.desde > data.ate) return { dias: [] };
-    if (usesBlob() || dbSource !== "neon") return { dias: [] };
+    if (usesBlob() || !remoto()) return { dias: [] };
     const sql = await getSql();
     const rows = await sql<{
       date: string;

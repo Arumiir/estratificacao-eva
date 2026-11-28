@@ -1,7 +1,29 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { pendingMigrations } from "../../scripts/migration-plan.mjs";
 
 /** Which database backend is active. */
-export type DbSource = "neon" | "pglite";
+export type DbSource = "neon" | "pglite" | "turso";
+
+function lerEnvLocal() {
+  if (typeof process === "undefined" || typeof window !== "undefined") return;
+  try {
+    const texto = readFileSync(join(process.cwd(), ".env.local"), "utf8");
+    for (const linha of texto.split("\n")) {
+      const limpa = linha.trim();
+      if (!limpa || limpa.startsWith("#")) continue;
+      const corte = limpa.indexOf("=");
+      if (corte <= 0) continue;
+      const chave = limpa.slice(0, corte).trim();
+      if (process.env[chave]) continue;
+      process.env[chave] = limpa.slice(corte + 1).trim();
+    }
+  } catch {
+    /* sem arquivo local */
+  }
+}
+
+lerEnvLocal();
 
 function envLimpo(...nomes: string[]) {
   if (typeof process === "undefined") return undefined;
@@ -28,13 +50,14 @@ const databaseUrl = envLimpo(
   "DATABASE_URL",
 );
 
+const tursoUrl = envLimpo("TURSO_DATABASE_URL");
+const tursoToken = envLimpo("TURSO_AUTH_TOKEN");
+
 /**
- * Active backend: real **Neon** when `DATABASE_URL` is set (deployed / configured
- * sandbox), otherwise a local embedded **PGLite** (Postgres compiled to WASM) so
- * the app has a working database even with nothing configured — the live preview
- * included. Swap in Neon later by just setting `DATABASE_URL`; no code changes.
+ * Active backend: **Turso** when its URL and token are set, otherwise real
+ * Postgres when `DATABASE_URL` is set, otherwise embedded PGLite for preview.
  */
-export const dbSource: DbSource = databaseUrl ? "neon" : "pglite";
+export const dbSource: DbSource = tursoUrl && tursoToken ? "turso" : databaseUrl ? "neon" : "pglite";
 
 /**
  * Minimal shared SQL surface, satisfied by both Neon and PGLite. Both the
@@ -101,6 +124,86 @@ function toSql(run: Run): Sql {
   sql.query = <T = Record<string, unknown>>(text: string, params: unknown[] = []) =>
     run<T>(text, params);
   return sql;
+}
+
+function prepararSqlite(text: string, params: unknown[]) {
+  let sql = text.replace(/::(jsonb|bigint|integer|int|text)/gi, "");
+  if (!sql.includes("$")) return { sql, args: params };
+  const args: unknown[] = [];
+  sql = sql.replace(/\$(\d+)/g, (_match, numero: string) => {
+    args.push(params[Number(numero) - 1]);
+    return "?";
+  });
+  return { sql, args };
+}
+
+function valorSqlite(coluna: string, value: unknown) {
+  if (typeof value === "bigint") return Number(value);
+  if (coluna === "config" && typeof value === "string") {
+    try {
+      return JSON.parse(value) as unknown;
+    } catch {
+      return value;
+    }
+  }
+  return value;
+}
+
+function createTursoSql(): Promise<Sql> {
+  globalRef.__pgSqlPromise__ ??= (async () => {
+    const { createClient } = await import("@libsql/client");
+    const client = createClient({ url: tursoUrl!, authToken: tursoToken });
+    await client.execute(
+      "create table if not exists _migrations (name text primary key, applied_at text not null default (datetime('now')))",
+    );
+    const migrations = import.meta.glob("/migrations/*.sql", {
+      query: "?raw",
+      import: "default",
+      eager: true,
+    }) as Record<string, string>;
+    const feitas = await client.execute("select name from _migrations");
+    const done = feitas.rows.map((row) => String(row.name));
+    for (const { name, path } of pendingMigrations(Object.keys(migrations), done)) {
+      const texto = migrations[path]
+        .replace(/\bjsonb\b/gi, "text")
+        .replace(/add column if not exists/gi, "add column");
+      const partes = texto
+        .split(";")
+        .map((parte) => parte.trim())
+        .filter(Boolean);
+      for (const parte of partes) {
+        try {
+          await client.execute(parte);
+        } catch (err) {
+          const mensagem = err instanceof Error ? err.message : String(err);
+          if (!/duplicate column/i.test(mensagem)) throw err;
+        }
+      }
+      await client.execute({ sql: "insert into _migrations (name) values (?)", args: [name] });
+    }
+    console.info("[db] usando turso");
+    return toSql(async <T>(text: string, params: unknown[]) => {
+      const { sql, args } = prepararSqlite(text, params);
+      try {
+        const resultado = await client.execute({
+          sql,
+          args: args.map((item) => (item === undefined ? null : item)) as Array<string | number | bigint | null>,
+        });
+        return resultado.rows.map((row) => {
+          const item: Record<string, unknown> = {};
+          for (const coluna of resultado.columns) item[coluna] = valorSqlite(coluna, row[coluna]);
+          return item as T;
+        });
+      } catch (err) {
+        console.error("[db]", err instanceof Error ? err.message : err);
+        throw err;
+      }
+    });
+  })().catch((err) => {
+    globalRef.__pgSqlPromise__ = undefined;
+    throw err;
+  });
+  return globalRef.__pgSqlPromise__;
 }
 
 function createNeonSql(): Promise<Sql> {
@@ -213,6 +316,7 @@ async function createSql(): Promise<Sql> {
         "or a server route loader, never from client code.",
     );
   }
+  if (dbSource === "turso") return createTursoSql();
   return dbSource === "neon" ? createNeonSql() : createPgliteSql();
 }
 
@@ -257,7 +361,7 @@ export async function getPglite(): Promise<import("@electric-sql/pglite").PGlite
  * module kick it off immediately (see bottom of file).
  */
 export function ensureDbReady(): Promise<void> {
-  if (dbSource !== "pglite") return Promise.resolve();
+  if (dbSource === "neon") return Promise.resolve();
   return getSql().then(() => undefined);
 }
 
@@ -266,7 +370,7 @@ export function ensureDbReady(): Promise<void> {
 const globalBoot = globalThis as typeof globalThis & {
   __pgBootstrapPromise__?: Promise<void>;
 };
-if (typeof window === "undefined" && dbSource === "pglite") {
+if (typeof window === "undefined" && dbSource !== "neon") {
   globalBoot.__pgBootstrapPromise__ ??= ensureDbReady().catch((err) => {
     globalBoot.__pgBootstrapPromise__ = undefined;
     console.error("[db] PGLite bootstrap failed:", err);
