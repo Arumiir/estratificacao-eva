@@ -18,6 +18,9 @@ import { dirname, join } from "node:path";
 import pg from "pg";
 import { pendingMigrations } from "./migration-plan.mjs";
 
+const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
+const tursoUrl = process.env.TURSO_DATABASE_URL?.trim();
+const tursoToken = process.env.TURSO_AUTH_TOKEN?.trim();
 const databaseUrl =
   process.env.STORAGE_DATABASE_URL?.trim() ||
   process.env.STORAGE_POSTGRES_URL?.trim() ||
@@ -26,6 +29,10 @@ const databaseUrl =
   process.env.PRISMA_URL?.trim() ||
   process.env.DATABASE_URL_UNPOOLED ||
   process.env.DATABASE_URL;
+if (tursoUrl && tursoToken) {
+  await migrarTurso(tursoUrl, tursoToken);
+  process.exit(0);
+}
 if (!databaseUrl) {
   console.log(
     "[migrate] DATABASE_URL not set — skipping (the PGLite fallback migrates itself).",
@@ -33,7 +40,51 @@ if (!databaseUrl) {
   process.exit(0);
 }
 
-const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
+async function lerArquivos() {
+  try {
+    return await readdir(migrationsDir);
+  } catch {
+    return null;
+  }
+}
+
+async function migrarTurso(url, authToken) {
+  const entries = await lerArquivos();
+  if (!entries) {
+    console.log("[migrate] no migrations/ directory — nothing to do.");
+    return;
+  }
+  if (pendingMigrations(entries, []).length === 0) {
+    console.log("[migrate] no migrations — nothing to do.");
+    return;
+  }
+  const { createClient } = await import("@libsql/client");
+  const client = createClient({ url, authToken });
+  await client.execute(
+    "create table if not exists _migrations (name text primary key, applied_at text not null default (datetime('now')))",
+  );
+  const feitas = await client.execute("select name from _migrations");
+  const applied = feitas.rows.map((row) => String(row.name));
+  let count = 0;
+  for (const { name } of pendingMigrations(entries, applied)) {
+    const text = (await readFile(join(migrationsDir, name), "utf8"))
+      .replace(/\bjsonb\b/gi, "text")
+      .replace(/add column if not exists/gi, "add column");
+    const partes = text.split(";").map((parte) => parte.trim()).filter(Boolean);
+    for (const parte of partes) {
+      try {
+        await client.execute(parte);
+      } catch (err) {
+        const mensagem = err instanceof Error ? err.message : String(err);
+        if (!/duplicate column/i.test(mensagem)) throw err;
+      }
+    }
+    await client.execute({ sql: "insert into _migrations (name) values (?)", args: [name] });
+    console.log(`[migrate] applied ${name}`);
+    count += 1;
+  }
+  console.log(count ? `[migrate] turso done — ${count} migration(s) applied.` : "[migrate] turso up to date.");
+}
 
 async function main() {
   let entries;
